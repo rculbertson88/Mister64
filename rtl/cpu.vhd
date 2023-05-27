@@ -326,7 +326,7 @@ architecture arch of cpu is
    signal executeCOP0WriteValue        : unsigned(63 downto 0) := (others => '0');
    signal executeLoadType              : CPU_LOADTYPE;
 
-   signal hiloWait                     : integer range 0 to 38;
+   signal hiloWait                     : integer range 0 to 69;
    
    signal llBit                        : std_logic := '0';
 
@@ -354,6 +354,8 @@ architecture arch of cpu is
    signal EXEcalcMULTU                 : std_logic := '0';
    signal EXEcalcDIV                   : std_logic := '0';
    signal EXEcalcDIVU                  : std_logic := '0';
+   signal EXEcalcDDIV                  : std_logic := '0';
+   signal EXEcalcDDIVU                 : std_logic := '0';
    signal EXEhiUpdate                  : std_logic := '0';
    signal EXEloUpdate                  : std_logic := '0';
    signal EXEerror_instr               : std_logic := '0';
@@ -376,20 +378,17 @@ architecture arch of cpu is
    signal mulResultU                   : unsigned(63 downto 0);
    
    signal DIVstart                     : std_logic;
-   signal DIVdividend                  : signed(32 downto 0);
-   signal DIVdivisor                   : signed(32 downto 0);
-   signal DIVquotient                  : signed(32 downto 0);
-   signal DIVremainder                 : signed(32 downto 0);    
-   signal DIV0quotient                 : unsigned(31 downto 0);
-   signal DIV0remainder                : unsigned(31 downto 0);    
+   signal DIVis32                      : std_logic;
+   signal DIVdividend                  : signed(64 downto 0);
+   signal DIVdivisor                   : signed(64 downto 0);
+   signal DIVquotient                  : signed(64 downto 0);
+   signal DIVremainder                 : signed(64 downto 0);     
          
    -- COP0
    signal eretPC                       : unsigned(63 downto 0) := (others => '0');
    signal COP0ReadValue                : unsigned(63 downto 0) := (others => '0');
-   
- 
-   -- stage 4 
 
+   -- stage 4 
    -- reg      
    signal writebackNew                 : std_logic := '0';
    signal writebackStallFromMEM        : std_logic := '0';
@@ -1099,6 +1098,8 @@ begin
       EXEcalcMULTU            <= '0';
       EXEcalcDIV              <= '0';
       EXEcalcDIVU             <= '0';
+      EXEcalcDDIV             <= '0';
+      EXEcalcDDIVU            <= '0';
       
       EXEhiUpdate             <= '0';
       EXEloUpdate             <= '0';
@@ -1193,12 +1194,10 @@ begin
                      EXEerror_instr     <= '1';                   
                      
                   when 16#1E# => -- DDIV
-                     report "DDIV not implemented" severity failure; 
-                     EXEerror_instr     <= '1';                     
+                     EXEcalcDDIV <= '1';             
                      
                   when 16#1F# => -- DDIVU
-                     report "DDIVU not implemented" severity failure; 
-                     EXEerror_instr     <= '1';   
+                     EXEcalcDDIVU <= '1';
                   
                   when 16#20# => -- ADD        
                      if (((calcResult_add(31) xor value1(31)) and (calcResult_add(31) xor value2(31))) = '1') then
@@ -1849,9 +1848,9 @@ begin
                   case (hilocalc) is
                      when HILOCALC_MULT  => hi <= unsigned(resize(          mulResultS(63 downto 32),64)); lo <= unsigned(resize(          mulResultS(31 downto 0),64));
                      when HILOCALC_MULTU => hi <= unsigned(resize(  signed(mulResultU(63 downto 32)),64)); lo <= unsigned(resize(  signed(mulResultU(31 downto 0)),64));
-                     when HILOCALC_DIV   => hi <= unsigned(resize(        DIVremainder(31 downto  0),64)); lo <= unsigned(resize(         DIVquotient(31 downto 0),64));
-                     when HILOCALC_DIVU  => hi <= unsigned(resize(        DIVremainder(31 downto  0),64)); lo <= unsigned(resize(         DIVquotient(31 downto 0),64));
-                     when HILOCALC_DIV0  => hi <= unsigned(resize(signed(DIV0remainder(31 downto 0)),64)); lo <= unsigned(resize(signed(DIV0quotient(31 downto 0)),64));
+                     when HILOCALC_DIV   => hi <= unsigned(DIVremainder(63 downto  0)); lo <= unsigned(DIVquotient(63 downto 0));
+                     when HILOCALC_DIVU  => hi <= unsigned(DIVremainder(63 downto  0)); lo <= unsigned(DIVquotient(63 downto 0));
+                     when HILOCALC_DIV0  => null;
                   end case;
                end if;
             end if;
@@ -1943,22 +1942,47 @@ begin
                      end if;
                      
                      if (EXEcalcDIV = '1') then
+                        DIVis32     <= '1';
                         hiloWait    <= 37;
                         stall3      <= '1';
-                        DIVdividend <= resize(signed(value1), 33);
-                        DIVdivisor  <= resize(signed(value2), 33);
+                        DIVdividend <= resize(signed(value1(31 downto 0)), 65);
+                        DIVdivisor  <= resize(signed(value2(31 downto 0)), 65);
                         if (value2 = 0) then
                            hilocalc      <= HILOCALC_DIV0;
-                           DIV0remainder <= value1(31 downto 0);
+                           hi            <= unsigned(resize(value1(31 downto 0), 64));
                            if (signed(value1) >= 0) then
-                              DIV0quotient <= (others => '1');
+                              lo <= (others => '1');
                            else
-                              DIV0quotient <= x"00000001";
+                              lo <= to_unsigned(1, 64);
                            end if;
-                        elsif (value1 = x"80000000" and value2 = x"FFFFFFFF") then
+                        elsif (value1(31 downto 0) = x"80000000" and value2(31 downto 0) = x"FFFFFFFF") then
                            hilocalc      <= HILOCALC_DIV0;
-                           DIV0quotient  <= x"80000000";
-                           DIV0remainder <= (others => '0');
+                           lo            <= x"FFFFFFFF80000000";
+                           hi            <= (others => '0');
+                        else
+                           hilocalc    <= HILOCALC_DIV;
+                           DIVstart    <= '1';
+                        end if;
+                     end if;
+                     
+                      if (EXEcalcDDIV = '1') then
+                        DIVis32     <= '0';
+                        hiloWait    <= 69;
+                        stall3      <= '1';
+                        DIVdividend <= resize(signed(value1), 65);
+                        DIVdivisor  <= resize(signed(value2), 65);
+                        if (value2 = 0) then
+                           hilocalc      <= HILOCALC_DIV0;
+                           hi            <= value1;
+                           if (signed(value1) >= 0) then
+                              lo <= (others => '1');
+                           else
+                              lo <= to_unsigned(1, 64);
+                           end if;
+                        elsif (value1 = x"8000000000000000" and value2 = x"FFFFFFFFFFFFFFFF") then
+                           hilocalc      <= HILOCALC_DIV0;
+                           lo            <= x"8000000000000000";
+                           hi            <= (others => '0');
                         else
                            hilocalc    <= HILOCALC_DIV;
                            DIVstart    <= '1';
@@ -1966,14 +1990,31 @@ begin
                      end if;
                      
                      if (EXEcalcDIVU = '1') then
+                        DIVis32     <= '1';
                         hiloWait    <= 37;
                         stall3      <= '1';
-                        DIVdividend <= '0' & signed(value1(31 downto 0));
-                        DIVdivisor  <= '0' & signed(value2(31 downto 0));
+                        DIVdividend <= '0' & x"00000000" & signed(value1(31 downto 0));
+                        DIVdivisor  <= '0' & x"00000000" & signed(value2(31 downto 0));
                         if (value2 = 0) then
                            hilocalc      <= HILOCALC_DIV0;
-                           DIV0remainder <= value1(31 downto 0);
-                           DIV0quotient  <= (others => '1');
+                           hi            <= unsigned(resize(value1(31 downto 0), 64));
+                           lo            <= (others => '1');
+                        else
+                           hilocalc    <= HILOCALC_DIVU;
+                           DIVstart    <= '1';
+                        end if;
+                     end if;
+                     
+                     if (EXEcalcDDIVU = '1') then
+                        DIVis32     <= '0';
+                        hiloWait    <= 69;
+                        stall3      <= '1';
+                        DIVdividend <= '0' & signed(value1);
+                        DIVdivisor  <= '0' & signed(value2);
+                        if (value2 = 0) then
+                           hilocalc      <= HILOCALC_DIV0;
+                           hi            <= value1;
+                           lo            <= (others => '1');
                         else
                            hilocalc    <= HILOCALC_DIVU;
                            DIVstart    <= '1';
@@ -2403,6 +2444,7 @@ begin
    (
       clk       => clk93,      
       start     => DIVstart,
+      is32      => DIVis32,
       done      => open,      
       busy      => open,
       dividend  => DIVdividend, 

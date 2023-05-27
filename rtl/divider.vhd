@@ -7,6 +7,7 @@ entity divider is
    (
       clk       : in  std_logic;
       start     : in  std_logic;
+      is32      : in  std_logic;
       done      : out std_logic := '0';
       busy      : out std_logic := '0';
       dividend  : in  signed;
@@ -56,8 +57,13 @@ begin
             sign_dividend <= dividend(dividend'left);
             sign_divisor  <= divisor(divisor'left);
             
-            QPointerNew := quotient_u'left;
-            XPointer    := dividend_u'left;
+            if (is32 = '1') then
+               QPointerNew := quotient_u'left - 32;
+               XPointer    := dividend_u'left - 32;
+            else
+               QPointerNew := quotient_u'left;
+               XPointer    := dividend_u'left;
+            end if;
             Rdy_i       := '0';
             AkkuNew     := (others => '0');
          -- == Repeat for every Digit in Q ===================================
