@@ -1,7 +1,6 @@
 set_global_assignment -name QIP_FILE rtl/n64.qip
 set_global_assignment -name QIP_FILE rtl/mem.qip
 set_global_assignment -name QIP_FILE rtl/pll2.qip
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/ddram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/sdram.sv
 set_global_assignment -name SDC_FILE n64.sdc
 set_global_assignment -name SYSTEMVERILOG_FILE N64.sv
