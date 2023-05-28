@@ -352,6 +352,8 @@ architecture arch of cpu is
    signal EXEReadException             : std_logic := '0';
    signal EXEcalcMULT                  : std_logic := '0';
    signal EXEcalcMULTU                 : std_logic := '0';
+   signal EXEcalcDMULT                 : std_logic := '0';
+   signal EXEcalcDMULTU                : std_logic := '0';
    signal EXEcalcDIV                   : std_logic := '0';
    signal EXEcalcDIVU                  : std_logic := '0';
    signal EXEcalcDDIV                  : std_logic := '0';
@@ -366,16 +368,18 @@ architecture arch of cpu is
    (
       HILOCALC_MULT, 
       HILOCALC_MULTU,
+      HILOCALC_DMULT,
+      HILOCALC_DMULTU,
       HILOCALC_DIV,  
       HILOCALC_DIVU,
       HILOCALC_DIV0
    );
    signal hilocalc                     : CPU_HILOCALC;
    
-   signal mul1                         : unsigned(31 downto 0);
-   signal mul2                         : unsigned(31 downto 0);
-   signal mulResultS                   : signed(63 downto 0);
-   signal mulResultU                   : unsigned(63 downto 0);
+   signal mulsign                      : std_logic;
+   signal mul1                         : std_logic_vector(63 downto 0);
+   signal mul2                         : std_logic_vector(63 downto 0);
+   signal mulResult                    : std_logic_vector(127 downto 0);
    
    signal DIVstart                     : std_logic;
    signal DIVis32                      : std_logic;
@@ -1095,7 +1099,9 @@ begin
       EXEBranchTaken          <= '0';
       
       EXEcalcMULT             <= '0';
-      EXEcalcMULTU            <= '0';
+      EXEcalcMULTU            <= '0';      
+      EXEcalcDMULT            <= '0';
+      EXEcalcDMULTU           <= '0';
       EXEcalcDIV              <= '0';
       EXEcalcDIVU             <= '0';
       EXEcalcDDIV             <= '0';
@@ -1186,12 +1192,10 @@ begin
                      EXEcalcDIVU <= '1';
                      
                   when 16#1C# => -- DMULT
-                     report "DMULT not implemented" severity failure; 
-                     EXEerror_instr     <= '1';                   
+                     EXEcalcDMULT <= '1';                
                      
                   when 16#1D# => -- DMULTU
-                     report "DMULTU not implemented" severity failure; 
-                     EXEerror_instr     <= '1';                   
+                     EXEcalcDMULTU <= '1';                  
                      
                   when 16#1E# => -- DDIV
                      EXEcalcDDIV <= '1';             
@@ -1846,17 +1850,16 @@ begin
                   stall3     <= '0';
                   executeNew <= '1';
                   case (hilocalc) is
-                     when HILOCALC_MULT  => hi <= unsigned(resize(          mulResultS(63 downto 32),64)); lo <= unsigned(resize(          mulResultS(31 downto 0),64));
-                     when HILOCALC_MULTU => hi <= unsigned(resize(  signed(mulResultU(63 downto 32)),64)); lo <= unsigned(resize(  signed(mulResultU(31 downto 0)),64));
-                     when HILOCALC_DIV   => hi <= unsigned(DIVremainder(63 downto  0)); lo <= unsigned(DIVquotient(63 downto 0));
-                     when HILOCALC_DIVU  => hi <= unsigned(DIVremainder(63 downto  0)); lo <= unsigned(DIVquotient(63 downto 0));
-                     when HILOCALC_DIV0  => null;
+                     when HILOCALC_MULT   => hi <= unsigned(resize(  signed(mulResult(63 downto 32)),64)); lo <= unsigned(resize(  signed(mulResult(31 downto 0)),64));
+                     when HILOCALC_MULTU  => hi <= unsigned(resize(  signed(mulResult(63 downto 32)),64)); lo <= unsigned(resize(  signed(mulResult(31 downto 0)),64));
+                     when HILOCALC_DMULT  => hi <= unsigned(mulResult(127 downto 64)); lo <= unsigned(mulResult(63 downto 0));
+                     when HILOCALC_DMULTU => hi <= unsigned(mulResult(127 downto 64)); lo <= unsigned(mulResult(63 downto 0));
+                     when HILOCALC_DIV    => hi <= unsigned(DIVremainder(63 downto  0)); lo <= unsigned(DIVquotient(63 downto 0));
+                     when HILOCALC_DIVU   => hi <= unsigned(DIVremainder(63 downto  0)); lo <= unsigned(DIVquotient(63 downto 0));
+                     when HILOCALC_DIV0   => null;
                   end case;
                end if;
             end if;
-            
-            mulResultS <= signed(mul1) * signed(mul2);
-            mulResultU <= mul1 * mul2;
 
             if (stall = 0) then
             
@@ -1927,17 +1930,37 @@ begin
                      -- new mul/div
                      if (EXEcalcMULT = '1') then
                         hilocalc <= HILOCALC_MULT;
-                        mul1     <= value1(31 downto 0);
-                        mul2     <= value2(31 downto 0);
+                        mulsign  <= '1';
+                        mul1     <= std_logic_vector(resize(signed(value1(31 downto 0)), 64));
+                        mul2     <= std_logic_vector(resize(signed(value2(31 downto 0)), 64));
                         hiloWait <= 5;
                         stall3   <= '1';
                      end if;
                      
                      if (EXEcalcMULTU = '1') then
                         hilocalc <= HILOCALC_MULTU;
-                        mul1     <= value1(31 downto 0);
-                        mul2     <= value2(31 downto 0);
+                        mulsign  <= '0';
+                        mul1     <= x"00000000" & std_logic_vector(value1(31 downto 0));
+                        mul2     <= x"00000000" & std_logic_vector(value2(31 downto 0));
                         hiloWait <= 5;
+                        stall3   <= '1';
+                     end if;
+                     
+                     if (EXEcalcDMULT = '1') then
+                        hilocalc <= HILOCALC_DMULT;
+                        mulsign  <= '1';
+                        mul1     <= std_logic_vector(value1);
+                        mul2     <= std_logic_vector(value2);
+                        hiloWait <= 8;
+                        stall3   <= '1';
+                     end if;
+                     
+                     if (EXEcalcDMULTU = '1') then
+                        hilocalc <= HILOCALC_DMULTU;
+                        mulsign  <= '0';
+                        mul1     <= std_logic_vector(value1);
+                        mul2     <= std_logic_vector(value2);
+                        hiloWait <= 8;
                         stall3   <= '1';
                      end if;
                      
@@ -2438,6 +2461,16 @@ begin
 --##############################################################
 --############################### submodules
 --##############################################################
+   
+   icpu_mul : entity work.cpu_mul
+   port map
+   (
+      clk       => clk93,
+      sign      => mulsign,
+      value1_in => mul1,
+      value2_in => mul2,
+      result    => mulResult
+   );
    
    idivider : entity work.divider
    port map

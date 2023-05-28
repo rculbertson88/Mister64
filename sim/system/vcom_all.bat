@@ -34,6 +34,7 @@ vcom -2008 -quiet -work sim/n64 ^
 ../../rtl/datacache.vhd ^
 ../../rtl/divider.vhd ^
 ../../rtl/cpu_cop0.vhd ^
+src/tb/cpu_mul.vhd ^
 ../../rtl/cpu.vhd ^
 ../../rtl/memorymux.vhd ^
 ../../rtl/pifrom_ntsc.vhd ^
