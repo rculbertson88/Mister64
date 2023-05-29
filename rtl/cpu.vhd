@@ -62,14 +62,6 @@ architecture arch of cpu is
    signal regs1_q_b                    : std_logic_vector(63 downto 0);
    signal regs2_address_b              : std_logic_vector(4 downto 0);
    signal regs2_q_b                    : std_logic_vector(63 downto 0);   
-   signal regsSS_address_b             : std_logic_vector(4 downto 0) := (others => '0');
-   signal regsSS_q_b                   : std_logic_vector(63 downto 0);
-   signal regsSS_rden                  : std_logic := '0';
-   
-   signal ss_regs_loading              : std_logic := '0';
-   signal ss_regs_load                 : std_logic := '0';
-   signal ss_regs_addr                 : unsigned(4 downto 0);
-   signal ss_regs_data                 : std_logic_vector(63 downto 0);
    
    -- other register
    signal PC                           : unsigned(63 downto 0) := (others => '0');
@@ -114,12 +106,9 @@ architecture arch of cpu is
    signal stall                        : unsigned(4 downto 0) := (others => '0');
    signal stall4Masked                 : unsigned(4 downto 0) := (others => '0');
                      
-   signal exception                    : unsigned(4 downto 0) := (others => '0');
-               
+   signal exception                    : std_logic;
    signal exceptionNew1                : std_logic := '0';
    signal exceptionNew3                : std_logic := '0';
-   signal exceptionNew5                : std_logic := '0';
-   signal exceptionNew                 : unsigned(4 downto 0) := (others => '0');
    
    signal exception_SR                 : unsigned(31 downto 0) := (others => '0');
    signal exception_CAUSE              : unsigned(31 downto 0) := (others => '0');
@@ -135,9 +124,9 @@ architecture arch of cpu is
    signal exception_JMPnext            : unsigned(31 downto 0);     
                
    signal opcode0                      : unsigned(31 downto 0) := (others => '0');
+-- synthesis translate_off
    signal opcode1                      : unsigned(31 downto 0) := (others => '0');
    signal opcode2                      : unsigned(31 downto 0) := (others => '0');
--- synthesis translate_off
    signal opcode3                      : unsigned(31 downto 0) := (others => '0');
    signal opcode4                      : unsigned(31 downto 0) := (others => '0');
 -- synthesis translate_on  
@@ -362,6 +351,7 @@ architecture arch of cpu is
    signal EXEloUpdate                  : std_logic := '0';
    signal EXEerror_instr               : std_logic := '0';
    signal EXEllBit                     : std_logic := '0';
+   signal EXEERET                      : std_logic := '0';
    
    --MULT/DIV
    type CPU_HILOCALC is
@@ -390,6 +380,7 @@ architecture arch of cpu is
          
    -- COP0
    signal eretPC                       : unsigned(63 downto 0) := (others => '0');
+   signal exceptionPC                  : unsigned(63 downto 0) := (others => '0');
    signal COP0ReadValue                : unsigned(63 downto 0) := (others => '0');
 
    -- stage 4 
@@ -412,16 +403,24 @@ architecture arch of cpu is
    signal mem4_writeMask               : std_logic_vector(7 downto 0) := (others => '0');    
    
    -- savestates
-   type t_ssarray is array(0 to 95) of std_logic_vector(31 downto 0);
-   signal ss_in  : t_ssarray := (others => (others => '0'));  
-   signal ss_out : t_ssarray := (others => (others => '0')); 
+   --type t_ssarray is array(0 to 95) of std_logic_vector(31 downto 0);
+   --signal ss_in  : t_ssarray := (others => (others => '0'));  
+   --signal ss_out : t_ssarray := (others => (others => '0'));  
 
-   signal ss_scp_rden_1                : std_logic;              
+   --signal regsSS_address_b             : std_logic_vector(4 downto 0) := (others => '0');
+   --signal regsSS_q_b                   : std_logic_vector(63 downto 0);
+   --signal regsSS_rden                  : std_logic := '0';
+   --
+   --signal ss_regs_loading              : std_logic := '0';
+   --signal ss_regs_load                 : std_logic := '0';
+   --signal ss_regs_addr                 : unsigned(4 downto 0);
+   --signal ss_regs_data                 : std_logic_vector(63 downto 0);   
    
    -- debug
    signal debugCnt                     : unsigned(31 downto 0);
    signal debugSum                     : unsigned(31 downto 0);
    signal debugTmr                     : unsigned(31 downto 0);
+   signal debugwrite                   : std_logic;
    
 -- synthesis translate_off
    signal stallcountNo                 : integer;
@@ -448,8 +447,6 @@ begin
    mem1_cacherequest <= '1' when (to_integer(FetchAddr(31 downto 29)) = 0 or to_integer(FetchAddr(31 downto 29)) = 4) else '0';
 
    stall        <= '0' & stall4 & stall3 & stall2 & stall1;
-
-   exceptionNew <= exceptionNew5 & '0' & exceptionNew3 & '0' & exceptionNew1;
    
    process (clk93)
    begin
@@ -571,14 +568,14 @@ begin
       q          => regs1_q_b
 	);
    
-   regs_wren_a    <= '1' when (ss_regs_load = '1') else
-                     '1' when (ce = '1' and writebackWriteEnable = '1') else 
+   regs_wren_a    <= --'1' when (ss_regs_load = '1') else
+                     '1' when (ce = '1' and writebackWriteEnable = '1' and debugwrite = '1') else 
                      '0';
    
-   regs_data_a    <= ss_regs_data when (ss_regs_load = '1') else 
+   regs_data_a    <= --ss_regs_data when (ss_regs_load = '1') else 
                      std_logic_vector(writebackData);
                      
-   regs_address_a <= std_logic_vector(ss_regs_addr) when (ss_regs_load = '1') else 
+   regs_address_a <= --std_logic_vector(ss_regs_addr) when (ss_regs_load = '1') else 
                      std_logic_vector(writebackTarget);
    
    regs1_address_b <= std_logic_vector(decSource1);
@@ -599,30 +596,30 @@ begin
       q          => regs2_q_b
 	);
    
-   iregisterfileSS : entity mem.RamMLAB
-	GENERIC MAP 
-   (
-      width                               => 64,
-      widthad                             => 5
-	)
-	PORT MAP (
-      inclock    => clk93,
-      wren       => regs_wren_a,
-      data       => regs_data_a,
-      wraddress  => regs_address_a,
-      rdaddress  => regsSS_address_b,
-      q          => regsSS_q_b
-	);
+   --iregisterfileSS : entity mem.RamMLAB
+	--GENERIC MAP 
+   --(
+   --   width                               => 64,
+   --   widthad                             => 5
+	--)
+	--PORT MAP (
+   --   inclock    => clk93,
+   --   wren       => regs_wren_a,
+   --   data       => regs_data_a,
+   --   wraddress  => regs_address_a,
+   --   rdaddress  => regsSS_address_b,
+   --   q          => regsSS_q_b
+	--);
 
 --##############################################################
 --############################### stage 1
 --##############################################################
    
-   FetchAddr       <= PCbranch when branch = '1' else
+   FetchAddr       <= exceptionPC when (exception = '1') else
+                      PCbranch    when (branch = '1') else
                       PC;
                      
    exceptionNew1   <= '0';
-   exceptionNew5   <= '0';
    
    process (clk93)
    begin
@@ -640,7 +637,7 @@ begin
             blockirqCnt    <= 0;
             fetchWait      <= '0';
             fetchReady     <= '0';
-            opcode0        <= unsigned(ss_in(14));
+            opcode0        <= (others => '0'); --unsigned(ss_in(14));
             
             cacheHit       <= '0';
             cacheHitLast   <= '0';
@@ -726,7 +723,7 @@ begin
             
                decodeNew <= '0';
             
-               if (exception(4 downto 2) > 0) then
+               if (exception = '1') then
                
                   --decode_irq <= '0';
                
@@ -735,8 +732,11 @@ begin
                   decodeNew        <= '1'; 
                
                   pcOld1           <= pcOld0;
-                  opcode1          <= opcodeCacheMuxed;
                   
+-- synthesis translate_off
+                  opcode1          <= opcodeCacheMuxed;
+-- synthesis translate_on
+                                    
                   decodeImmData    <= decImmData;   
                   decodeJumpTarget <= decJumpTarget;
                   decodeSource1    <= decSource1;
@@ -1064,7 +1064,7 @@ begin
 
    process (decodeImmData, decodeJumpTarget, decodeSource1, decodeSource2, decodeValue1, decodeValue2, decodeOP, decodeFunct, decodeShamt, decodeRD, 
             exception, stall3, stall, value1, value2, pcOld0, resultData, eretPC, 
-            PC, hi, lo, hiloWait, opcode1, ce, executeIgnoreNext, decodeNew, llBit, calcResult_add, calcResult_sub, calcMemAddr)
+            PC, hi, lo, hiloWait, ce, executeIgnoreNext, decodeNew, llBit, calcResult_add, calcResult_sub, calcMemAddr)
       variable calcResult           : unsigned(63 downto 0);
       variable rotatedData          : unsigned(63 downto 0) := (others => '0');
    begin
@@ -1074,6 +1074,7 @@ begin
       EXEIgnoreNext           <= '0';
       branch                  <= '0';
       exceptionNew3           <= '0';
+      EXEERET                 <= '0';
       stallNew3               <= stall3;
       PCbranch                <= pcOld0;
       EXEresultWriteEnable    <= '0';          
@@ -1114,7 +1115,7 @@ begin
       
       exceptionCode_3         <= x"0";
 
-      if (exception(4 downto 2) = 0 and stall = 0 and executeIgnoreNext = '0' and decodeNew = '1') then
+      if (exception = '0' and stall = 0 and executeIgnoreNext = '0' and decodeNew = '1') then
              
          case (to_integer(decodeOP)) is
          
@@ -1430,8 +1431,7 @@ begin
                            EXEIgnoreNext  <= '1';
                            EXEBranchTaken <= '1';
                            EXEllBit       <= '0';
-                           -- todo: reset errorlevel / exceptionlevel;
-                           -- todo: COP0setmode();
+                           EXEERET        <= '1';
                            
                         when others => 
                            report "should not happen" severity failure; 
@@ -1876,7 +1876,7 @@ begin
                
                executeCOP0WriteValue   <= EXECOP0WriteValue;  
             
-               if (exception(4 downto 2) > 0) then
+               if (exception = '1') then
                                                 
                   stall3                        <= '0';
                   executeNew                    <= '0';
@@ -1898,10 +1898,9 @@ begin
                      error_instr                   <= EXEerror_instr;
                
 -- synthesis translate_off
-                     pcOld2                        <= pcOld1;
--- synthesis translate_on
-                     
+                     pcOld2                        <= pcOld1;  
                      opcode2                       <= opcode1;
+-- synthesis translate_on
                            
                      stall3                        <= stallNew3;
                            
@@ -2069,30 +2068,10 @@ begin
 --############################### stage 4
 --##############################################################
 
-   icop0 : entity work.cpu_cop0
-   port map
-   (
-      clk93         => clk93,
-      ce            => ce,   
-      stall         => stall,
-      reset         => reset,
-
--- synthesis translate_off
-      cop0_export   => cop0_export,
--- synthesis translate_on
-
-      eretPC        => eretPC,
-
-      writeEnable   => executeCOP0WriteEnable,
-      regIndex      => executeCOP0Register,
-      writeValue    => executeCOP0WriteValue,
-      readValue     => COP0ReadValue
-   );
-
    stall4Masked <= stall(4 downto 3) & (stall(2) and (not executeStallFromMEM)) & stall(1 downto 0);
    
    process (stall, executeMem64Bit, executeMemWriteEnable, executeMemWriteData, stall4, executeMemReadEnable, executeMemAddress, executeLoadType, executeMemWriteMask, 
-            mem_finished_read, mem_finished_write, exceptionNew, EXEReadEnable, EXEMemWriteEnable, executeStallFromMEM, executeNew, stall4Masked)
+            mem_finished_read, mem_finished_write, EXEReadEnable, EXEMemWriteEnable, executeStallFromMEM, executeNew, stall4Masked)
       variable skipmem : std_logic;
    begin
    
@@ -2364,9 +2343,10 @@ begin
                cpu_export.cop0regs <= cop0_export_1;
                
 -- synthesis translate_on
-               --if (debugCnt(31) = '1' and debugSum(31) = '1' and debugTmr(31) = '1' and writebackTarget = 0) then
-               --   writeDoneWriteEnable <= '0';
-               --end if;
+               debugwrite <= '1';
+               if (debugCnt(31) = '1' and debugSum(31) = '1' and debugTmr(31) = '1' and writebackTarget = 0) then
+                  debugwrite <= '0';
+               end if;
                
             end if;
              
@@ -2374,93 +2354,49 @@ begin
          
          -- export
 -- synthesis translate_off
-         if (ss_regs_load = '1') then
-            regs(to_integer(ss_regs_addr)) <= unsigned(ss_regs_data);
-         end if; 
+         --if (ss_regs_load = '1') then
+         --   regs(to_integer(ss_regs_addr)) <= unsigned(ss_regs_data);
+         --end if; 
 -- synthesis translate_on
          
       end if;
    end process;
-   
---##############################################################
---############################### exception handling
---##############################################################
 
-   process (clk93)
-   begin
-      if (rising_edge(clk93)) then
-      
-         if (reset = '1') then
-         
-            exception            <= (others => '0');
-         
-            exception_SR         <= (others => '0');
-            exception_CAUSE      <= (others => '0');
-            exception_EPC        <= (others => '0');
-            exception_JMP        <= (others => '0');
-
-         elsif (ce = '1') then
-            
-            if (stall = 0) then
-         
-               exception <= exceptionNew;
-               if (exceptionNew1 = '1') then    -- PC out of bounds
-                  exceptionCode     <= x"6";
-                  exceptionInstr    <= opcode2(27 downto 26);
-                  exception_PC      <= PCnext;
-                  exception_branch  <= executeBranchTaken;
-                  exception_brslot  <= executeBranchdelaySlot;
-               elsif (exceptionNew5 = '1') then -- interrupt
-                  exceptionCode     <= x"0";
-                  exceptionInstr    <= opcode1(27 downto 26);
-                  exception_PC      <= pcOld1(31 downto 0);
-                  exception_branch  <= executeBranchTaken;
-                  exception_brslot  <= executeBranchdelaySlot;
-               else                             -- execute stage
-                  exceptionCode     <= exceptionCode_3;
-                  exceptionInstr    <= opcode1(27 downto 26);
-                  if (EXEBranchTaken = '1') then
-                     exception_PC      <= PCbranch(31 downto 0);
-                     exception_branch  <= '0';
-                     exception_brslot  <= '0';
-                     --if (exceptionNew3 = '1') then
-                     --   cop0_BADVADDR     <= PCbranch;
-                     --end if;
-                  else
-                     exception_PC      <= PCold1(31 downto 0);
-                     exception_branch  <= executeBranchTaken;
-                     exception_brslot  <= executeBranchdelaySlot;
-                     --if (EXEMemWriteException = '1' or EXEReadException = '1') then
-                     --   cop0_BADVADDR  <= EXEMemAddr;
-                     --end if;
-                  end if;
-               end if;
-               exception_JMPnext <= PCold0(31 downto 0);
-               
-               if (exception > 0) then
-                  exception_SR    <= (others => '0');
-                  exception_CAUSE <= (others => '0');
-                  exception_CAUSE(5 downto 2)   <= exceptionCode;
-                  exception_CAUSE(29 downto 28) <= exceptionInstr; 
-                  exception_CAUSE(30) <= exception_branch;
-                  exception_CAUSE(31) <= exception_brslot;
-                  if (exception_brslot = '1') then
-                     exception_EPC <= exception_PC - 4;
-                     exception_JMP <= exception_JMPnext;
-                  else
-                     exception_EPC <= exception_PC;
-                  end if;
-               end if;
-               
-            end if;
-   
-         end if;
-      end if;
-   end process;
-   
 --##############################################################
 --############################### submodules
 --##############################################################
+   
+   
+   icop0 : entity work.cpu_cop0
+   port map
+   (
+      clk93             => clk93,
+      ce                => ce,   
+      stall             => stall,
+      reset             => reset,
+
+-- synthesis translate_off
+      cop0_export       => cop0_export,
+-- synthesis translate_on
+
+      eret              => EXEERET,
+      exception3        => exceptionNew3,
+      exception1        => exceptionNew1,
+      exceptionCode_1   => "0000", -- todo
+      exceptionCode_3   => exceptionCode_3,
+      exception_COP     => "00",
+      isDelaySlot       => executeBranchdelaySlot,
+      pcOld1            => PCold1,
+      
+      eretPC            => eretPC,
+      exceptionPC       => exceptionPC,
+      exception         => exception,   
+
+      writeEnable       => executeCOP0WriteEnable,
+      regIndex          => executeCOP0Register,
+      writeValue        => executeCOP0WriteValue,
+      readValue         => COP0ReadValue
+   );
    
    icpu_mul : entity work.cpu_mul
    port map
@@ -2489,6 +2425,8 @@ begin
 --##############################################################
 --############################### savestates
 --##############################################################
+
+SS_idle <= '1';
 
 --   process (clk1x)
 --   begin

@@ -65,6 +65,7 @@ begin
                XPointer    := dividend_u'left;
             end if;
             Rdy_i       := '0';
+            quotient_u  <= (others => '0');
             AkkuNew     := (others => '0');
          -- == Repeat for every Digit in Q ===================================
          elsif Rdy_i = '0' then

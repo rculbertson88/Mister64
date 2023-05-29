@@ -9,21 +9,32 @@ use work.pexport.all;
 entity cpu_cop0 is
    port 
    (
-      clk93         : in  std_logic;
-      ce            : in  std_logic;
-      stall         : in  unsigned(4 downto 0);
-      reset         : in  std_logic;
+      clk93             : in  std_logic;
+      ce                : in  std_logic;
+      stall             : in  unsigned(4 downto 0);
+      reset             : in  std_logic;
 
 -- synthesis translate_off
-      cop0_export   : out tExportRegs := (others => (others => '0'));
+      cop0_export       : out tExportRegs := (others => (others => '0'));
 -- synthesis translate_on
                     
-      eretPC        : out unsigned(63 downto 0) := (others => '0');
-                    
-      writeEnable   : in  std_logic;
-      regIndex      : in  unsigned(4 downto 0);
-      writeValue    : in  unsigned(63 downto 0);
-      readValue     : out unsigned(63 downto 0) := (others => '0')
+      eret              : in  std_logic;
+      exception3        : in  std_logic;
+      exception1        : in  std_logic;
+      exceptionCode_1   : in  unsigned(3 downto 0);
+      exceptionCode_3   : in  unsigned(3 downto 0);
+      exception_COP     : in  unsigned(1 downto 0);
+      isDelaySlot       : in  std_logic;                   
+      pcOld1            : in  unsigned(63 downto 0);
+            
+      eretPC            : out unsigned(63 downto 0) := (others => '0');
+      exceptionPC       : out unsigned(63 downto 0) := (others => '0');
+      exception         : out std_logic := '0';
+                        
+      writeEnable       : in  std_logic;
+      regIndex          : in  unsigned(4 downto 0);
+      writeValue        : in  unsigned(63 downto 0);
+      readValue         : out unsigned(63 downto 0) := (others => '0')
    );
 end entity;
 
@@ -85,6 +96,8 @@ architecture arch of cpu_cop0 is
    signal COP0_30_EPCERROR                : unsigned(63 downto 0) := (others => '0'); 
       
    signal COP0_LATCH                      : unsigned(63 downto 0) := (others => '0');   
+   
+   signal bit64mode                       : std_logic := '0';
    
 begin 
 
@@ -176,6 +189,7 @@ begin
    end process;
 
    process (clk93)
+      variable mode : unsigned(1 downto 0); 
    begin
       if (rising_edge(clk93)) then
       
@@ -183,6 +197,25 @@ begin
             eretPC <= COP0_30_EPCERROR;
          else
             eretPC <= COP0_14_EPC;
+         end if;
+         
+         if (COP0_12_SR_vectorLocation = '1') then
+         
+            -- todo tlb miss switch
+         
+            exceptionPC(31 downto 0) <= x"BFC00380";
+         
+         else
+            
+            -- todo tlb miss switch
+            
+            exceptionPC(31 downto 0) <= x"80000180";
+            
+         end if;
+         if (bit64mode = '1') then
+            exceptionPC(63 downto 32) <= (others => '1');
+         else
+            exceptionPC(63 downto 32) <= (others => '0');
          end if;
       
          if (reset = '1') then
@@ -243,6 +276,8 @@ begin
             COP0_30_EPCERROR                <= (others => '0'); 
             
             COP0_LATCH                      <= (others => '0'); 
+            
+            bit64mode                       <= '0';
 
          elsif (ce = '1' and stall = 0) then
          
@@ -327,10 +362,56 @@ begin
                   when others => null;   
                      
                end case;
+                   
+            end if; -- write enable
+            
+            -- new exception
+            exception <= '0';
+            if (exception3 = '1' or exception1 = '1') then
+            
+               exception <= '1';
+               
+               COP0_12_SR_exceptionLevel   <= '1';
+               
+               if (exception3 = '1') then
+                  COP0_13_CAUSE_exceptionCode <= '0' & exceptionCode_3;
+               else
+                  COP0_13_CAUSE_exceptionCode <= '0' & exceptionCode_1;
+               end if;
+               COP0_13_CAUSE_coprocessorError <= exception_COP;
+               
+               COP0_13_CAUSE_branchDelay <= isDelaySlot;
+               if (isDelaySlot = '1') then
+                  COP0_14_EPC <= pcOld1 - 4; -- should this be pcOld2 instead?
+               else
+                  COP0_14_EPC <= pcOld1;
+               end if;
             
             end if;
+            
+            -- eret
+            if (eret = '1') then
+               if (COP0_12_SR_errorLevel = '1') then
+                  COP0_12_SR_errorLevel <= '0';
+               else
+                  COP0_12_SR_exceptionLevel <= '0';
+               end if;
+            end if;
+            
+            -- set mode
+            mode := COP0_12_SR_privilegeMode;
+            if (mode > 2) then mode := "10"; end if;
+            if (COP0_12_SR_exceptionLevel = '1') then mode := "00"; end if;
+            if (COP0_12_SR_errorLevel     = '1') then mode := "00"; end if;
+            -- should also switch endian mode, but we don't allow little endian in this CPU implementation!
+            case (mode) is
+               when "00" => bit64mode <= COP0_12_SR_kernelExtendedAddr;
+               when "01" => bit64mode <= COP0_12_SR_supervisorAddr;
+               when "10" => bit64mode <= COP0_12_SR_userExtendedAddr;
+               when others => null;
+            end case;
 
-         end if;
+         end if; -- ce + stall
       end if;
    end process;
 

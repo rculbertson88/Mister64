@@ -253,12 +253,16 @@ begin
          --   end case;
          --end if;
          
-         if (videoout_settings.X_SCALE_FACTOR = x"400") then
+         if (videoout_settings.X_SCALE_FACTOR > x"200") then
             clkDiv <= 5;
-            xmax   <= 640;
          else
             clkDiv <= 10;
-            xmax   <= 320;
+         end if;
+         
+         if (to_integer(videoout_settings.VI_WIDTH(9 downto 0)) < 320) then
+            xmax <= 320;
+         else  
+            xmax <= to_integer(videoout_settings.VI_WIDTH(9 downto 0));
          end if;
             
          --if (videoout_settings.GPUSTAT_HorRes2 = '1') then

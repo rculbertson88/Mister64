@@ -8,6 +8,7 @@ package pVI is
       CTRL_TYPE       : unsigned(1 downto 0);
       CTRL_SERRATE    : std_logic;
       X_SCALE_FACTOR  : unsigned(11 downto 0);
+      VI_WIDTH        : unsigned(11 downto 0);
       isPAL           : std_logic;
    end record;
    

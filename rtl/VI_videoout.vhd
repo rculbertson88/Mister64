@@ -127,6 +127,7 @@ begin
    videoout_settings.CTRL_TYPE      <= VI_CTRL_TYPE;
    videoout_settings.CTRL_SERRATE   <= VI_CTRL_SERRATE;
    videoout_settings.X_SCALE_FACTOR <= VI_X_SCALE_FACTOR;
+   videoout_settings.VI_WIDTH       <= VI_WIDTH;
    videoout_settings.isPAL          <= '0';
    
    VI_CURRENT <= videoout_reports.VI_CURRENT & '0'; -- todo: need to find when interlace sets bit 0, can't be instant, otherwise Kroms CPU tests would hang in infinite loop 
@@ -162,14 +163,14 @@ begin
          
          if (VI_CTRL_TYPE = "10") then
             rdram_address_calc    <= VI_ORIGIN + to_unsigned(to_integer(lineScaled) * to_integer(VI_WIDTH) * 2 / 1024, 24);
-            if (VI_X_SCALE_FACTOR = x"400") then -- hack for 320/640 pixel width
+            if (VI_X_SCALE_FACTOR > x"200") then -- hack for 320/640 pixel width
                rdram_burstcount_calc <= 9x"A0";
             else
                rdram_burstcount_calc <= 9x"50";
             end if;
          elsif (VI_CTRL_TYPE = "11") then
             rdram_address_calc    <= VI_ORIGIN + to_unsigned(to_integer(lineScaled) * to_integer(VI_WIDTH) * 4 / 1024, 24);
-            if (VI_X_SCALE_FACTOR = x"400") then -- hack for 320/640 pixel width
+            if (VI_X_SCALE_FACTOR > x"200") then -- hack for 320/640 pixel width
                rdram_burstcount_calc <= 9x"140";
             else
                rdram_burstcount_calc <= 9x"A0";
