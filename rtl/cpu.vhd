@@ -13,7 +13,8 @@ entity cpu is
       clk93                 : in  std_logic;
       clk2x                 : in  std_logic;
       ce                    : in  std_logic;
-      reset                 : in  std_logic;
+      reset_1x              : in  std_logic;
+      reset_93              : in  std_logic;
 
       irqRequest            : in  std_logic;
       cpuPaused             : in  std_logic;
@@ -40,14 +41,11 @@ entity cpu is
 -- synthesis translate_on
       
       SS_reset              : in  std_logic;
-      --SS_DataWrite          : in  std_logic_vector(63 downto 0);
-      --SS_Adr                : in  unsigned(7 downto 0);
-      --SS_wren_CPU           : in  std_logic;
-      --SS_wren_SCP           : in  std_logic;
-      --SS_rden_CPU           : in  std_logic;
-      --SS_rden_SCP           : in  std_logic;
-      --SS_DataRead_CPU       : out std_logic_vector(63 downto 0);
-      --SS_DataRead_SCP       : out std_logic_vector(63 downto 0);
+      SS_DataWrite          : in  std_logic_vector(63 downto 0);
+      SS_Adr                : in  unsigned(11 downto 0);
+      SS_wren_CPU           : in  std_logic;
+      SS_rden_CPU           : in  std_logic;
+      SS_DataRead_CPU       : out std_logic_vector(63 downto 0);
       SS_idle               : out std_logic
    );
 end entity;
@@ -403,18 +401,18 @@ architecture arch of cpu is
    signal mem4_writeMask               : std_logic_vector(7 downto 0) := (others => '0');    
    
    -- savestates
-   --type t_ssarray is array(0 to 95) of std_logic_vector(31 downto 0);
-   --signal ss_in  : t_ssarray := (others => (others => '0'));  
-   --signal ss_out : t_ssarray := (others => (others => '0'));  
+   type t_ssarray is array(0 to 31) of std_logic_vector(63 downto 0);
+   signal ss_in  : t_ssarray := (others => (others => '0'));  
+   signal ss_out : t_ssarray := (others => (others => '0'));  
 
-   --signal regsSS_address_b             : std_logic_vector(4 downto 0) := (others => '0');
-   --signal regsSS_q_b                   : std_logic_vector(63 downto 0);
-   --signal regsSS_rden                  : std_logic := '0';
-   --
-   --signal ss_regs_loading              : std_logic := '0';
-   --signal ss_regs_load                 : std_logic := '0';
-   --signal ss_regs_addr                 : unsigned(4 downto 0);
-   --signal ss_regs_data                 : std_logic_vector(63 downto 0);   
+   signal regsSS_address_b             : std_logic_vector(4 downto 0) := (others => '0');
+   signal regsSS_q_b                   : std_logic_vector(63 downto 0);
+   signal regsSS_rden                  : std_logic := '0';
+   
+   signal ss_regs_loading              : std_logic := '0';
+   signal ss_regs_load                 : std_logic := '0';
+   signal ss_regs_addr                 : unsigned(4 downto 0);
+   signal ss_regs_data                 : std_logic_vector(63 downto 0);   
    
    -- debug
    signal debugCnt                     : unsigned(31 downto 0);
@@ -451,7 +449,7 @@ begin
    process (clk93)
    begin
       if (rising_edge(clk93)) then
-         if (reset = '1') then
+         if (reset_93 = '1') then
          
             mem1_request_latched  <= '0';
             mem4_request_latched  <= '0';
@@ -504,7 +502,7 @@ begin
    process (clk1x)
    begin
       if (rising_edge(clk1x)) then
-         if (reset = '1') then
+         if (reset_1x = '1') then
          
             memoryMuxStage4       <= '0'; 
             mem_request           <= '0';
@@ -568,14 +566,14 @@ begin
       q          => regs1_q_b
 	);
    
-   regs_wren_a    <= --'1' when (ss_regs_load = '1') else
+   regs_wren_a    <= '1' when (ss_regs_load = '1') else
                      '1' when (ce = '1' and writebackWriteEnable = '1' and debugwrite = '1') else 
                      '0';
    
-   regs_data_a    <= --ss_regs_data when (ss_regs_load = '1') else 
+   regs_data_a    <= ss_regs_data when (ss_regs_load = '1') else 
                      std_logic_vector(writebackData);
                      
-   regs_address_a <= --std_logic_vector(ss_regs_addr) when (ss_regs_load = '1') else 
+   regs_address_a <= std_logic_vector(ss_regs_addr) when (ss_regs_load = '1') else 
                      std_logic_vector(writebackTarget);
    
    regs1_address_b <= std_logic_vector(decSource1);
@@ -627,11 +625,10 @@ begin
          
          mem1_request    <= '0';
          
-         if (reset = '1') then
+         if (reset_93 = '1') then
                      
             stall1         <= '0';
-            --PC             <= unsigned(ss_in(0)); -- x"BFC00000";
-            PC             <= x"FFFFFFFFBFC00000";
+            PC             <= unsigned(ss_in(0)); -- x"FFFFFFFFBFC00000";
                            
             blockIRQ       <= '0';
             blockirqCnt    <= 0;
@@ -712,7 +709,7 @@ begin
    begin
       if (rising_edge(clk93)) then
       
-         if (reset = '1') then
+         if (reset_93 = '1') then
          
             stall2     <= '0';
             decodeNew  <= '0';
@@ -1808,7 +1805,7 @@ begin
          DIVstart    <= '0';
          error_instr <= '0';
       
-         if (reset = '1') then
+         if (reset_93 = '1') then
          
             stall3                        <= '0';
             executeNew                    <= '0';
@@ -2140,7 +2137,7 @@ begin
    begin
       if (rising_edge(clk93)) then
       
-         if (reset = '1') then
+         if (reset_93 = '1') then
          
             stall4                           <= '0';
             writebackNew                     <= '0';
@@ -2300,7 +2297,7 @@ begin
          
          debugTmr <= debugTmr + 1;
 
-         if (reset = '1') then
+         if (reset_93 = '1') then
             
             debugCnt             <= (others => '0');
             debugSum             <= (others => '0');
@@ -2354,9 +2351,9 @@ begin
          
          -- export
 -- synthesis translate_off
-         --if (ss_regs_load = '1') then
-         --   regs(to_integer(ss_regs_addr)) <= unsigned(ss_regs_data);
-         --end if; 
+         if (ss_regs_load = '1') then
+            regs(to_integer(ss_regs_addr)) <= unsigned(ss_regs_data);
+         end if; 
 -- synthesis translate_on
          
       end if;
@@ -2373,7 +2370,7 @@ begin
       clk93             => clk93,
       ce                => ce,   
       stall             => stall,
-      reset             => reset,
+      reset             => reset_93,
 
 -- synthesis translate_off
       cop0_export       => cop0_export,
@@ -2426,65 +2423,62 @@ begin
 --############################### savestates
 --##############################################################
 
-SS_idle <= '1';
+   SS_idle <= '1';
 
---   process (clk1x)
---   begin
---      if (rising_edge(clk1x)) then
---      
---         ss_regs_load <= '0';
---      
---         if (SS_reset = '1') then
---         
---            for i in 0 to 56 loop
---               ss_in(i) <= (others => '0');
---            end loop;
---            
---            ss_in(0)  <= x"BFC00000"; -- PC
---            ss_in(13) <= x"00000002"; -- cop0_PRID
---            
---            ss_regs_loading <= '1';
---            ss_regs_addr    <= (others => '0');
---            ss_regs_data    <= (others => '0');
---            
---         elsif (SS_wren_CPU = '1' and SS_Adr < 96) then
---            ss_in(to_integer(SS_Adr)) <= SS_DataWrite;
---            
---         elsif (SS_wren_CPU = '1' and SS_Adr >= 96 and SS_Adr < 128) then
---            ss_regs_load <= '1';
---            ss_regs_addr <= resize(SS_Adr - 96, 5);
---            ss_regs_data <= SS_DataWrite;
---         end if;
---         
---         if (ss_regs_loading = '1') then
---            ss_regs_load <= '1';
---            ss_regs_addr <= ss_regs_addr + 1;
---            if (ss_regs_addr = 31) then
---               ss_regs_loading <= '0';
---            end if;
---         end if;
---      
---         -- also check this?
---         -- cop0_SR(10 downto 8) and cop0_CAUSE(10 downto 8)) /= "000"
---         SS_idle <= '0';
---         if (hiloWait = 0 and blockIRQ = '0' and (irqRequest = '0' or cop0_SR(0) = '0') and mem_done = '0') then
---            SS_idle <= '1';
---         end if;
---      
---         regsSS_rden <= '0';
---         if (SS_rden_CPU = '1' and SS_Adr >= 96 and SS_Adr < 128) then
---            regsSS_address_b <= std_logic_vector(resize(SS_Adr - 96, 5));
---            regsSS_rden      <= '1';
---         end if;
---         
---         if (regsSS_rden = '1') then
---            SS_DataRead_CPU <= regsSS_q_b;
---         elsif (SS_rden_CPU = '1' and SS_Adr < 96) then
---            SS_DataRead_CPU <= ss_out(to_integer(SS_Adr));
---         end if;
---      
---      end if;
---   end process;
+   process (clk93)
+   begin
+      if (rising_edge(clk93)) then
+      
+         ss_regs_load <= '0';
+      
+         if (SS_reset = '1') then
+         
+            for i in 0 to 31 loop
+               ss_in(i) <= (others => '0');
+            end loop;
+            
+            ss_in(0)  <= x"FFFFFFFFBFC00000"; -- PC
+            
+            ss_regs_loading <= '1';
+            ss_regs_addr    <= (others => '0');
+            ss_regs_data    <= (others => '0');
+            
+         elsif (SS_wren_CPU = '1' and SS_Adr < 31) then
+            ss_in(to_integer(SS_Adr)) <= SS_DataWrite;
+            
+         elsif (SS_wren_CPU = '1' and SS_Adr >= 32 and SS_Adr < 64) then
+            ss_regs_load <= '1';
+            ss_regs_addr <= SS_Adr(4 downto 0);
+            ss_regs_data <= SS_DataWrite;
+         end if;
+         
+         if (ss_regs_loading = '1') then
+            ss_regs_load <= '1';
+            ss_regs_addr <= ss_regs_addr + 1;
+            if (ss_regs_addr = 31) then
+               ss_regs_loading <= '0';
+            end if;
+         end if;
+      
+         --SS_idle <= '0';
+         --if (hiloWait = 0 and blockIRQ = '0' and (irqRequest = '0' or cop0_SR(0) = '0') and mem_done = '0') then
+         --   SS_idle <= '1';
+         --end if;
+      
+         --regsSS_rden <= '0';
+         --if (SS_rden_CPU = '1' and SS_Adr >= 32 and SS_Adr < 64) then
+         --   regsSS_address_b <= std_logic_vector(SS_Adr(4 downto 0));
+         --   regsSS_rden      <= '1';
+         --end if;
+         --
+         --if (regsSS_rden = '1') then
+         --   SS_DataRead_CPU <= regsSS_q_b;
+         --elsif (SS_rden_CPU = '1' and SS_Adr < 31) then
+         --   SS_DataRead_CPU <= ss_out(to_integer(SS_Adr));
+         --end if;
+      
+      end if;
+   end process;
    
 --##############################################################
 --############################### debug
@@ -2496,7 +2490,7 @@ SS_idle <= '1';
       
          error_stall <= '0';
       
-         if (reset = '1') then
+         if (reset_93 = '1') then
          
             debugStallcounter <= (others => '0');
             

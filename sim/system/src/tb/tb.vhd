@@ -105,10 +105,17 @@ begin
       reset                 => reset,
       pause                 => '0',
       
+      -- savestates              
+      increaseSSHeaderCount => '1',
+      save_state            => n64_SaveState(0),
+      load_state            => n64_LoadState(0),
+      savestate_number      => 0,
+      state_loaded          => open,
+      
       -- PIFROM download port
-      pifrom_wraddress     => 9x"000",
-      pifrom_wrdata        => x"00000000",   
-      pifrom_wren          => '0',     
+      pifrom_wraddress      => 9x"000",
+      pifrom_wrdata         => x"00000000",   
+      pifrom_wren           => '0',     
                
       -- RDRAM
       ddr3_BUSY             => DDRAM_BUSY,
@@ -122,13 +129,13 @@ begin
       ddr3_RD               => DDRAM_RD,
       
       -- ROM+SRAM+FLASH
-      sdram_ena            => sdram_ena,      
-      sdram_rnw            => sdram_rnw,     
-      sdram_Adr            => sdram_Adr,      
-      sdram_be             => sdram_be,       
-      sdram_dataWrite      => sdram_dataWrite,
-      sdram_done           => sdram_done,     
-      sdram_dataRead       => sdram_dataRead, 
+      sdram_ena             => sdram_ena,      
+      sdram_rnw             => sdram_rnw,     
+      sdram_Adr             => sdram_Adr,      
+      sdram_be              => sdram_be,       
+      sdram_dataWrite       => sdram_dataWrite,
+      sdram_done            => sdram_done,     
+      sdram_dataRead        => sdram_dataRead, 
              
       -- video out
       video_hsync           => open,

@@ -12,7 +12,6 @@ entity savestates is
    (
       clk1x                   : in  std_logic;  
       clk93                   : in  std_logic;  
-      clk2x                   : in  std_logic;  
       ce                      : in  std_logic;  
       reset_in                : in  std_logic;
       reset_out_1x            : out std_logic := '0';
@@ -34,7 +33,7 @@ entity savestates is
       savestate_pause         : out std_logic := '0';
       
       SS_DataWrite            : out std_logic_vector(63 downto 0) := (others => '0');
-      SS_Adr                  : out unsigned(9 downto 0) := (others => '0');
+      SS_Adr                  : out unsigned(11 downto 0) := (others => '0');
       SS_wren                 : out std_logic_vector(SAVETYPESCOUNT - 1 downto 0);
       SS_rden                 : out std_logic_vector(SAVETYPESCOUNT - 1 downto 0);
       SS_DataRead_CPU         : in  std_logic_vector(63 downto 0) := (others => '0');
@@ -77,7 +76,7 @@ architecture arch of savestates is
       (  9216,       8),    -- RSP          7 
       ( 10240,       8),    -- SI           8 
       ( 11264,       8),    -- VI           9 
-      ( 16384,       8),    -- CPU          10
+      ( 16384,    4096),    -- CPU          10
       ( 32768,       8),    -- DMEM         11
       ( 65536,       8),    -- IMEM         12   
       (1048576,1048576)     -- RAM          13
@@ -98,7 +97,7 @@ architecture arch of savestates is
 --      SAVEMEMORY_WAIT_SPURAM,
 --      SAVEMEMORY_READ,
 --      SAVEMEMORY_WRITE,
---      SAVESIZEAMOUNT,
+      SAVESIZEAMOUNT,
 --      SAVEWAITHPSDONE,
       LOAD_WAITSETTLE,
       LOAD_HEADERAMOUNTCHECK,
@@ -150,6 +149,7 @@ begin
       if rising_edge(clk1x) then
       
          reset_intern  <= '0';
+         ss_reset      <= '0';
          rdram_request <= '0';
          
          reset_out_1x <= reset_intern;
@@ -235,7 +235,11 @@ begin
                   if (SS_idle = '1') then
                      if (savemode = '1') then
                         --state             <= SAVE_WAITSETTLE;
-                        state             <= IDLE;
+                        state             <= SAVESIZEAMOUNT;
+                        rdram_request     <= '1';
+                        rdram_rnw         <= '0';
+                        rdram_address     <= to_unsigned(savestate_address, 28);
+                        rdram_dataWrite   <= std_logic_vector(to_unsigned(STATESIZE, 32)) & std_logic_vector(header_amount);
                      else
                         state             <= LOAD_WAITSETTLE;
                      end if;
@@ -271,12 +275,12 @@ begin
 --                  state          <= SAVEMEMORY_STARTREAD;
 --                  count          <= 2;
 --                  maxcount       <= savetypes(savetype_counter).size;
---                  ddr3_ADDR_save <= std_logic_vector(to_unsigned(savestate_address + savetypes(savetype_counter).offset, 26));
+--                  ddr3_ADDR_save <= std_logic_vector(to_unsigned(savestate_address + savetypes(savetype_counter).offset, 28));
 --                  RAMAddrNext    <= (others => '0');
 --                  dwordcounter   <= 0;
 --               else
 --                  state          <= SAVESIZEAMOUNT;
---                  ddr3_ADDR      <= std_logic_vector(to_unsigned(savestate_address, 26));
+--                  ddr3_ADDR      <= std_logic_vector(to_unsigned(savestate_address, 28));
 --                  ddr3_DIN       <= std_logic_vector(to_unsigned(STATESIZE, 32)) & std_logic_vector(header_amount);
 --                  ddr3_WE        <= '1';
 --                  ddr3_BE        <= x"FF";
@@ -389,13 +393,13 @@ begin
 --                  end if;
 --               end if;
 --            
---            when SAVESIZEAMOUNT =>
---               if (DDR3_busy = '0') then
---                  state       <= SAVEWAITHPSDONE;
---                  if (increaseSSHeaderCount = '1') then
---                     unstallwait <= 67108863;
---                  end if;
---               end if;
+            when SAVESIZEAMOUNT =>
+                if (rdram_done = '1') then
+                  state       <= IDLE;
+                  --if (increaseSSHeaderCount = '1') then
+                  --   unstallwait <= 67108863;
+                  --end if;
+               end if;
 --             
 --            when SAVEWAITHPSDONE =>
 --               if (hps_busy = '1') then
@@ -418,7 +422,7 @@ begin
                   state             <= LOAD_HEADERAMOUNTCHECK;
                   rdram_request     <= not resetMode;
                   rdram_rnw         <= '1';
-                  rdram_address     <= to_unsigned(savestate_address, 25) & "000";
+                  rdram_address     <= to_unsigned(savestate_address, 28);
                end if;
                
             when LOAD_HEADERAMOUNTCHECK =>
@@ -467,14 +471,14 @@ begin
                   rdram_address  <= "0000" & RAMAddrNext & "000";
                   rdram_rnw      <= '0';
                   RAMAddrNext    <= RAMAddrNext + 1;
-                  SS_Adr         <= RAMAddrNext(9 downto 0);
+                  SS_Adr         <= RAMAddrNext(11 downto 0);
                   
                   if (savetype_counter = 13) then -- rdram
                      state          <= LOADMEMORY_WRITE_RDRAM;
                      rdram_request  <= '1';
                   else
-                     SS_wren(savetype_counter) <= '1';
-                     state            <= LOADMEMORY_WRITE_NEXT;
+                     SS_wren(savetype_counter) <= not resetMode;
+                     state          <= LOADMEMORY_WRITE_NEXT;
                   end if;
                   
                end if;

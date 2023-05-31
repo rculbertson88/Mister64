@@ -226,15 +226,38 @@ wire reset_or = RESET | buttons[1] | status[0] | cart_download;
 // Status Bit Map: (0..31 => "O", 32..63 => "o")
 // 0         1         2         3          4         5         6          7         8         9
 // 01234567890123456789012345678901 23456789012345678901234567890123 45678901234567890123456789012345
-// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV 
+// todo
 // 
 
 `include "build_id.v"
 parameter CONF_STR = {
-	"N64;;",
+	"N64;SS3E000000:1000000;",
    "F1,N64z64,Load;",
+   "-;",
+	"O[36],Savestates to SDCard,On,Off;",
+	"O[68],Autoincrement Slot,Off,On;",
+	"O[38:37],Savestate Slot,1,2,3,4;",
+	"RH,Save state (Alt-F1);",
+	"RI,Restore state (F1);",
+	"-;",
    "O[1],Swap Interlaced,Off,On;",
 	"R0,Reset;",
+   "J1,A,B,Start,L,R,Z,DPad Up,DPad Right,DPad Down,DPad Left,C Up,C Right,C Down,C Left,Savestates;",
+	"jn,A,B,Start,L,R,Z,DPad Up,DPad Right,DPad Down,DPad Left,C Up,C Right,C Down,C Left;",
+	"I,",
+	"Load=DPAD Up|Save=Down|Slot=L+R,",
+	"Active Slot 1,",
+	"Active Slot 2,",
+	"Active Slot 3,",
+	"Active Slot 4,",
+	"Save to state 1,",
+	"Restore state 1,",
+	"Save to state 2,",
+	"Restore state 2,",
+	"Save to state 3,",
+	"Restore state 3,",
+	"Save to state 4,",
+	"Restore state 4;",
 	"V,v",`BUILD_DATE
 };
 
@@ -243,10 +266,16 @@ wire [127:0] status;
 wire        forced_scandoubler;
 
 wire [19:0] joy;
+wire [19:0] joy_unmod;
+wire [19:0] joy2;
+wire [19:0] joy3;
+wire [19:0] joy4;
 
 wire [10:0] ps2_key;
 
-wire [127:0] status_in = status;
+wire [127:0] status_in = {status[127:39],ss_slot,status[36:0]};
+wire [15:0] status_menumask = 16'd0;
+
 
 wire bk_pending;
 wire DIRECT_VIDEO;
@@ -257,6 +286,9 @@ wire [15:0] ioctl_dout;
 wire        ioctl_wr;
 wire  [7:0] ioctl_index;
 reg         ioctl_wait = 0;
+
+reg [7:0] info_index;
+reg info_req;
 
 hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 (
@@ -274,18 +306,23 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 	.ioctl_index(ioctl_index),
 	.ioctl_wait(ioctl_wait),
 
-	.joystick_0(joy),
+   .joystick_0(joy_unmod),
+	.joystick_1(joy2),
+	.joystick_2(joy3),
+	.joystick_3(joy4),
 	.ps2_key(ps2_key),
 
 	.status(status),
 	.status_in(status_in),
-	.status_set(0),
-	.status_menumask(0),
-	.info_req(0),
-	.info(0),
+	.status_set(statusUpdate),
+	.status_menumask(status_menumask),
+	.info_req(info_req),
+	.info(info_index),
    
    .direct_video(DIRECT_VIDEO)
 );
+
+assign joy = joy_unmod[16] ? 20'b0 : joy_unmod;
 
 ////////////////////////////  PIFROM download  ///////////////////////////////////
 
@@ -323,6 +360,7 @@ reg [31:0] ramdownload_wrdata;
 reg        ramdownload_wr;
 wire       ramdownload_ready;
 reg        cart_download;
+reg        cart_loaded = 0;
 
 localparam CART_START = 1048576;
 
@@ -332,6 +370,7 @@ always @(posedge clk_1x) begin
 
 	ramdownload_wr <= 0;
 	if(cart_download) begin
+      cart_loaded <= 1;
       if (ioctl_wr) begin
          if(~ioctl_addr[1]) begin
             ramdownload_wrdata[15:0] <= ioctl_dout;
@@ -385,6 +424,37 @@ sdram sdram
 	.ch3_ready()
 );
 
+///////////////////////////  SAVESTATE  /////////////////////////////////
+
+wire [1:0] ss_slot;
+wire [7:0] ss_info;
+wire ss_save, ss_load, ss_info_req;
+wire statusUpdate;
+
+savestate_ui savestate_ui
+(
+	.clk            (clk_1x        ),
+	.ps2_key        (ps2_key[10:0] ),
+	.allow_ss       (cart_loaded   ),
+	.joySS          (joy_unmod[14] ),
+	.joyRight       (joy_unmod[7]  ),
+	.joyLeft        (joy_unmod[9]  ),
+	.joyDown        (joy_unmod[8]  ),
+	.joyUp          (joy_unmod[6]  ),
+	.joyRewind      (0             ),
+	.rewindEnable   (0             ), 
+	.status_slot    (status[38:37] ),
+	.autoincslot    (status[68]    ),
+	.OSD_saveload   (status[18:17] ),
+	.ss_save        (ss_save       ),
+	.ss_load        (ss_load       ),
+	.ss_info_req    (info_req      ),
+	.ss_info        (info_index    ),
+	.statusUpdate   (statusUpdate  ),
+	.selected_slot  (ss_slot       )
+);
+defparam savestate_ui.INFO_TIMEOUT_BITS = 25;
+
 ////////////////////////////  SYSTEM  ///////////////////////////////////
 
 wire HBlank;
@@ -401,6 +471,13 @@ n64top n64top
    .clkvid(clk_vid),
    .reset(reset_or),
    .pause(OSD_STATUS),
+   
+   // savestates              
+   .increaseSSHeaderCount (!status[36]),
+   .save_state            (ss_save),
+   .load_state            (ss_load),
+   .savestate_number      (ss_slot),
+   .state_loaded          (),
    
    // PIFROM download port
    .pifrom_wraddress (pifrom_wraddress),

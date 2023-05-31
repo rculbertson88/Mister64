@@ -67,20 +67,7 @@ begin
       variable targetpos      : integer;
       variable loadcount      : integer;
       
-      file outfile            : text;
-      file outfile1           : text;
-      file outfile2           : text;
-      file outfile3           : text;
-      variable fileindex      : unsigned(7 downto 0);
-      variable line_out       : line;
-      variable color          : std_logic_vector(31 downto 0);
-      variable linecounter_int : integer;
-      variable pixelTimeout   : integer; 
-      variable pixelCount     : integer; 
-         
       variable readval        : signed(31 downto 0); 
-      
-      variable dumpVRAMimage  : std_logic;
       
       file ssfile             : t_ssfile;
       
@@ -113,8 +100,6 @@ begin
    
    begin
       
-      dumpVRAMimage := '0';
-      
       if (LOADRDRAM = '1') then
          file_open(f_status, infile, "R:\\RDRAM_FPGN64.bin", read_mode);
          
@@ -140,7 +125,6 @@ begin
          
       end if;
       
-      pixelCount := 0;
       seed1 := 1;
       seed2 := 1;
       
@@ -217,16 +201,6 @@ begin
             DDRAM_BUSY       <= '0';
          end if;  
          
-         if (pixelCount > 1000 or pixelTimeout = 1) then
-            file_close(outfile);
-            file_open(f_status, outfile, "gra_fb_out.gra", append_mode);
-            pixelCount := 0;
-         end if;
-         
-         if (pixelTimeout > 0) then
-            pixelTimeout := pixelTimeout - 1;
-         end if;
-         
          COMMAND_FILE_ACK_2 <= '0';
          if COMMAND_FILE_START_2 = '1' then
             
@@ -244,11 +218,7 @@ begin
             end loop;
          
             loadcount := 0;
-            
-            if (targetpos = 0) then
-               dumpVRAMimage := '1';
-            end if;
-         
+
             while (not endfile(infile) and (COMMAND_FILE_SIZE = 0 or loadcount < COMMAND_FILE_SIZE)) loop
                
                read(infile, next_vector, actual_len);  
@@ -263,35 +233,23 @@ begin
                else
                   data(targetpos) := to_integer(signed(read_byte0 & read_byte1 & read_byte2 & read_byte3));
                end if;
-               targetpos       := targetpos + 1;
                
+               if (loadcount = 16#20000#) then
+                  report "written data " & integer'image(data(targetpos));
+                  report "to " & integer'image(targetpos);
+               end if;
+               
+               targetpos       := targetpos + 1;
                loadcount       := loadcount + 4;
                
             end loop;
+            
+            report "bytes loaded " & integer'image(loadcount);
          
             file_close(infile);
          
             COMMAND_FILE_ACK_2 <= '1';
          
-         end if;
-         
-         if (dumpVRAMimage = '1') then
-            dumpVRAMimage := '0';
-            for x in 0 to 511 loop
-               for y in 0 to 511 loop
-                  cmd_din_save(31 downto 0) := std_logic_vector(to_signed(data(y * 512 + x), 32));
-                  for i in 0 to 1 loop
-                     color := x"00" & cmd_din_save((i * 16) + 4 downto (i * 16)) & "000" & cmd_din_save((i * 16) + 9 downto (i * 16) + 5) & "000" & cmd_din_save((i * 16) + 14 downto (i * 16) + 10) & "000";
-                     write(line_out, to_integer(unsigned(color)));
-                     write(line_out, string'("#"));
-                     write(line_out, (x * 2 + i));
-                     write(line_out, string'("#")); 
-                     write(line_out, y);
-                     writeline(outfile, line_out);
-                  end loop;
-               end loop;
-            end loop;
-            pixelTimeout := 1;
          end if;
       
       end loop;

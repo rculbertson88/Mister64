@@ -9,52 +9,59 @@ use work.pDDR3.all;
 entity n64top is
    generic
    (
-      is_simu              : std_logic := '0'
-   );
-   port 
-   (
-      clk1x                : in  std_logic;
-      clk93                : in  std_logic;
-      clk2x                : in  std_logic;
-      clkvid               : in  std_logic;
-      reset                : in  std_logic;
-      pause                : in  std_logic;
+      is_simu                 : std_logic := '0'
+   ); 
+   port  
+   (  
+      clk1x                   : in  std_logic;
+      clk93                   : in  std_logic;
+      clk2x                   : in  std_logic;
+      clkvid                  : in  std_logic;
+      reset                   : in  std_logic;
+      pause                   : in  std_logic;
+      
+      -- savestates
+      increaseSSHeaderCount   : in  std_logic;
+      save_state              : in  std_logic;
+      load_state              : in  std_logic;
+      savestate_number        : in  integer range 0 to 3;
+      state_loaded            : out std_logic;
       
       -- PIFROM download port
-      pifrom_wraddress     : in std_logic_vector(8 downto 0);
-      pifrom_wrdata        : in std_logic_vector(31 downto 0);
-      pifrom_wren          : in std_logic;
-      
-      -- RDRAM
-      ddr3_BUSY            : in  std_logic;                    
-      ddr3_DOUT            : in  std_logic_vector(63 downto 0);
-      ddr3_DOUT_READY      : in  std_logic;
-      ddr3_BURSTCNT        : out std_logic_vector(7 downto 0) := (others => '0'); 
-      ddr3_ADDR            : out std_logic_vector(28 downto 0) := (others => '0');                       
-      ddr3_DIN             : out std_logic_vector(63 downto 0) := (others => '0');
-      ddr3_BE              : out std_logic_vector(7 downto 0) := (others => '0'); 
-      ddr3_WE              : out std_logic := '0';
-      ddr3_RD              : out std_logic := '0';    
-
-      -- ROM+SRAM+FLASH
-      sdram_ena            : out std_logic;
-      sdram_rnw            : out std_logic;
-      sdram_Adr            : out std_logic_vector(26 downto 0);
-      sdram_be             : out std_logic_vector(3 downto 0);
-      sdram_dataWrite      : out std_logic_vector(31 downto 0);
-      sdram_done           : in  std_logic;  
-      sdram_dataRead       : in  std_logic_vector(31 downto 0);
-
-      -- video out
-      video_hsync          : out std_logic := '0';
-      video_vsync          : out std_logic := '0';
-      video_hblank         : out std_logic := '0';
-      video_vblank         : out std_logic := '0';
-      video_ce             : out std_logic;
-      video_interlace      : out std_logic;
-      video_r              : out std_logic_vector(7 downto 0);
-      video_g              : out std_logic_vector(7 downto 0);
-      video_b              : out std_logic_vector(7 downto 0)
+      pifrom_wraddress        : in std_logic_vector(8 downto 0);
+      pifrom_wrdata           : in std_logic_vector(31 downto 0);
+      pifrom_wren             : in std_logic;
+         
+      -- RDRAM 
+      ddr3_BUSY               : in  std_logic;                    
+      ddr3_DOUT               : in  std_logic_vector(63 downto 0);
+      ddr3_DOUT_READY         : in  std_logic;
+      ddr3_BURSTCNT           : out std_logic_vector(7 downto 0) := (others => '0'); 
+      ddr3_ADDR               : out std_logic_vector(28 downto 0) := (others => '0');                       
+      ddr3_DIN                : out std_logic_vector(63 downto 0) := (others => '0');
+      ddr3_BE                 : out std_logic_vector(7 downto 0) := (others => '0'); 
+      ddr3_WE                 : out std_logic := '0';
+      ddr3_RD                 : out std_logic := '0';    
+   
+      -- ROM+SRAM+FLASH 
+      sdram_ena               : out std_logic;
+      sdram_rnw               : out std_logic;
+      sdram_Adr               : out std_logic_vector(26 downto 0);
+      sdram_be                : out std_logic_vector(3 downto 0);
+      sdram_dataWrite         : out std_logic_vector(31 downto 0);
+      sdram_done              : in  std_logic;  
+      sdram_dataRead          : in  std_logic_vector(31 downto 0);
+   
+      -- video out   
+      video_hsync             : out std_logic := '0';
+      video_vsync             : out std_logic := '0';
+      video_hblank            : out std_logic := '0';
+      video_vblank            : out std_logic := '0';
+      video_ce                : out std_logic;
+      video_interlace         : out std_logic;
+      video_r                 : out std_logic_vector(7 downto 0);
+      video_g                 : out std_logic_vector(7 downto 0);
+      video_b                 : out std_logic_vector(7 downto 0)
    );
 end entity;
 
@@ -179,17 +186,16 @@ architecture arch of n64top is
    -- savestates
    signal SS_reset               : std_logic;
    signal SS_DataWrite           : std_logic_vector(63 downto 0);
-   signal SS_Adr                 : unsigned(9 downto 0);
+   signal SS_Adr                 : unsigned(11 downto 0);
    signal SS_wren                : std_logic_vector(13 downto 0);
    signal SS_rden                : std_logic_vector(13 downto 0);
+   signal SS_DataRead_VI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_CPU        : std_logic_vector(63 downto 0);
-   signal SS_DataRead_SCP        : std_logic_vector(63 downto 0);
    
    signal SS_Idle                : std_logic;  
    signal SS_idle_cpu            : std_logic;
    
    signal savestate_pause        : std_logic;
-   signal state_loaded           : std_logic;
    
    signal savestate_savestate    : std_logic; 
    signal savestate_loadstate    : std_logic; 
@@ -331,11 +337,11 @@ begin
       bus_done             => bus_VI_done,
       
       SS_reset             => '1',
-      SS_DataWrite         => (63 downto 0 => '0'),
-      SS_Adr               => "000",
-      SS_wren              => '0',
-      SS_rden              => '0',
-      SS_DataRead          => open
+      SS_DataWrite         => SS_DataWrite,
+      SS_Adr               => SS_Adr(2 downto 0),
+      SS_wren              => SS_wren(9),
+      SS_rden              => SS_rden(9),
+      SS_DataRead          => SS_DataRead_VI
    );   
    
    iAI : entity work.AI
@@ -585,7 +591,8 @@ begin
       clk93             => clk93,
       clk2x             => clk2x,
       ce                => ce_93,   
-      reset             => reset_intern_93,
+      reset_1x          => reset_intern_1x,
+      reset_93          => reset_intern_93,
          
       irqRequest        => irqRequest,
       cpuPaused         => '0',
@@ -612,14 +619,11 @@ begin
 -- synthesis translate_on
 
       SS_reset          => SS_reset,
-      --SS_DataWrite      => SS_DataWrite,
-      --SS_Adr            => SS_Adr(7 downto 0),   
-      --SS_wren_CPU       => SS_wren(0),     
-      --SS_wren_SCP       => SS_wren(12),  
-      --SS_rden_CPU       => SS_rden(0),     
-      --SS_rden_SCP       => SS_rden(12),        
-      --SS_DataRead_CPU   => SS_DataRead_CPU,
-      --SS_DataRead_SCP   => SS_DataRead_SCP,
+      SS_DataWrite      => SS_DataWrite,
+      SS_Adr            => SS_Adr(11 downto 0),   
+      SS_wren_CPU       => SS_wren(10),     
+      SS_rden_CPU       => SS_rden(10),            
+      SS_DataRead_CPU   => SS_DataRead_CPU,
       SS_idle           => SS_idle_cpu
    );
    
@@ -634,7 +638,6 @@ begin
    (
       clk1x                   => clk1x,
       clk93                   => clk93,
-      clk2x                   => clk2x,
       ce                      => ce,
       reset_in                => reset,
       reset_out_1x            => reset_intern_1x,
@@ -645,10 +648,10 @@ begin
            
       load_done               => state_loaded,
             
-      increaseSSHeaderCount   => '0',
-      save                    => '0',
-      load                    => '0',
-      savestate_address       => 0,  
+      increaseSSHeaderCount   => increaseSSHeaderCount,
+      save                    => savestate_savestate,
+      load                    => savestate_loadstate,
+      savestate_address       => savestate_address,  
       savestate_busy          => savestate_busy,    
 
       SS_idle                 => SS_idle,
@@ -677,17 +680,17 @@ begin
    istatemanager : entity work.statemanager
    generic map
    (
-      Softmap_SaveState_ADDR   => 58720256
+      Softmap_SaveState_ADDR   => 16#E000000#
    )
    port map
    (
-      clk                 => clk2x,  
+      clk                 => clk1x,  
       ce                  => ce,  
       reset               => reset,
                                   
-      savestate_number    => 0,
-      save                => '0',
-      load                => '0',
+      savestate_number    => savestate_number,
+      save                => save_state,
+      load                => load_state,
                  
       request_savestate   => savestate_savestate,
       request_loadstate   => savestate_loadstate,
