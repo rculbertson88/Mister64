@@ -66,7 +66,7 @@ assign {SDRAM_DQMH,SDRAM_DQML} = SDRAM_A[12:11];
 
 
 // Burst length = 4
-localparam BURST_LENGTH        = 4;
+localparam BURST_LENGTH        = 2;
 localparam BURST_CODE          = (BURST_LENGTH == 8) ? 3'b011 : (BURST_LENGTH == 4) ? 3'b010 : (BURST_LENGTH == 2) ? 3'b001 : 3'b000;  // 000=1, 001=2, 010=4, 011=8
 localparam ACCESS_TYPE         = 1'b0;     // 0=sequential, 1=interleaved
 localparam CAS_LATENCY         = 3'd2;     // 2 for < 100MHz, 3 for >100MHz
@@ -132,17 +132,17 @@ always @(posedge clk) begin
 
 	dq_reg <= SDRAM_DQ;
 
-	if(data_ready_delay1[3]) ch1_dout[15:00] <= dq_reg;
-	if(data_ready_delay1[2]) ch1_dout[31:16] <= dq_reg;
-	if(data_ready_delay1[2]) ch1_ready <= 1;
+	if(data_ready_delay1[1]) ch1_dout[15:00] <= dq_reg;
+	if(data_ready_delay1[0]) ch1_dout[31:16] <= dq_reg;
+	if(data_ready_delay1[0]) ch1_ready <= 1;
 
-	if(data_ready_delay2[3]) ch2_dout[15:00] <= dq_reg;
-	if(data_ready_delay2[2]) ch2_dout[31:16] <= dq_reg;
-	if(data_ready_delay2[2]) ch2_ready <= 1;
+	if(data_ready_delay2[1]) ch2_dout[15:00] <= dq_reg;
+	if(data_ready_delay2[0]) ch2_dout[31:16] <= dq_reg;
+	if(data_ready_delay2[0]) ch2_ready <= 1;
 
-	if(data_ready_delay3[3]) ch3_dout[07:00] <= dq_reg[7:0];
-	if(data_ready_delay3[1]) ch3_dout[15:08] <= dq_reg[7:0];
-	if(data_ready_delay3[1]) ch3_ready <= 1;
+	if(data_ready_delay3[1]) ch3_dout[07:00] <= dq_reg[7:0];
+	if(data_ready_delay3[0]) ch3_dout[15:08] <= dq_reg[7:0];
+	if(data_ready_delay3[0]) ch3_ready <= 1;
 
 	SDRAM_DQ <= 16'bZ;
 
