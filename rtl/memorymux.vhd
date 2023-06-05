@@ -18,6 +18,7 @@ entity memorymux is
       mem_rnw              : in  std_logic; 
       mem_address          : in  unsigned(31 downto 0); 
       mem_req64            : in  std_logic; 
+      mem_size             : in  unsigned(2 downto 0) := (others => '0');
       mem_writeMask        : in  std_logic_vector(7 downto 0); 
       mem_dataWrite        : in  std_logic_vector(63 downto 0); 
       mem_dataRead         : out std_logic_vector(63 downto 0); 
@@ -110,6 +111,7 @@ architecture arch of memorymux is
    type tState is
    (
       IDLE,
+      WAITSLOW,
       WAITBUS,
       WAITRAM
    );
@@ -120,6 +122,8 @@ architecture arch of memorymux is
    
    signal last_rnw       : std_logic;
    signal last_addr      : unsigned(31 downto 0); 
+   
+   signal bus_slow       : integer range 0 to 4095;
 
 begin 
 
@@ -251,6 +255,10 @@ begin
          mem_done       <= '0';
          rdram_request  <= '0';
          
+         if (bus_slow > 0) then
+            bus_slow <= bus_slow - 1;
+         end if;
+         
          if (reset = '1') then
 
             state            <= IDLE;
@@ -265,7 +273,7 @@ begin
                   
                   rdram_rnw       <= mem_rnw;
                   rdram_address   <= "0000" & mem_address(23 downto 3) & "000";
-                  rdram_burstcount<= 10x"01";
+                  rdram_burstcount<= 7x"00" & mem_size;
                   
                   rdram_dataWrite <= mem_dataWrite(31 downto 0) & mem_dataWrite(63 downto 32);
                   rdram_writeMask <= mem_writeMask(3 downto 0) & mem_writeMask(7 downto 4);
@@ -306,6 +314,7 @@ begin
                         
                      elsif (mem_address(28 downto 0) >= 16#04600000# and mem_address(28 downto 0) < 16#04700000#) then -- PI registers
                         state <= WAITBUS;
+                        bus_slow <= 127;
                         
                      elsif (mem_address(28 downto 0) >= 16#04700000# and mem_address(28 downto 0) < 16#04800000#) then -- RI
                         state <= WAITBUS;         
@@ -332,10 +341,20 @@ begin
                      
                   end if;
                   
+               when WAITSLOW =>
+                  if (bus_slow = 0) then
+                     mem_done <= '1';
+                     state    <= IDLE;
+                  end if;
+                  
                when WAITBUS =>
                   if (bus_done = '1') then
-                     state          <= IDLE;
-                     mem_done       <= '1';
+                     if (bus_slow = 0) then
+                        mem_done <= '1';
+                        state    <= IDLE;
+                     else
+                        state    <= WAITSLOW;
+                     end if;
                      case (last_addr(1 downto 0)) is
                         when "00" => mem_dataRead(31 downto 0) <= dataFromBusses(7 downto 0) & dataFromBusses(15 downto 8) & dataFromBusses(23 downto 16) & dataFromBusses(31 downto 24);
                         when "01" => mem_dataRead(7 downto 0)  <= dataFromBusses(23 downto 16);

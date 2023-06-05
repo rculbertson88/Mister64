@@ -143,6 +143,7 @@ begin
       video_hblank          => hblank,
       video_vblank          => vblank,
       video_ce              => video_ce,
+      video_interlace       => video_interlace,
       video_r               => video_r, 
       video_g               => video_g,    
       video_b               => video_b
@@ -196,7 +197,7 @@ begin
       hblank            => hblank,  
       vblank            => vblank,  
       video_ce          => video_ce,
-      video_interlace   => '0',
+      video_interlace   => video_interlace,
       video_r           => video_r, 
       video_g           => video_g,    
       video_b           => video_b  

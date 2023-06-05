@@ -12,7 +12,6 @@ entity savestates is
    (
       clk1x                   : in  std_logic;  
       clk93                   : in  std_logic;  
-      ce                      : in  std_logic;  
       reset_in                : in  std_logic;
       reset_out_1x            : out std_logic := '0';
       reset_out_93            : out std_logic := '0';

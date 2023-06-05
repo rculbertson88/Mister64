@@ -73,7 +73,7 @@ architecture arch of n64top is
    signal reset_intern_1x        : std_logic := '0';
    signal reset_intern_93        : std_logic := '0';
    
-   signal ce                     : std_logic := '0';
+   signal ce_1x                  : std_logic := '0';
    signal ce_93                  : std_logic := '0';
    
    -- error codes
@@ -97,6 +97,7 @@ architecture arch of n64top is
    signal rdram_writeMask        : tDDDR3BwriteMask;  
    signal rdram_dataWrite        : tDDDR3BwriteData;
    signal rdram_granted          : tDDDR3Single;
+   signal rdram_granted2x        : tDDDR3Single;
    signal rdram_done             : tDDDR3Single;
    signal rdram_dataRead         : std_logic_vector(63 downto 0);
    
@@ -105,6 +106,7 @@ architecture arch of n64top is
    signal mem_rnw                : std_logic; 
    signal mem_address            : unsigned(31 downto 0); 
    signal mem_req64              : std_logic; 
+   signal mem_size               : unsigned(2 downto 0); 
    signal mem_writeMask          : std_logic_vector(7 downto 0);
    signal mem_dataWrite          : std_logic_vector(63 downto 0); 
    signal mem_dataRead           : std_logic_vector(63 downto 0); 
@@ -215,7 +217,7 @@ begin
    process (clk1x)
    begin
       if rising_edge(clk1x) then
-         ce <= not savestate_pause;
+         ce_1x <= not savestate_pause;
       end if;
    end process;
    
@@ -248,7 +250,7 @@ begin
    port map
    (
       clk1x                => clk1x,        
-      ce                   => ce,           
+      ce                   => ce_1x,           
       reset                => reset_intern_1x, 
 
       irq_out              => irqVector(0),
@@ -265,7 +267,7 @@ begin
    port map
    (
       clk1x                => clk1x,        
-      ce                   => ce,           
+      ce                   => ce_1x,           
       reset                => reset_intern_1x, 
 
       irq_out              => irqVector(5),
@@ -282,7 +284,7 @@ begin
    port map
    (
       clk1x                => clk1x,        
-      ce                   => ce,           
+      ce                   => ce_1x,           
       reset                => reset_intern_1x, 
 
       irq_in               => irqVector,
@@ -302,7 +304,7 @@ begin
       clk1x                => clk1x,        
       clk2x                => clk2x,        
       clkvid               => clkvid,        
-      ce                   => ce,           
+      ce                   => ce_1x,           
       reset_1x             => reset_intern_1x, 
       
       irq_out              => irqVector(3),
@@ -348,7 +350,7 @@ begin
    port map
    (
       clk1x                => clk1x,        
-      ce                   => ce,           
+      ce                   => ce_1x,           
       reset                => reset_intern_1x, 
 
       irq_out              => irqVector(2),
@@ -365,7 +367,7 @@ begin
    port map
    (
       clk1x                => clk1x,        
-      ce                   => ce,           
+      ce                   => ce_1x,           
       reset                => reset_intern_1x, 
  
       bus_addr             => bus_RI_addr,     
@@ -380,7 +382,7 @@ begin
    port map
    (
       clk1x                => clk1x,        
-      ce                   => ce,           
+      ce                   => ce_1x,           
       reset                => reset_intern_1x, 
 
       irq_out              => irqVector(1),
@@ -397,7 +399,7 @@ begin
    port map
    (
       clk1x                => clk1x,        
-      ce                   => ce,           
+      ce                   => ce_1x,           
       reset                => reset_intern_1x, 
 
       irq_out              => irqVector(4),
@@ -438,7 +440,7 @@ begin
    port map
    (
       clk1x                => clk1x,        
-      ce                   => ce,           
+      ce                   => ce_1x,           
       reset                => reset_intern_1x,        
       
       pifrom_wraddress     => pifrom_wraddress,
@@ -481,6 +483,7 @@ begin
       rdram_writeMask  => rdram_writeMask, 
       rdram_dataWrite  => rdram_dataWrite, 
       rdram_granted    => rdram_granted,      
+      rdram_granted2x  => rdram_granted2x,      
       rdram_done       => rdram_done,      
       rdram_dataRead   => rdram_dataRead      
    );
@@ -489,7 +492,7 @@ begin
    port map
    (
       clk1x                => clk1x,
-      ce                   => ce,   
+      ce                   => ce_1x,   
       reset                => reset_intern_1x,
       
       error                => errorMEMMUX,
@@ -499,6 +502,7 @@ begin
       mem_rnw              => mem_rnw,       
       mem_address          => mem_address,  
       mem_req64            => mem_req64,  
+      mem_size             => mem_size,  
       mem_writeMask        => mem_writeMask,
       mem_dataWrite        => mem_dataWrite,
       mem_dataRead         => mem_dataRead, 
@@ -590,7 +594,8 @@ begin
       clk1x             => clk1x,
       clk93             => clk93,
       clk2x             => clk2x,
-      ce                => ce_93,   
+      ce_1x             => ce_1x,   
+      ce_93             => ce_93,   
       reset_1x          => reset_intern_1x,
       reset_93          => reset_intern_93,
          
@@ -604,10 +609,15 @@ begin
       mem_rnw           => mem_rnw,         
       mem_address       => mem_address,  
       mem_req64         => mem_req64,  
+      mem_size          => mem_size,  
       mem_writeMask     => mem_writeMask,
       mem_dataWrite     => mem_dataWrite,
       mem_dataRead      => mem_dataRead, 
       mem_done          => mem_done,
+      rdram_granted2x   => rdram_granted2x(DDR3MUX_MEMMUX),     
+      rdram_done        => rdram_done(DDR3MUX_MEMMUX),     
+      ddr3_DOUT         => ddr3_DOUT,       
+      ddr3_DOUT_READY   => ddr3_DOUT_READY,   
       
       ram_dataRead      => x"00000000",
       ram_rnw           => '0',
@@ -638,7 +648,6 @@ begin
    (
       clk1x                   => clk1x,
       clk93                   => clk93,
-      ce                      => ce,
       reset_in                => reset,
       reset_out_1x            => reset_intern_1x,
       reset_out_93            => reset_intern_93,
@@ -685,7 +694,7 @@ begin
    port map
    (
       clk                 => clk1x,  
-      ce                  => ce,  
+      ce                  => ce_1x,  
       reset               => reset,
                                   
       savestate_number    => savestate_number,

@@ -31,7 +31,7 @@ src/reg_map/reg_tb.vhd
 vcom -2008 -quiet -work sim/n64 ^
 ../../rtl/functions.vhd ^
 ../../rtl/export.vhd ^
-../../rtl/datacache.vhd ^
+../../rtl/cpu_instrcache.vhd ^
 ../../rtl/divider.vhd ^
 ../../rtl/cpu_cop0.vhd ^
 src/tb/cpu_mul.vhd ^

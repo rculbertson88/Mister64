@@ -34,7 +34,13 @@ entity cpu_cop0 is
       writeEnable       : in  std_logic;
       regIndex          : in  unsigned(4 downto 0);
       writeValue        : in  unsigned(63 downto 0);
-      readValue         : out unsigned(63 downto 0) := (others => '0')
+      readValue         : out unsigned(63 downto 0) := (others => '0');
+      
+      SS_reset          : in  std_logic;
+      SS_DataWrite      : in  std_logic_vector(63 downto 0);
+      SS_Adr            : in  unsigned(11 downto 0);
+      SS_wren_CPU       : in  std_logic;
+      SS_rden_CPU       : in  std_logic
    );
 end entity;
 
@@ -99,6 +105,10 @@ architecture arch of cpu_cop0 is
    
    signal bit64mode                       : std_logic := '0';
    
+   -- savestates
+   type t_ssarray is array(0 to 31) of unsigned(63 downto 0);
+   signal ss_in  : t_ssarray := (others => (others => '0'));  
+
 begin 
 
    process (all)
@@ -234,28 +244,28 @@ begin
             COP0_10_ENTRYHI_virtualAddress  <= (others => '0'); 
             COP0_10_ENTRYHI_region          <= (others => '0'); 
             COP0_11_COMPARE                 <= (others => '0');  
-            COP0_12_SR_interruptEnable      <= '0';
-            COP0_12_SR_exceptionLevel       <= '0';
-            COP0_12_SR_errorLevel           <= '1';
-            COP0_12_SR_privilegeMode        <= (others => '0');
-            COP0_12_SR_userExtendedAddr     <= '0';
-            COP0_12_SR_supervisorAddr       <= '0';
-            COP0_12_SR_kernelExtendedAddr   <= '0';
-            COP0_12_SR_interruptMask        <= (others => '1');
-            COP0_12_SR_de                   <= '0';
-            COP0_12_SR_ce                   <= '0';
-            COP0_12_SR_condition            <= '0';
-            COP0_12_SR_softReset            <= '1';
-            COP0_12_SR_tlbShutdown          <= '0';
-            COP0_12_SR_vectorLocation       <= '1';
-            COP0_12_SR_instructionTracing   <= '0';
-            COP0_12_SR_reverseEndian        <= '0';
-            COP0_12_SR_floatingPointMode    <= '1';
-            COP0_12_SR_lowPowerMode         <= '0';
-            COP0_12_SR_enable_cop0          <= '1';
-            COP0_12_SR_enable_cop1          <= '1';
-            COP0_12_SR_enable_cop2          <= '0';
-            COP0_12_SR_enable_cop3          <= '0';
+            COP0_12_SR_interruptEnable      <= ss_in(12)(0);           -- '0';
+            COP0_12_SR_exceptionLevel       <= ss_in(12)(1);           -- '0';
+            COP0_12_SR_errorLevel           <= ss_in(12)(2);           -- '1';
+            COP0_12_SR_privilegeMode        <= ss_in(12)(4 downto 3);  -- (others => '0');
+            COP0_12_SR_userExtendedAddr     <= ss_in(12)(5);           -- '0';
+            COP0_12_SR_supervisorAddr       <= ss_in(12)(6);           -- '0';
+            COP0_12_SR_kernelExtendedAddr   <= ss_in(12)(7);           -- '0';
+            COP0_12_SR_interruptMask        <= ss_in(12)(15 downto 8); -- (others => '1');
+            COP0_12_SR_de                   <= ss_in(12)(16);          -- '0';
+            COP0_12_SR_ce                   <= ss_in(12)(17);          -- '0';
+            COP0_12_SR_condition            <= ss_in(12)(18);          -- '0';
+            COP0_12_SR_softReset            <= ss_in(12)(20);          -- '1';
+            COP0_12_SR_tlbShutdown          <= ss_in(12)(21);          -- '0';
+            COP0_12_SR_vectorLocation       <= ss_in(12)(22);          -- '1';
+            COP0_12_SR_instructionTracing   <= ss_in(12)(24);          -- '0';
+            COP0_12_SR_reverseEndian        <= ss_in(12)(25);          -- '0';
+            COP0_12_SR_floatingPointMode    <= ss_in(12)(26);          -- '1';
+            COP0_12_SR_lowPowerMode         <= ss_in(12)(27);          -- '0';
+            COP0_12_SR_enable_cop0          <= ss_in(12)(28);          -- '1';
+            COP0_12_SR_enable_cop1          <= ss_in(12)(29);          -- '1';
+            COP0_12_SR_enable_cop2          <= ss_in(12)(30);          -- '0';
+            COP0_12_SR_enable_cop3          <= ss_in(12)(31);          -- '0';
             COP0_13_CAUSE_exceptionCode     <= (others => '0'); 
             COP0_13_CAUSE_interruptPending  <= (others => '0'); 
             COP0_13_CAUSE_coprocessorError  <= (others => '0'); 
@@ -412,6 +422,30 @@ begin
             end case;
 
          end if; -- ce + stall
+      end if;
+   end process;
+   
+--##############################################################
+--############################### savestates
+--##############################################################
+
+   process (clk93)
+   begin
+      if (rising_edge(clk93)) then
+      
+         if (SS_reset = '1') then
+         
+            for i in 0 to 31 loop
+               ss_in(i) <= (others => '0');
+            end loop;
+            
+            ss_in(12)(31 downto 0) <= x"3450FF04"; --cop12
+            ss_in(16)(31 downto 0) <= x"7006E460"; --cop16
+            
+         elsif (SS_wren_CPU = '1' and SS_Adr >= 64 and SS_Adr < 96) then
+            ss_in(to_integer(SS_Adr(4 downto 0))) <= unsigned(SS_DataWrite);
+         end if;
+      
       end if;
    end process;
 

@@ -130,11 +130,7 @@ begin
          req_buffer <= '0';
       elsif ((req = '1' or req_buffer = '1') and rnw = '1') then
          do           <= (others => 'X');
-         if (req_buffer = '1') then
-            waitcnt      <= 1;
-         else
-            waitcnt      <= 2;
-         end if;
+         waitcnt      <= 1;
          req_buffer   <= '0';
          addr_buffer  <= addr;
       end if;

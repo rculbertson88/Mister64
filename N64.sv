@@ -366,7 +366,7 @@ localparam CART_START = 1048576;
 
 always @(posedge clk_1x) begin
 
-   cart_download     <= ioctl_download & (ioctl_index == 1);
+   cart_download     <= ioctl_download & (ioctl_index[5:0] == 1);
 
 	ramdownload_wr <= 0;
 	if(cart_download) begin
@@ -467,6 +467,7 @@ n64top n64top
 (
    .clk1x(clk_1x),          
    .clk93(clk_93),          
+   //.clk93(clk_1x),          
    .clk2x(clk_2x),          
    .clkvid(clk_vid),
    .reset(reset_or),

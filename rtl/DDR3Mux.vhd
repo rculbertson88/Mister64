@@ -59,6 +59,7 @@ entity DDR3Mux is
       rdram_writeMask  : in  tDDDR3BwriteMask;  
       rdram_dataWrite  : in  tDDDR3BwriteData;
       rdram_granted    : out tDDDR3Single;
+      rdram_granted2X  : out tDDDR3Single;
       rdram_done       : out tDDDR3Single;
       rdram_dataRead   : out std_logic_vector(63 downto 0)
    );
@@ -126,6 +127,7 @@ begin
             if (granted(i) /= "00") then
                rdram_granted(i) <= '1';
             end if;
+            rdram_granted2X(i) <= '0';
             
          end loop;
 
@@ -156,12 +158,13 @@ begin
                   remain    <= rdram_burstcount(activeIndex) - 16#FF#;
 
                   if (rdram_rnw(activeIndex) = '1') then
-                     ddr3State               <= WAITREAD;
-                     ddr3_RD                 <= '1';
-                     granted(activeIndex)    <= "11";
+                     ddr3State                     <= WAITREAD;
+                     ddr3_RD                       <= '1';
+                     granted(activeIndex)          <= "11";
+                     rdram_granted2X(activeIndex)  <= '1';
                   else
-                     ddr3_WE                 <= '1';
-                     done(activeIndex)       <= "11"; 
+                     ddr3_WE                       <= '1';
+                     done(activeIndex)             <= "11"; 
                   end if;
                   
                end if;

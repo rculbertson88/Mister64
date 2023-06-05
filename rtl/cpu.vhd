@@ -12,7 +12,8 @@ entity cpu is
       clk1x                 : in  std_logic;
       clk93                 : in  std_logic;
       clk2x                 : in  std_logic;
-      ce                    : in  std_logic;
+      ce_1x                 : in  std_logic;
+      ce_93                 : in  std_logic;
       reset_1x              : in  std_logic;
       reset_93              : in  std_logic;
 
@@ -26,10 +27,15 @@ entity cpu is
       mem_rnw               : out std_logic := '0'; 
       mem_address           : out unsigned(31 downto 0) := (others => '0'); 
       mem_req64             : out std_logic := '0'; 
-      mem_writeMask         : out std_logic_vector(7 downto 0); 
-      mem_dataWrite         : out std_logic_vector(63 downto 0); 
+      mem_size              : out unsigned(2 downto 0) := (others => '0');
+      mem_writeMask         : out std_logic_vector(7 downto 0) := (others => '0'); 
+      mem_dataWrite         : out std_logic_vector(63 downto 0) := (others => '0');
       mem_dataRead          : in  std_logic_vector(63 downto 0); 
       mem_done              : in  std_logic;
+      rdram_granted2x       : in  std_logic;
+      rdram_done            : in  std_logic;
+      ddr3_DOUT             : in  std_logic_vector(63 downto 0);
+      ddr3_DOUT_READY       : in  std_logic;
       
       ram_done              : in  std_logic;
       ram_rnw               : in  std_logic;
@@ -69,6 +75,7 @@ architecture arch of cpu is
    -- memory interface
    signal memoryMuxStage4              : std_logic := '0';
    signal mem1_request_latched         : std_logic := '0';
+   signal mem1_cache_latched           : std_logic := '0';
    signal mem1_address_latched         : unsigned(31 downto 0) := (others => '0'); 
    
    signal mem_done_1                   : std_logic := '0';
@@ -87,7 +94,8 @@ architecture arch of cpu is
    type t_memstate is
    (
       MEMSTATE_IDLE,
-      MEMSTATE_BUSY
+      MEMSTATE_BUSY1,
+      MEMSTATE_BUSY4
    );
    signal memstate : t_memstate := MEMSTATE_IDLE;                 
    
@@ -148,18 +156,17 @@ architecture arch of cpu is
                
    -- stage 1          
    -- cache
-   signal tag_address_a                : std_logic_vector(7 downto 0);
-   signal tag_data_a                   : std_logic_vector(23 downto 0);
-   signal tag_wren_a                   : std_logic;
-   signal tag_address_b                : std_logic_vector(7 downto 0);
-   signal tag_q_b                      : std_logic_vector(23 downto 0);
-   
-   signal cache_address_b              : std_logic_vector(7 downto 0);
-   signal cache_q_b                    : std_logic_vector(127 downto 0);
-   
    signal FetchAddr                    : unsigned(63 downto 0) := (others => '0'); 
+   signal fetchCache                   : std_logic;
+   signal useCached_data               : std_logic := '0';
    
-   signal cacheValueLast               : unsigned(31 downto 0) := (others => '0'); 
+   signal instrcache_request           : std_logic;
+   signal instrcache_hit               : std_logic;
+   signal instrcache_data              : std_logic_vector(31 downto 0);
+   signal instrcache_fill              : std_logic := '0';
+   signal instrcache_fill_done         : std_logic;
+   signal instrcache_commandEnable     : std_logic;
+   
    signal cacheHitLast                 : std_logic := '0';
    
    -- regs           
@@ -167,20 +174,14 @@ architecture arch of cpu is
    signal blockIRQCnt                  : integer range 0 to 10;
    signal fetchReady                   : std_logic := '0';
    signal fetchWait                    : std_logic := '0';
-   signal cacheHit                     : std_logic := '0';
-               
+   
    -- wires   
    signal mem1_request                 : std_logic := '0';
    signal mem1_cacherequest            : std_logic := '0';
-   signal mem1_tagvalids               : std_logic_vector(3 downto 0);
    signal mem1_address                 : unsigned(31 downto 0) := (others => '0'); 
                
-   signal PCnext                       : unsigned(31 downto 0) := (others => '0');
-   signal opcodeNext                   : unsigned(31 downto 0) := (others => '0');
-   signal fetchReadyNext               : std_logic := '0';
-   signal fetchReadyNow                : std_logic := '0';
-   signal cacheHitTest                 : std_logic;
-   signal cacheHitNext                 : std_logic := '0';
+   signal PCnext                       : unsigned(63 downto 0) := (others => '0');
+   
    signal blockIRQNext                 : std_logic := '0';
    signal blockIRQCntNext              : integer range 0 to 10;
             
@@ -312,6 +313,8 @@ architecture arch of cpu is
    signal executeCOP0Register          : unsigned(4 downto 0) := (others => '0');
    signal executeCOP0WriteValue        : unsigned(63 downto 0) := (others => '0');
    signal executeLoadType              : CPU_LOADTYPE;
+   signal executeCacheEnable           : std_logic := '0';
+   signal executeCacheCommand          : unsigned(4 downto 0) := (others => '0');
 
    signal hiloWait                     : integer range 0 to 69;
    
@@ -350,6 +353,7 @@ architecture arch of cpu is
    signal EXEerror_instr               : std_logic := '0';
    signal EXEllBit                     : std_logic := '0';
    signal EXEERET                      : std_logic := '0';
+   signal EXECacheEnable               : std_logic := '0';
    
    --MULT/DIV
    type CPU_HILOCALC is
@@ -442,8 +446,6 @@ architecture arch of cpu is
 begin 
 
    -- common
-   mem1_cacherequest <= '1' when (to_integer(FetchAddr(31 downto 29)) = 0 or to_integer(FetchAddr(31 downto 29)) = 4) else '0';
-
    stall        <= '0' & stall4 & stall3 & stall2 & stall1;
    
    process (clk93)
@@ -456,9 +458,10 @@ begin
          
          else
             
-            if (mem1_request = '1') then
+            if (mem1_request = '1' or instrcache_request = '1') then
                mem1_request_latched <= '1';
                mem1_address_latched <= mem1_address;
+               mem1_cache_latched   <= instrcache_request;
             end if;            
             
             if (mem4_request = '1') then
@@ -515,29 +518,45 @@ begin
             case (memstate) is
                when MEMSTATE_IDLE => 
                
-                  if (mem4_request_latched = '1') then
+                  if (ce_1x = '1') then
                   
-                     memstate          <= MEMSTATE_BUSY;
-                     mem_request       <= '1';
-                     memoryMuxStage4   <= '1';
-                     mem_address       <= mem4_address_latched;
-                     mem_rnw           <= mem4_rnw_latched;
-                     mem_dataWrite     <= mem4_data_latched;
-                     mem_writeMask     <= mem4_mask_latched;
-                     mem_req64         <= mem4_req64_latched;
-
-                  elsif (mem1_request_latched = '1') then
-                  
-                     memstate          <= MEMSTATE_BUSY;
-                     mem_request       <= '1';
-                     memoryMuxStage4   <= '0';
-                     mem_address       <= mem1_address_latched;
-                     mem_req64         <= '0';
-                     mem_rnw           <= '1';
-                  
+                     if (mem4_request_latched = '1') then
+                     
+                        memstate          <= MEMSTATE_BUSY4;
+                        mem_request       <= '1';
+                        memoryMuxStage4   <= '1';
+                        mem_address       <= mem4_address_latched;
+                        mem_rnw           <= mem4_rnw_latched;
+                        mem_dataWrite     <= mem4_data_latched;
+                        mem_writeMask     <= mem4_mask_latched;
+                        mem_req64         <= mem4_req64_latched;
+                        mem_size          <= "001";
+   
+                     elsif (mem1_request_latched = '1') then
+                     
+                        memstate          <= MEMSTATE_BUSY1;
+                        mem_request       <= '1';
+                        memoryMuxStage4   <= '0';
+                        mem_address       <= mem1_address_latched;
+                        mem_req64         <= '0';
+                        mem_rnw           <= '1';
+                        if (mem1_cache_latched = '1') then
+                           mem_size       <= "100";
+                           mem_address(4 downto 0) <= (others => '0');
+                        else
+                           mem_size       <= "001";
+                        end if;
+                     
+                     end if;
+                     
                   end if;
                   
-               when MEMSTATE_BUSY =>
+               when MEMSTATE_BUSY1 =>
+                  if (mem_done = '1') then
+                     memstate     <= MEMSTATE_IDLE;
+                  end if;               
+                  
+               when MEMSTATE_BUSY4 =>
                   if (mem_done = '1') then
                      memstate     <= MEMSTATE_IDLE;
                   end if;
@@ -567,7 +586,7 @@ begin
 	);
    
    regs_wren_a    <= '1' when (ss_regs_load = '1') else
-                     '1' when (ce = '1' and writebackWriteEnable = '1' and debugwrite = '1') else 
+                     '1' when (ce_93 = '1' and writebackWriteEnable = '1' and debugwrite = '1') else 
                      '0';
    
    regs_data_a    <= ss_regs_data when (ss_regs_load = '1') else 
@@ -613,66 +632,121 @@ begin
 --############################### stage 1
 --##############################################################
    
+   instrcache_commandEnable <= executeCacheEnable when (stall = 0) else '0';
+   
+   icpu_instrcache : entity work.cpu_instrcache
+   port map
+   (
+      clk93             => clk93,
+      clk2x             => clk2x,
+      reset_93          => reset_93,
+      ce_93             => ce_93,
+      
+      ram_request       => instrcache_request,
+      ram_active        => not memoryMuxStage4,
+      ram_grant         => rdram_granted2X,
+      ram_done          => mem_finished_instr,
+      ddr3_DOUT         => ddr3_DOUT,      
+      ddr3_DOUT_READY   => ddr3_DOUT_READY,
+      
+      read_addr         => FetchAddr(28 downto 0),
+      read_hit          => instrcache_hit,
+      read_data         => instrcache_data,
+      
+      fill_request      => instrcache_fill,
+      fill_addr         => mem1_address(28 downto 0),
+      fill_done         => instrcache_fill_done,
+      
+      CacheCommandEna   => instrcache_commandEnable,
+      CacheCommand      => executeCacheCommand,
+      CacheCommandAddr  => executeMemAddress(31 downto 0),
+      
+      SS_reset          => SS_reset
+   );
+   
+   PCnext <= PC + 4;
+   
    FetchAddr       <= exceptionPC when (exception = '1') else
                       PCbranch    when (branch = '1') else
-                      PC;
+                      PCnext;
                      
    exceptionNew1   <= '0';
+   
+   -- todo: only in kernelmode and only in 32bit mode
+   fetchCache     <= '1' when (FetchAddr(31 downto 29) = "100") else '0';
    
    process (clk93)
    begin
       if (rising_edge(clk93)) then
-         
-         mem1_request    <= '0';
+      
+         instrcache_fill <= '0';
          
          if (reset_93 = '1') then
                      
-            stall1         <= '0';
-            PC             <= unsigned(ss_in(0)); -- x"FFFFFFFFBFC00000";
-                           
+            mem1_request   <= '1';
+            mem1_address   <= unsigned(ss_in(0)(31 downto 0)); -- x"FFFFFFFFBFC00000";         
+            stall1         <= '1';
+            fetchWait      <= '1';
+            fetchReady     <= '0';
+            useCached_data <= '0';
+            
+            PC             <= unsigned(ss_in(0)); -- x"FFFFFFFFBFC00000";          
             blockIRQ       <= '0';
             blockirqCnt    <= 0;
-            fetchWait      <= '0';
-            fetchReady     <= '0';
+
             opcode0        <= (others => '0'); --unsigned(ss_in(14));
-            
-            cacheHit       <= '0';
-            cacheHitLast   <= '0';
          
-         elsif (ce = '1') then
+         elsif (ce_93 = '1') then
+         
+            mem1_request    <= '0';
 
             if (stall = 0) then
                fetchReady <= '0';
             end if;
+            
+            cacheHitLast <= fetchCache and instrcache_hit;
+            if (useCached_data = '1' and cacheHitLast = '1' and stall > 0) then
+               useCached_data <= '0';
+               opcode0        <= unsigned(instrcache_data);
+            end if;
          
             if (fetchWait = '1') then
             
-               if (mem_finished_instr = '1') then
+               if (instrcache_fill_done = '1' and useCached_data = '1') then
+                  useCached_data <= '0';
                   stall1         <= '0';
-                  PCold0         <= PC;
-                  PC             <= PC + 4;
                   fetchReady     <= '1';
                   fetchWait      <= '0';
-                  opcode0        <= unsigned(mem_finished_dataRead(7 downto 0)) & unsigned(mem_finished_dataRead(15 downto 8)) & unsigned(mem_finished_dataRead(23 downto 16)) & unsigned(mem_finished_dataRead(31 downto 24));
+                  opcode0        <= unsigned(instrcache_data);
+               elsif (mem_finished_instr = '1' and useCached_data = '0') then
+                  stall1         <= '0';
+                  fetchReady     <= '1';
+                  fetchWait      <= '0';
+                  opcode0        <= unsigned(byteswap32(mem_finished_dataRead(31 downto 0)));
                end if;
             
             elsif (stall = 0 or fetchReady = '0') then
             
-               fetchReady <= '0';
+               PCold0             <= FetchAddr;
+               mem1_address       <= FetchAddr(31 downto 0);
+               PC                 <= FetchAddr;
+               useCached_data     <= fetchCache;
      
-               --case (to_integer(FetchAddr(31 downto 29))) is
-               --
-               --   when 5 =>
-                     fetchWait       <= '1';
-                     mem1_request    <= '1';
-                     mem1_address    <= FetchAddr(31 downto 0);
-                     stall1          <= '1';     
-                     PC              <= FetchAddr;
-                     
-               --   when others =>
-               --   -- todo
-               --   
-               --end case;   
+               if (fetchCache = '1') then
+                  if (instrcache_hit = '1') then
+                     fetchReady         <= '1';
+                  else
+                     fetchWait          <= '1';
+                     fetchReady         <= '0';
+                     instrcache_fill    <= '1';
+                     stall1             <= '1';
+                  end if;
+               else
+                  fetchWait       <= '1';
+                  fetchReady      <= '0';
+                  mem1_request    <= '1';
+                  stall1          <= '1';     
+               end  if;  
                
             end if;
               
@@ -686,14 +760,8 @@ begin
 --############################### stage 2
 --##############################################################
    
-   opcodeCacheMuxed <= opcode0;
-   
-   --opcodeCacheMuxed <= cacheValueLast when cacheHitLast = '1' else
-   --                    unsigned(cache_q_b( 31 downto  0)) when (cacheHit = '1' and PCold0(3 downto 2) = "00") else
-   --                    unsigned(cache_q_b( 63 downto 32)) when (cacheHit = '1' and PCold0(3 downto 2) = "01") else
-   --                    unsigned(cache_q_b( 95 downto 64)) when (cacheHit = '1' and PCold0(3 downto 2) = "10") else
-   --                    unsigned(cache_q_b(127 downto 96)) when (cacheHit = '1' and PCold0(3 downto 2) = "11") else
-   --                    opcode0;                 
+   opcodeCacheMuxed <= unsigned(instrcache_data) when (useCached_data = '1') else 
+                       opcode0;     
                        
    decImmData    <= opcodeCacheMuxed(15 downto 0);
    decJumpTarget <= opcodeCacheMuxed(25 downto 0);
@@ -714,7 +782,7 @@ begin
             stall2     <= '0';
             decodeNew  <= '0';
             
-         elsif (ce = '1') then
+         elsif (ce_93 = '1') then
          
             if (stall = 0) then
             
@@ -1045,7 +1113,7 @@ begin
    resultDataMuxed <= calcResult_shiftL when (decodeResultMux = RESULTMUX_SHIFTLEFT)  else
                       calcResult_shiftR when (decodeResultMux = RESULTMUX_SHIFTRIGHT) else
                       calcResult_add    when (decodeResultMux = RESULTMUX_ADD)        else
-                      PC                when (decodeResultMux = RESULTMUX_PC)         else
+                      PCnext            when (decodeResultMux = RESULTMUX_PC)         else
                       HI                when (decodeResultMux = RESULTMUX_HI)         else
                       LO                when (decodeResultMux = RESULTMUX_LO)         else
                       calcResult_sub    when (decodeResultMux = RESULTMUX_SUB)        else
@@ -1061,7 +1129,7 @@ begin
 
    process (decodeImmData, decodeJumpTarget, decodeSource1, decodeSource2, decodeValue1, decodeValue2, decodeOP, decodeFunct, decodeShamt, decodeRD, 
             exception, stall3, stall, value1, value2, pcOld0, resultData, eretPC, 
-            PC, hi, lo, hiloWait, ce, executeIgnoreNext, decodeNew, llBit, calcResult_add, calcResult_sub, calcMemAddr)
+            hi, lo, executeIgnoreNext, decodeNew, llBit, calcResult_add, calcResult_sub, calcMemAddr)
       variable calcResult           : unsigned(63 downto 0);
       variable rotatedData          : unsigned(63 downto 0) := (others => '0');
    begin
@@ -1086,6 +1154,8 @@ begin
       EXELoadType             <= LOADTYPE_DWORD;
       EXEReadEnable           <= '0';
       EXEReadException        <= '0';
+      
+      EXECacheEnable          <= '0';
       
       EXECOP0WriteEnable      <= '0';
       EXECOP0ReadEnable       <= '0';
@@ -1677,8 +1747,7 @@ begin
                EXEMemWriteEnable <= '1';    
             
             when 16#2F# => -- Cache
-               null;
-               --report "Cache opcode not implemented" severity failure;   
+               EXECacheEnable <= '1';
             
             when 16#30# => -- LL
                EXELoadType <= LOADTYPE_DWORD;
@@ -1824,7 +1893,7 @@ begin
             hi                            <= (others => '0');
             lo                            <= (others => '0');
             
-         elsif (ce = '1') then
+         elsif (ce_93 = '1') then
             
             -- load delay block
             if (stall3) then
@@ -1921,7 +1990,10 @@ begin
                      executeCOP0Read64             <= EXECOP0Read64;     
                      executeCOP0Register           <= EXECOP0Register;
 
-                     llBit                         <= EXEllBit;                     
+                     llBit                         <= EXEllBit;  
+
+                     executeCacheEnable            <= EXECacheEnable;
+                     executeCacheCommand           <= decodeSource2(4 downto 0);
                      
                      -- new mul/div
                      if (EXEcalcMULT = '1') then
@@ -2144,7 +2216,7 @@ begin
             writebackStallFromMEM            <= '0';                  
             writebackWriteEnable             <= '0';
             
-         elsif (ce = '1') then
+         elsif (ce_93 = '1') then
          
             stall4         <= stallNew4;
             dataReadData   := unsigned(mem_finished_dataRead);
@@ -2303,7 +2375,7 @@ begin
             debugSum             <= (others => '0');
             debugTmr             <= (others => '0');
          
-         elsif (ce = '1') then
+         elsif (ce_93 = '1') then
             
             if (stall4Masked = 0 and writebackNew = '1') then
             
@@ -2368,7 +2440,7 @@ begin
    port map
    (
       clk93             => clk93,
-      ce                => ce,   
+      ce                => ce_93,   
       stall             => stall,
       reset             => reset_93,
 
@@ -2392,7 +2464,13 @@ begin
       writeEnable       => executeCOP0WriteEnable,
       regIndex          => executeCOP0Register,
       writeValue        => executeCOP0WriteValue,
-      readValue         => COP0ReadValue
+      readValue         => COP0ReadValue,
+      
+      SS_reset          => SS_reset,    
+      SS_DataWrite      => SS_DataWrite,
+      SS_Adr            => SS_Adr,      
+      SS_wren_CPU       => SS_wren_CPU, 
+      SS_rden_CPU       => SS_rden_CPU 
    );
    
    icpu_mul : entity work.cpu_mul
@@ -2443,7 +2521,7 @@ begin
             ss_regs_addr    <= (others => '0');
             ss_regs_data    <= (others => '0');
             
-         elsif (SS_wren_CPU = '1' and SS_Adr < 31) then
+         elsif (SS_wren_CPU = '1' and SS_Adr < 32) then
             ss_in(to_integer(SS_Adr)) <= SS_DataWrite;
             
          elsif (SS_wren_CPU = '1' and SS_Adr >= 32 and SS_Adr < 64) then
@@ -2502,7 +2580,7 @@ begin
             stallcountDMA     <= 0;
 -- synthesis translate_on
       
-         elsif (ce = '1') then
+         elsif (ce_93 = '1') then
          
             if (stall = 0) then
                debugStallcounter <= (others => '0');
