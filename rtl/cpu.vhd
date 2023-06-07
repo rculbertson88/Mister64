@@ -173,14 +173,11 @@ architecture arch of cpu is
    signal blockIRQ                     : std_logic := '0';
    signal blockIRQCnt                  : integer range 0 to 10;
    signal fetchReady                   : std_logic := '0';
-   signal fetchWait                    : std_logic := '0';
    
    -- wires   
    signal mem1_request                 : std_logic := '0';
    signal mem1_cacherequest            : std_logic := '0';
    signal mem1_address                 : unsigned(31 downto 0) := (others => '0'); 
-               
-   signal PCnext                       : unsigned(63 downto 0) := (others => '0');
    
    signal blockIRQNext                 : std_logic := '0';
    signal blockIRQCntNext              : integer range 0 to 10;
@@ -218,6 +215,22 @@ architecture arch of cpu is
       BITFUNC_SC
    );
    signal decodeBitFuncType : t_decodeBitFuncType;    
+
+   type t_decodeBranchType is
+   (
+      BRANCH_OFF,
+      BRANCH_ALWAYS_REG,
+      BRANCH_JUMPIMM,
+      BRANCH_BRANCH_BLTZ,
+      BRANCH_BRANCH_BGEZ, 
+      BRANCH_BRANCH_BEQ,
+      BRANCH_BRANCH_BNE,
+      BRANCH_BRANCH_BLEZ,
+      BRANCH_BRANCH_BGTZ,
+      BRANCH_ERET
+   );
+   signal decodeBranchType    : t_decodeBranchType;   
+   signal decodeBranchLikely  : std_logic;
 
    type t_decodeResultMux is
    (
@@ -273,6 +286,12 @@ architecture arch of cpu is
    signal calcResult_shiftL            : unsigned(63 downto 0);
    signal calcResult_shiftR            : unsigned(63 downto 0);
    
+   signal cmpEqual                     : std_logic;
+   signal cmpNegative                  : std_logic;
+   signal cmpZero                      : std_logic;
+   signal PCnext                       : unsigned(63 downto 0) := (others => '0');
+   signal PCnextBranch                 : unsigned(63 downto 0) := (others => '0');
+   
    signal resultDataMuxed              : unsigned(63 downto 0);
    signal resultDataMuxed64            : unsigned(63 downto 0);
    
@@ -297,7 +316,6 @@ architecture arch of cpu is
    signal executeStallFromMEM          : std_logic := '0';
    signal resultWriteEnable            : std_logic := '0';
    signal executeBranchdelaySlot       : std_logic := '0';
-   signal executeBranchTaken           : std_logic := '0';
    signal resultTarget                 : unsigned(4 downto 0) := (others => '0');
    signal resultData                   : unsigned(63 downto 0) := (others => '0');
    signal executeMem64Bit              : std_logic;
@@ -322,8 +340,6 @@ architecture arch of cpu is
 
    --wires
    signal EXEIgnoreNext                : std_logic := '0';
-   signal branch                       : std_logic := '0';
-   signal PCbranch                     : unsigned(63 downto 0) := (others => '0');
    signal EXEresultWriteEnable         : std_logic;
    signal EXEBranchdelaySlot           : std_logic := '0';
    signal EXEBranchTaken               : std_logic := '0';
@@ -662,12 +678,6 @@ begin
       
       SS_reset          => SS_reset
    );
-   
-   PCnext <= PC + 4;
-   
-   FetchAddr       <= exceptionPC when (exception = '1') else
-                      PCbranch    when (branch = '1') else
-                      PCnext;
                      
    exceptionNew1   <= '0';
    
@@ -685,8 +695,7 @@ begin
             mem1_request   <= '1';
             mem1_address   <= unsigned(ss_in(0)(31 downto 0)); -- x"FFFFFFFFBFC00000";         
             stall1         <= '1';
-            fetchWait      <= '1';
-            fetchReady     <= '0';
+            fetchReady     <= '1';
             useCached_data <= '0';
             
             PC             <= unsigned(ss_in(0)); -- x"FFFFFFFFBFC00000";          
@@ -703,24 +712,20 @@ begin
                fetchReady <= '0';
             end if;
             
-            cacheHitLast <= fetchCache and instrcache_hit;
-            if (useCached_data = '1' and cacheHitLast = '1' and stall > 0) then
+            cacheHitLast <= instrcache_hit;
+            if (useCached_data = '1' and cacheHitLast = '1' and stall(4 downto 1) > 0 and stall1 = '0') then
                useCached_data <= '0';
                opcode0        <= unsigned(instrcache_data);
             end if;
          
-            if (fetchWait = '1') then
+            if (stall1 = '1') then
             
                if (instrcache_fill_done = '1' and useCached_data = '1') then
                   useCached_data <= '0';
                   stall1         <= '0';
-                  fetchReady     <= '1';
-                  fetchWait      <= '0';
                   opcode0        <= unsigned(instrcache_data);
                elsif (mem_finished_instr = '1' and useCached_data = '0') then
                   stall1         <= '0';
-                  fetchReady     <= '1';
-                  fetchWait      <= '0';
                   opcode0        <= unsigned(byteswap32(mem_finished_dataRead(31 downto 0)));
                end if;
             
@@ -730,19 +735,14 @@ begin
                mem1_address       <= FetchAddr(31 downto 0);
                PC                 <= FetchAddr;
                useCached_data     <= fetchCache;
+               fetchReady         <= '1';
      
                if (fetchCache = '1') then
-                  if (instrcache_hit = '1') then
-                     fetchReady         <= '1';
-                  else
-                     fetchWait          <= '1';
-                     fetchReady         <= '0';
+                  if (instrcache_hit = '0') then
                      instrcache_fill    <= '1';
                      stall1             <= '1';
                   end if;
                else
-                  fetchWait       <= '1';
-                  fetchReady      <= '0';
                   mem1_request    <= '1';
                   stall1          <= '1';     
                end  if;  
@@ -778,8 +778,9 @@ begin
       
          if (reset_93 = '1') then
          
-            stall2     <= '0';
-            decodeNew  <= '0';
+            stall2           <= '0';
+            decodeNew        <= '0';
+            decodeBranchType <= BRANCH_OFF;
             
          elsif (ce_93 = '1') then
          
@@ -832,6 +833,8 @@ begin
                   decodeShiftSigned       <= '0';
                   decodeShift32           <= '0';
                   decodeResult32          <= '0';
+                  decodeBranchType        <= BRANCH_OFF;
+                  decodeBranchLikely      <= '0';
 
                   -- decoding opcode specific
                   case (to_integer(decOP)) is
@@ -873,9 +876,13 @@ begin
                               decodeShiftAmountType   <= "01";
                               decodeResult32          <= '1';
                               
+                           when 16#08# => -- JR
+                              decodeBranchType        <= BRANCH_ALWAYS_REG;
+                              
                            when 16#09# => -- JALR
                               decodeResultMux         <= RESULTMUX_PC;
                               decodeTarget            <= decodeRD;
+                              decodeBranchType        <= BRANCH_ALWAYS_REG;
                               
                            when 16#10# => -- MFHI
                               decodeResultMux         <= RESULTMUX_HI;
@@ -975,16 +982,38 @@ begin
 
                            when others => null;
                         end case;
-                        
+  
                      when 16#01# => -- B: BLTZ, BGEZ, BLTZAL, BGEZAL
-                        if (decSource2(4 downto 2) = "100") then
+                        if (decSource2(4) = '1') then
                            decodeResultMux      <= RESULTMUX_PC;
                            decodeTarget         <= to_unsigned(31, 5);
                         end if;
+                        if (decSource2(0) = '1') then
+                           decodeBranchType     <= BRANCH_BRANCH_BGEZ;
+                        else
+                           decodeBranchType     <= BRANCH_BRANCH_BLTZ;
+                        end if;
+                        decodeBranchLikely      <= decSource2(1);
+                        
+                     when 16#02# => -- J
+                        decodeBranchType        <= BRANCH_JUMPIMM;
                
                      when 16#03# => -- JAL
                         decodeResultMux         <= RESULTMUX_PC;
                         decodeTarget            <= to_unsigned(31, 5);
+                        decodeBranchType        <= BRANCH_JUMPIMM;
+                        
+                     when 16#04# => -- BEQ
+                        decodeBranchType        <= BRANCH_BRANCH_BEQ;
+                     
+                     when 16#05# => -- BNE
+                        decodeBranchType        <= BRANCH_BRANCH_BNE;
+                     
+                     when 16#06# => -- BLEZ
+                        decodeBranchType        <= BRANCH_BRANCH_BLEZ;
+                        
+                     when 16#07# => -- BGTZ
+                        decodeBranchType        <= BRANCH_BRANCH_BGTZ;
                         
                      when 16#08# => -- ADDI
                         decodeResultMux         <= RESULTMUX_ADD;
@@ -1018,6 +1047,27 @@ begin
                         
                      when 16#0F# => -- LUI
                         decodeResultMux         <= RESULTMUX_LUI;
+                        
+                     when 16#10# => -- COP0
+                        if (decSource1(4) = '1' and decImmData(6 downto 0) = 16#18#) then -- ERET
+                           decodeBranchType     <= BRANCH_ERET;
+                        end if;
+                        
+                     when 16#14# => -- BEQL
+                        decodeBranchType        <= BRANCH_BRANCH_BEQ;
+                        decodeBranchLikely      <= '1';
+                           
+                     when 16#15# => -- BNEL
+                        decodeBranchType        <= BRANCH_BRANCH_BNE;
+                        decodeBranchLikely      <= '1';
+                        
+                     when 16#16# => -- BLEZL
+                        decodeBranchType        <= BRANCH_BRANCH_BLEZ;
+                        decodeBranchLikely      <= '1';
+                        
+                     when 16#17# => -- BGTZL
+                        decodeBranchType        <= BRANCH_BRANCH_BGTZ;
+                        decodeBranchLikely      <= '1';
                         
                      when 16#18# => -- DADDI   
                         decodeResultMux         <= RESULTMUX_ADD;
@@ -1108,6 +1158,48 @@ begin
                         calcResult_lesserIMMUnsigned  when (decodeBitFuncType = BITFUNC_IMM_UNSIGNED) else
                         llBit;
    
+   ---------------------- branching ------------------
+   --PCnext       <= PC + 4;
+   --PCnextBranch <= pcOld0 + unsigned((resize(signed(decodeImmData), 62) & "00"));
+   -- assume region change cannot/will not happen with counting up or short jumps
+   PCnext       <= PC(63 downto 29) & (PC(28 downto 0) + 4);
+   PCnextBranch <= pcOld0(63 downto 29) & (pcOld0(28 downto 0) + unsigned((resize(signed(decodeImmData), 27) & "00")));
+   
+   cmpEqual    <= '1' when (value1 = value2) else '0';
+   cmpNegative <= value1(63);
+   cmpZero     <= '1' when (value1 = 0) else '0';
+   
+   FetchAddr       <= exceptionPC                                    when (exception = '1') else
+                      value1                                         when (decodeBranchType = BRANCH_ALWAYS_REG) else
+                      pcOld0(63 downto 28) & decodeJumpTarget & "00" when (decodeBranchType = BRANCH_JUMPIMM) else
+                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BGEZ and (cmpZero = '1' or cmpNegative = '0'))  else
+                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BLTZ and cmpNegative = '1')                     else
+                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BEQ  and cmpEqual = '1')                        else
+                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BNE  and cmpEqual = '0')                        else
+                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BLEZ and (cmpZero = '1' or cmpNegative = '1'))  else
+                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BGTZ and (cmpZero = '0' and cmpNegative = '0')) else
+                      eretPC                                         when (decodeBranchType = BRANCH_ERET) else
+                      PCnext;
+
+   EXEBranchdelaySlot <= '1' when (decodeBranchType = BRANCH_ALWAYS_REG) else
+                         '1' when (decodeBranchType = BRANCH_JUMPIMM) else
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BGEZ and (decodeBranchLikely = '0' or (cmpZero = '1' or cmpNegative = '0')))  else
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BLTZ and (decodeBranchLikely = '0' or cmpNegative = '1')                   )  else
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BEQ  and (decodeBranchLikely = '0' or cmpEqual = '1')                      )  else
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BNE  and (decodeBranchLikely = '0' or cmpEqual = '0')                      )  else
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BLEZ and (decodeBranchLikely = '0' or (cmpZero = '1' or cmpNegative = '1')))  else
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BGTZ and (decodeBranchLikely = '0' or (cmpZero = '0' and cmpNegative = '0'))) else
+                         '0';
+                         
+   EXEIgnoreNext      <= '1' when (decodeBranchType = BRANCH_ERET) else                      
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BGEZ and decodeBranchLikely = '1' and cmpZero = '0' and cmpNegative = '1')  else
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BLTZ and decodeBranchLikely = '1' and cmpNegative = '0')                    else
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BEQ  and decodeBranchLikely = '1' and cmpEqual = '0')                       else
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BNE  and decodeBranchLikely = '1' and cmpEqual = '1')                       else
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BLEZ and decodeBranchLikely = '1' and cmpZero = '0' and cmpNegative = '0')  else
+                         '1' when (decodeBranchType = BRANCH_BRANCH_BGTZ and decodeBranchLikely = '1' and (cmpZero = '1' or cmpNegative = '1')) else
+                         '0';
+
    ---------------------- result muxing ------------------
    resultDataMuxed <= calcResult_shiftL when (decodeResultMux = RESULTMUX_SHIFTLEFT)  else
                       calcResult_shiftR when (decodeResultMux = RESULTMUX_SHIFTRIGHT) else
@@ -1135,12 +1227,9 @@ begin
    
       EXEerror_instr          <= '0';
    
-      EXEIgnoreNext           <= '0';
-      branch                  <= '0';
       exceptionNew3           <= '0';
       EXEERET                 <= '0';
       stallNew3               <= stall3;
-      PCbranch                <= pcOld0;
       EXEresultWriteEnable    <= '0';          
       
       rotatedData             := byteswap32(value2(63 downto 32)) & byteswap32(value2(31 downto 0));
@@ -1161,9 +1250,6 @@ begin
       EXECOP0Read64           <= '0';
       EXECOP0Register         <= decodeRD;
       EXECOP0WriteValue       <= value2;
-      
-      EXEBranchdelaySlot      <= '0';
-      EXEBranchTaken          <= '0';
       
       EXEcalcMULT             <= '0';
       EXEcalcMULTU            <= '0';      
@@ -1194,27 +1280,17 @@ begin
                   when 16#02# | 16#03# | 16#06# | 16#07# => -- SRL | SRA | SRLV | SRAV
                      EXEresultWriteEnable <= '1';               
                     
-                  when 16#08# => -- JR 
-                     EXEBranchdelaySlot <= '1';
-                     EXEBranchTaken     <= '1';               
-                     PCbranch           <= value1;
+                  when 16#08# => -- JR        
                      if (value1(1 downto 0) > 0) then
                         exceptionNew3   <= '1';
                         exceptionCode_3 <= x"4";
-                     else
-                        branch <= '1';
                      end if;
                     
-                  when 16#09# => -- JALR
-                     EXEBranchdelaySlot   <= '1';
-                     EXEBranchTaken       <= '1';               
-                     PCbranch             <= value1;
+                  when 16#09# => -- JALR        
                      EXEresultWriteEnable <= '1';
                      if (value1(1 downto 0) > 0) then
                         exceptionNew3   <= '1';
                         exceptionCode_3 <= x"4";
-                     else
-                        branch <= '1';
                      end if;
 
                   when 16#0C# => -- SYSCALL
@@ -1374,74 +1450,28 @@ begin
                   report "Extended Traps not implemented" severity failure; 
                   EXEerror_instr     <= '1'; 
                else -- B: BLTZ, BGEZ, BLTZAL, BGEZAL
-                  EXEBranchdelaySlot <= '1';
-                  if (decodeSource2(0) = '1') then
-                     if (signed(value1) >= 0) then
-                        EXEBranchTaken <= '1';               
-                        branch         <= '1';
-                     elsif (decodeSource2(1) = '1') then -- likely
-                        EXEIgnoreNext      <= '1';
-                        EXEBranchdelaySlot <= '0';
-                     end if;
-                  else
-                     if (signed(value1) < 0) then
-                        EXEBranchTaken <= '1';               
-                        branch         <= '1';
-                     elsif (decodeSource2(1) = '1') then -- likely
-                        EXEIgnoreNext      <= '1';
-                        EXEBranchdelaySlot <= '0';
-                     end if;
-                  end if;
-                  if (decodeSource2(4 downto 1) = "1000") then
+                  if (decodeSource2(4) = '1') then
                      EXEresultWriteEnable <= '1';
                   end if;
                end if;
-               PCbranch <= pcOld0 + unsigned((resize(signed(decodeImmData), 62) & "00"));
                
             when 16#02# => -- J
-               EXEBranchdelaySlot <= '1';
-               EXEBranchTaken     <= '1';               
-               branch             <= '1';
-               PCbranch           <= x"FFFFFFFF" & pcOld0(31 downto 28) & decodeJumpTarget & "00";
+               null;            
                
-            when 16#03# => -- JAL
-               EXEBranchdelaySlot   <= '1';
-               EXEBranchTaken       <= '1';               
-               branch               <= '1';
+            when 16#03# => -- JAL         
                EXEresultWriteEnable <= '1';
-               PCbranch             <= x"FFFFFFFF" & pcOld0(31 downto 28) & decodeJumpTarget & "00";
                
             when 16#04# => -- BEQ
-               EXEBranchdelaySlot   <= '1';
-               PCbranch             <= pcOld0 + unsigned((resize(signed(decodeImmData), 62) & "00"));
-               if (value1 = value2) then
-                  EXEBranchTaken    <= '1';               
-                  branch            <= '1';
-               end if;
+               null;
             
             when 16#05# => -- BNE
-               EXEBranchdelaySlot   <= '1';
-               PCbranch             <= pcOld0 + unsigned((resize(signed(decodeImmData), 62) & "00"));
-               if (value1 /= value2) then
-                  EXEBranchTaken    <= '1';               
-                  branch            <= '1';
-               end if;
+               null;
             
             when 16#06# => -- BLEZ
-               EXEBranchdelaySlot   <= '1';
-               PCbranch             <= pcOld0 + unsigned((resize(signed(decodeImmData), 62) & "00"));
-               if (signed(value1) <= 0) then
-                  EXEBranchTaken    <= '1';               
-                  branch            <= '1';
-               end if;
+               null;
                
             when 16#07# => -- BGTZ
-               EXEBranchdelaySlot   <= '1';
-               PCbranch             <= pcOld0 + unsigned((resize(signed(decodeImmData), 62) & "00"));
-               if (signed(value1) > 0) then
-                  EXEBranchTaken    <= '1';               
-                  branch            <= '1';
-               end if;
+               null;
             
             when 16#08# => -- ADDI             
                if (((calcResult_add(31) xor value1(31)) and (calcResult_add(31) xor decodeImmData(15))) = '1') then
@@ -1492,10 +1522,6 @@ begin
                            EXEerror_instr     <= '1';
 
                         when 16#18# => -- ERET
-                           branch         <= '1';
-                           PCbranch       <= eretPC;
-                           EXEIgnoreNext  <= '1';
-                           EXEBranchTaken <= '1';
                            EXEllBit       <= '0';
                            EXEERET        <= '1';
                            
@@ -1543,44 +1569,16 @@ begin
                EXEerror_instr     <= '1';
                
             when 16#14# => -- BEQL
-               EXEBranchdelaySlot   <= '1';
-               PCbranch             <= pcOld0 + unsigned((resize(signed(decodeImmData), 62) & "00"));
-               if (value1 = value2) then
-                  EXEBranchTaken    <= '1';               
-                  branch            <= '1';
-               else
-                  EXEIgnoreNext     <= '1';
-               end if;
+               null;
                
             when 16#15# => -- BNEL
-               EXEBranchdelaySlot   <= '1';
-               PCbranch             <= pcOld0 + unsigned((resize(signed(decodeImmData), 62) & "00"));
-               if (value1 /= value2) then
-                  EXEBranchTaken    <= '1';               
-                  branch            <= '1';
-               else
-                  EXEIgnoreNext     <= '1';
-               end if;
+               null;
                
             when 16#16# => -- BLEZL
-               EXEBranchdelaySlot   <= '1';
-               PCbranch             <= pcOld0 + unsigned((resize(signed(decodeImmData), 62) & "00"));
-               if (signed(value1) <= 0) then
-                  EXEBranchTaken    <= '1';               
-                  branch            <= '1';
-               else
-                  EXEIgnoreNext     <= '1';
-               end if;
+               null;
                
             when 16#17# => -- BGTZL
-               EXEBranchdelaySlot   <= '1';
-               PCbranch             <= pcOld0 + unsigned((resize(signed(decodeImmData), 62) & "00"));
-               if (signed(value1) > 0) then
-                  EXEBranchTaken    <= '1';               
-                  branch            <= '1';
-               else
-                  EXEIgnoreNext     <= '1';
-               end if;
+               null;
 
             when 16#18# => -- DADDI             
                if (((calcResult_add(63) xor value1(63)) and (calcResult_add(63) xor decodeImmData(15))) = '1') then
@@ -1882,7 +1880,6 @@ begin
 
             resultWriteEnable             <= '0';
             executeBranchdelaySlot        <= '0';
-            executeBranchTaken            <= '0';
             executeMemWriteEnable         <= '0';
             executeMemReadEnable          <= '0';
             executeCOP0WriteEnable        <= '0';
@@ -1975,8 +1972,7 @@ begin
                         resultWriteEnable <= EXEresultWriteEnable;
                      end if;
                            
-                     executeBranchdelaySlot        <= EXEBranchdelaySlot;
-                     executeBranchTaken            <= EXEBranchTaken;       
+                     executeBranchdelaySlot        <= EXEBranchdelaySlot;    
          
                      executeMemWriteEnable         <= EXEMemWriteEnable;  
    
