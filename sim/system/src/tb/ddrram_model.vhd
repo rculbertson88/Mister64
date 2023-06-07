@@ -162,32 +162,24 @@ begin
             cmd_burst_save   := DDRAM_BURSTCNT;
             cmd_din_save     := DDRAM_DIN;
             cmd_be_save      := DDRAM_BE;
-            for i in 0 to (to_integer(unsigned(cmd_burst_save)) - 1) loop                                                         
-               if (cmd_be_save(7 downto 4) = x"F") then                        
-                  data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 1) := to_integer(signed(DDRAM_DIN(63 downto 32)));
-               end if;                                                  
-               if (cmd_be_save(3 downto 0) = x"F") then                    
-                  data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 0) := to_integer(signed(DDRAM_DIN(31 downto  0)));
-               end if;
+            for i in 0 to (to_integer(unsigned(cmd_burst_save)) - 1) loop    
                
-               if (cmd_be_save(3 downto 0) = x"3") then     
-                  readval := to_signed(data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 0), 32);
-                  data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 0) := to_integer(readval(31 downto 16) & signed(DDRAM_DIN(15 downto  0)));
-               end if;
-               if (cmd_be_save(3 downto 0) = x"C") then     
-                  readval := to_signed(data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 0), 32);
-                  data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 0) := to_integer(signed(DDRAM_DIN(31 downto 16)) & readval(15 downto 0));
-               end if;
+               -- lower 32 bit
+               readval := to_signed(data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 0), 32);
+               if (cmd_be_save(0) = '1') then readval( 7 downto  0) := signed(DDRAM_DIN( 7 downto  0)); end if;
+               if (cmd_be_save(1) = '1') then readval(15 downto  8) := signed(DDRAM_DIN(15 downto  8)); end if;
+               if (cmd_be_save(2) = '1') then readval(23 downto 16) := signed(DDRAM_DIN(23 downto 16)); end if;
+               if (cmd_be_save(3) = '1') then readval(31 downto 24) := signed(DDRAM_DIN(31 downto 24)); end if;
+               data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 0) := to_integer(readval);
                
-               if (cmd_be_save(7 downto 4) = x"3") then     
-                  readval := to_signed(data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 1), 32);
-                  data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 1) := to_integer(readval(31 downto 16) & signed(DDRAM_DIN(47 downto 32)));
-               end if;
-               if (cmd_be_save(7 downto 4) = x"C") then     
-                  readval := to_signed(data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 1), 32);
-                  data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 1) := to_integer(signed(DDRAM_DIN(63 downto 48)) & readval(15 downto 0));
-               end if;
-               
+               -- upper 32 bit
+               readval := to_signed(data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 1), 32);
+               if (cmd_be_save(4) = '1') then readval( 7 downto  0) := signed(DDRAM_DIN(39 downto 32)); end if;
+               if (cmd_be_save(5) = '1') then readval(15 downto  8) := signed(DDRAM_DIN(47 downto 40)); end if;
+               if (cmd_be_save(6) = '1') then readval(23 downto 16) := signed(DDRAM_DIN(55 downto 48)); end if;
+               if (cmd_be_save(7) = '1') then readval(31 downto 24) := signed(DDRAM_DIN(63 downto 56)); end if;
+               data(to_integer(unsigned(cmd_address_save)) + (i * 2) + 1) := to_integer(readval);
+
                --wait until rising_edge(DDRAM_CLK);
             end loop;
             --wait for 200 ns;

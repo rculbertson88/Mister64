@@ -379,7 +379,9 @@ architecture arch of cpu is
       HILOCALC_DMULT,
       HILOCALC_DMULTU,
       HILOCALC_DIV,  
-      HILOCALC_DIVU
+      HILOCALC_DIVU,
+      HILOCALC_DDIV,  
+      HILOCALC_DDIVU
    );
    signal hilocalc                     : CPU_HILOCALC;
    
@@ -882,7 +884,7 @@ begin
                               
                            when 16#09# => -- JALR
                               decodeResultMux         <= RESULTMUX_PC;
-                              decodeTarget            <= decodeRD;
+                              decodeTarget            <= decRD;
                               decodeBranchType        <= BRANCH_ALWAYS_REG;
                               
                            when 16#10# => -- MFHI
@@ -1171,6 +1173,7 @@ begin
    cmpZero     <= '1' when (value1 = 0) else '0';
    
    FetchAddr       <= exceptionPC                                    when (exception = '1') else
+                      PCnext                                         when (executeIgnoreNext = '1') else
                       value1                                         when (decodeBranchType = BRANCH_ALWAYS_REG) else
                       pcOld0(63 downto 28) & decodeJumpTarget & "00" when (decodeBranchType = BRANCH_JUMPIMM) else
                       PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BGEZ and (cmpZero = '1' or cmpNegative = '0'))  else
@@ -1182,7 +1185,8 @@ begin
                       eretPC                                         when (decodeBranchType = BRANCH_ERET) else
                       PCnext;
 
-   EXEBranchdelaySlot <= '1' when (decodeBranchType = BRANCH_ALWAYS_REG) else
+   EXEBranchdelaySlot <= '0' when (executeIgnoreNext = '1') else
+                         '1' when (decodeBranchType = BRANCH_ALWAYS_REG) else
                          '1' when (decodeBranchType = BRANCH_JUMPIMM) else
                          '1' when (decodeBranchType = BRANCH_BRANCH_BGEZ and (decodeBranchLikely = '0' or (cmpZero = '1' or cmpNegative = '0')))  else
                          '1' when (decodeBranchType = BRANCH_BRANCH_BLTZ and (decodeBranchLikely = '0' or cmpNegative = '1')                   )  else
@@ -1192,7 +1196,8 @@ begin
                          '1' when (decodeBranchType = BRANCH_BRANCH_BGTZ and (decodeBranchLikely = '0' or (cmpZero = '0' and cmpNegative = '0'))) else
                          '0';
                          
-   EXEIgnoreNext      <= '1' when (decodeBranchType = BRANCH_ERET) else                      
+   EXEIgnoreNext      <= '0' when (executeIgnoreNext = '1') else
+                         '1' when (decodeBranchType = BRANCH_ERET) else                      
                          '1' when (decodeBranchType = BRANCH_BRANCH_BGEZ and decodeBranchLikely = '1' and cmpZero = '0' and cmpNegative = '1')  else
                          '1' when (decodeBranchType = BRANCH_BRANCH_BLTZ and decodeBranchLikely = '1' and cmpNegative = '0')                    else
                          '1' when (decodeBranchType = BRANCH_BRANCH_BEQ  and decodeBranchLikely = '1' and cmpEqual = '0')                       else
@@ -1913,12 +1918,18 @@ begin
                   stall3     <= '0';
                   executeNew <= '1';
                   case (hilocalc) is
-                     when HILOCALC_MULT   => hi <= unsigned(resize(  signed(mulResult(63 downto 32)),64)); lo <= unsigned(resize(  signed(mulResult(31 downto 0)),64));
-                     when HILOCALC_MULTU  => hi <= unsigned(resize(  signed(mulResult(63 downto 32)),64)); lo <= unsigned(resize(  signed(mulResult(31 downto 0)),64));
-                     when HILOCALC_DMULT  => hi <= unsigned(mulResult(127 downto 64)); lo <= unsigned(mulResult(63 downto 0));
-                     when HILOCALC_DMULTU => hi <= unsigned(mulResult(127 downto 64)); lo <= unsigned(mulResult(63 downto 0));
-                     when HILOCALC_DIV    => hi <= unsigned(DIVremainder(63 downto  0)); lo <= unsigned(DIVquotient(63 downto 0));
-                     when HILOCALC_DIVU   => hi <= unsigned(DIVremainder(63 downto  0)); lo <= unsigned(DIVquotient(63 downto 0));
+                     when HILOCALC_MULT | HILOCALC_MULTU => 
+                        hi <= unsigned(resize(  signed(mulResult(63 downto 32)),64)); 
+                        lo <= unsigned(resize(  signed(mulResult(31 downto 0)),64));
+                     when HILOCALC_DMULT | HILOCALC_DMULTU => 
+                        hi <= unsigned(mulResult(127 downto 64)); 
+                        lo <= unsigned(mulResult(63 downto 0));
+                     when HILOCALC_DIV | HILOCALC_DIVU => 
+                        hi <= unsigned(resize(DIVremainder(31 downto  0), 64)); 
+                        lo <= unsigned(resize(DIVquotient(31 downto 0), 64));
+                     when HILOCALC_DDIV | HILOCALC_DDIVU => 
+                        hi <= unsigned(DIVremainder(63 downto  0)); 
+                        lo <= unsigned(DIVquotient(63 downto 0));
                   end case;
                end if;
             end if;
@@ -2043,7 +2054,7 @@ begin
                         stall3      <= '1';
                         DIVdividend <= resize(signed(value1), 65);
                         DIVdivisor  <= resize(signed(value2), 65);
-                        hilocalc    <= HILOCALC_DIV;
+                        hilocalc    <= HILOCALC_DDIV;
                         DIVstart    <= '1';
                      end if;
                      
@@ -2063,7 +2074,7 @@ begin
                         stall3      <= '1';
                         DIVdividend <= '0' & signed(value1);
                         DIVdivisor  <= '0' & signed(value2);
-                        hilocalc    <= HILOCALC_DIVU;
+                        hilocalc    <= HILOCALC_DDIVU;
                         DIVstart    <= '1';
                      end if;
                      
