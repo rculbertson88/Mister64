@@ -18,6 +18,7 @@ entity cpu_instrcache is
       ram_active        : in  std_logic := '0';
       ram_grant         : in  std_logic := '0';
       ram_done          : in  std_logic := '0';
+      ram_addr          : in  unsigned(28 downto 0);
       ddr3_DOUT         : in  std_logic_vector(63 downto 0);
       ddr3_DOUT_READY   : in  std_logic;
       
@@ -101,7 +102,7 @@ begin
          end if;
          
          if (ram_grant = '1') then
-            cache_addr_a <= fill_addr(13 downto 5) & "00";
+            cache_addr_a <= ram_addr(13 downto 5) & "00";
          elsif (ddr3_DOUT_READY = '1') then
             cache_addr_a <= cache_addr_a + 1;
          end if;

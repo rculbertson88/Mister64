@@ -25,7 +25,7 @@ entity cpu is
       
       mem_request           : out std_logic := '0';
       mem_rnw               : out std_logic := '0'; 
-      mem_address           : out unsigned(31 downto 0) := (others => '0'); 
+      mem_address           : buffer unsigned(31 downto 0) := (others => '0'); 
       mem_req64             : out std_logic := '0'; 
       mem_size              : out unsigned(2 downto 0) := (others => '0');
       mem_writeMask         : out std_logic_vector(7 downto 0) := (others => '0'); 
@@ -661,6 +661,7 @@ begin
       ram_active        => not memoryMuxStage4,
       ram_grant         => rdram_granted2X,
       ram_done          => mem_finished_instr,
+      ram_addr          => mem_address(28 downto 0),
       ddr3_DOUT         => ddr3_DOUT,      
       ddr3_DOUT_READY   => ddr3_DOUT_READY,
       
