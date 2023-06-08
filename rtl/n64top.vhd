@@ -191,6 +191,7 @@ architecture arch of n64top is
    signal SS_Adr                 : unsigned(11 downto 0);
    signal SS_wren                : std_logic_vector(13 downto 0);
    signal SS_rden                : std_logic_vector(13 downto 0);
+   signal SS_DataRead_PI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_VI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_CPU        : std_logic_vector(63 downto 0);
    
@@ -338,7 +339,7 @@ begin
       bus_dataRead         => bus_VI_dataRead, 
       bus_done             => bus_VI_done,
       
-      SS_reset             => '1',
+      SS_reset             => SS_reset,
       SS_DataWrite         => SS_DataWrite,
       SS_Adr               => SS_Adr(2 downto 0),
       SS_wren              => SS_wren(9),
@@ -433,7 +434,14 @@ begin
       bus_cart_read        => bus_PIcart_read,     
       bus_cart_write       => bus_PIcart_write,    
       bus_cart_dataRead    => bus_PIcart_dataRead, 
-      bus_cart_done        => bus_PIcart_done
+      bus_cart_done        => bus_PIcart_done,
+      
+      SS_reset             => SS_reset,
+      SS_DataWrite         => SS_DataWrite,
+      SS_Adr               => SS_Adr(2 downto 0),
+      SS_wren              => SS_wren(2),
+      SS_rden              => SS_rden(2),
+      SS_DataRead          => SS_DataRead_PI
    );
    
    iPIF : entity work.PIF

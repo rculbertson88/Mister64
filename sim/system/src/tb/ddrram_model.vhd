@@ -226,17 +226,12 @@ begin
                   data(targetpos) := to_integer(signed(read_byte0 & read_byte1 & read_byte2 & read_byte3));
                end if;
                
-               if (loadcount = 16#20000#) then
-                  report "written data " & integer'image(data(targetpos));
-                  report "to " & integer'image(targetpos);
-               end if;
-               
                targetpos       := targetpos + 1;
                loadcount       := loadcount + 4;
                
             end loop;
             
-            report "bytes loaded " & integer'image(loadcount);
+            --report "bytes loaded " & integer'image(loadcount);
          
             file_close(infile);
          

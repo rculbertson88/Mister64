@@ -1840,7 +1840,7 @@ begin
                end if;          
                
             when 16#3D# => -- SCD1 
-               report "SCD1 not implemented" severity failure; 
+               --report "SCD1 not implemented" severity failure; 
                EXEerror_instr     <= '1'; 
                
             when 16#3F# => -- SD
@@ -1963,8 +1963,18 @@ begin
                elsif (decodeNew = '1') then     
                
                   executeIgnoreNext             <= EXEIgnoreNext;
+                  executeBranchdelaySlot        <= EXEBranchdelaySlot;  
                   
-                  if (executeIgnoreNext = '0') then
+                  if (executeIgnoreNext = '1') then
+                  
+                     resultWriteEnable      <= '0';
+                     executeCOP0WriteEnable <= '0';
+                     executeCOP0ReadEnable  <= '0';
+                     executeCacheEnable     <= '0';
+                     executeMemReadEnable   <= '0';
+                     executeMemWriteEnable  <= '0';
+                  
+                  else
                
                      executeNew                    <= '1';
                      
@@ -1984,8 +1994,6 @@ begin
                         resultWriteEnable <= EXEresultWriteEnable;
                      end if;
                            
-                     executeBranchdelaySlot        <= EXEBranchdelaySlot;    
-         
                      executeMemWriteEnable         <= EXEMemWriteEnable;  
    
                      executeLoadType               <= EXELoadType;   
@@ -2375,7 +2383,7 @@ begin
                   cpu_export.regs(i) <= regs(i);
                end loop;
                cop0_export_1       <= cop0_export;
-               cpu_export.cop0regs <= cop0_export_1;
+               cpu_export.cop0regs <= cop0_export;
                
 -- synthesis translate_on
                debugwrite <= '1';

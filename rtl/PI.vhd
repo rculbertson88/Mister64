@@ -42,7 +42,15 @@ entity PI is
       bus_cart_read        : in  std_logic;
       bus_cart_write       : in  std_logic;
       bus_cart_dataRead    : out std_logic_vector(31 downto 0) := (others => '0');
-      bus_cart_done        : out std_logic := '0'
+      bus_cart_done        : out std_logic := '0';
+      
+      SS_reset              : in  std_logic;
+      SS_DataWrite          : in  std_logic_vector(63 downto 0);
+      SS_Adr                : in  unsigned(2 downto 0);
+      SS_wren               : in  std_logic;
+      SS_rden               : in  std_logic;
+      SS_DataRead           : out std_logic_vector(63 downto 0);
+      SS_idle               : out std_logic
    );
 end entity;
 
@@ -81,12 +89,16 @@ architecture arch of PI is
    ); 
    signal state                  : tState := IDLE;
    
-   signal written                : std_logic := '0';   
    signal writtenData            : std_logic_vector(31 downto 0) := (others => '0');   
-   signal writtenTime            : integer range 0 to 200 := 0; 
+   signal writtenTime            : integer range 0 to 100 := 0; 
 
    signal bus_cart_read_latched  : std_logic := '0';  
-   signal bus_cart_write_latched : std_logic := '0';    
+   signal bus_cart_write_latched : std_logic := '0';   
+
+   -- savestates
+   type t_ssarray is array(0 to 7) of std_logic_vector(63 downto 0);
+   signal ss_in  : t_ssarray := (others => (others => '0'));  
+   signal ss_out : t_ssarray := (others => (others => '0'));     
 
 begin 
 
@@ -108,10 +120,10 @@ begin
             PI_DRAM_ADDR            <= (others => '0');
             PI_CART_ADDR            <= (others => '0');
             PI_LEN                  <= (others => '0');
-            PI_STATUS_DMAbusy       <= '0';
-            PI_STATUS_IObusy        <= '0';
-            PI_STATUS_DMAerror      <= '0';
-            PI_STATUS_irq           <= '0';
+            PI_STATUS_DMAbusy       <= ss_in(0)(56); -- '0';
+            PI_STATUS_IObusy        <= ss_in(0)(57); -- '0';
+            PI_STATUS_DMAerror      <= ss_in(0)(58); -- '0';
+            PI_STATUS_irq           <= ss_in(0)(59); -- '0';
             PI_BSD_DOM1_LAT         <= (others => '0');
             PI_BSD_DOM1_PWD         <= (others => '0');
             PI_BSD_DOM1_PGS         <= (others => '0');
@@ -123,7 +135,6 @@ begin
                
             state                   <= IDLE;
                
-            written                 <= '0';
             bus_cart_read_latched   <= '0';
             bus_cart_write_latched  <= '0';
  
@@ -200,7 +211,7 @@ begin
             if (writtenTime > 0) then
                writtenTime <= writtenTime - 1;
             else
-               written <= '0';
+               PI_STATUS_IObusy <= '0';
             end if;
             
             if (bus_cart_read = '1') then
@@ -223,8 +234,8 @@ begin
                      elsif (bus_cart_addr(28 downto 0) < 16#10000000#) then -- SRAM+FLASH  
                         report "SRAM + FLASH read not implemented" severity failure;
                      elsif (bus_cart_addr(28 downto 0) < 16#13FF0000#) then -- game rom
-                        if (written = '1') then
-                           written           <= '0';
+                        if (PI_STATUS_IObusy = '1') then
+                           PI_STATUS_IObusy  <= '0';
                            bus_cart_dataRead <= writtenData;
                            bus_cart_done     <= '1';
                         else
@@ -241,10 +252,10 @@ begin
                   
                      bus_cart_write_latched <= '0';
                   
-                     if (written = '0') then 
-                        written     <= '1';
-                        writtenData <= bus_cart_dataWrite;
-                        writtenTime <= 200;
+                     if (PI_STATUS_IObusy = '0') then 
+                        PI_STATUS_IObusy  <= '1';
+                        writtenData       <= bus_cart_dataWrite;
+                        writtenTime       <= 1; -- todo: correct time!
                      end if;
 
                      if (bus_cart_addr(28 downto 0) < 16#08000000#) then -- DD
@@ -366,6 +377,33 @@ begin
             end case;
 
          end if;
+      end if;
+   end process;
+   
+--##############################################################
+--############################### savestates
+--##############################################################
+
+   SS_idle <= '1';
+
+   process (clk1x)
+   begin
+      if (rising_edge(clk1x)) then
+      
+         if (SS_reset = '1') then
+         
+            for i in 0 to 5 loop
+               ss_in(i) <= (others => '0');
+            end loop;
+            
+         elsif (SS_wren = '1') then
+            ss_in(to_integer(SS_Adr)) <= SS_DataWrite;
+         end if;
+         
+         if (SS_rden = '1') then
+            SS_DataRead <= ss_out(to_integer(SS_Adr));
+         end if;
+      
       end if;
    end process;
 
