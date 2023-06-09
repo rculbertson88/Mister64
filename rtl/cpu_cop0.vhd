@@ -187,9 +187,13 @@ begin
          when 20 => readValue(63 downto 4) <= COP0_20_XCONTEXT;    
          when 26 => readValue(7 downto 0) <= COP0_26_PARITYERROR;       
 
+         when 27 => readValue <= (others => '0');
+
          when 28 =>
             readValue(7 downto 6)  <= COP0_28_TAGLO_primaryCacheState;
             readValue(27 downto 8) <= COP0_28_TAGLO_physicalAddress;
+            
+         when 29 => readValue <= (others => '0');
          
          when 30 => readValue <= COP0_30_EPCERROR;
           

@@ -1564,10 +1564,10 @@ begin
                
             when 16#11# => -- COP1
                --report "cop1 not implemented" severity failure; 
-               --EXEerror_instr     <= '1';               
+               EXEerror_instr     <= '1';               
                
             when 16#12# => -- COP2
-               report "cop2 not implemented" severity failure; 
+               --report "cop2 not implemented" severity failure; 
                EXEerror_instr     <= '1';
                
             when 16#13# => -- COP3
@@ -1767,7 +1767,7 @@ begin
                end if; 
 
             when 16#31# => -- LWC1
-               report "LWC1 not implemented" severity failure; 
+               --report "LWC1 not implemented" severity failure; 
                EXEerror_instr     <= '1';
 
             when 16#32# => -- LWC2 -> NOP
@@ -1792,7 +1792,7 @@ begin
                end if;             
 
             when 16#35# => -- LDC1 
-               report "LDC1 not implemented" severity failure; 
+               --report "LDC1 not implemented" severity failure; 
                EXEerror_instr     <= '1'; 
 
             when 16#37# => -- LD
@@ -1818,7 +1818,7 @@ begin
                end if;
                
             when 16#39# => -- SWC1 
-               report "SWC1 not implemented" severity failure; 
+               --report "SWC1 not implemented" severity failure; 
                EXEerror_instr     <= '1';
                
             when 16#3A# => -- SWC2 -> nop
