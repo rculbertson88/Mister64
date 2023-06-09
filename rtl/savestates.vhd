@@ -69,7 +69,7 @@ architecture arch of savestates is
       (  3072,       8),    -- MI           1 
       (  4096,       8),    -- PI           2 
       (  5120,       8),    -- PIF          3 
-      (  6144,       8),    -- RDP          4 
+      (  6144,       2),    -- RDP          4 
       (  7168,       8),    -- RDRAMREGS    5 
       (  8192,       8),    -- RI           6 
       (  9216,       8),    -- RSP          7 

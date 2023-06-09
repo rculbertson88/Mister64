@@ -8,12 +8,13 @@ use IEEE.numeric_std.all;
 
 package pDDR3 is
 
-   constant DDR3MUXCOUNT : integer := 4;
+   constant DDR3MUXCOUNT : integer := 5;
    
    constant DDR3MUX_MEMMUX : integer := 0;
    constant DDR3MUX_PI     : integer := 1;
    constant DDR3MUX_VI     : integer := 2;
    constant DDR3MUX_SS     : integer := 3;
+   constant DDR3MUX_RDP    : integer := 4;
    
    type tDDDR3Single     is array(0 to DDR3MUXCOUNT - 1) of std_logic;
    type tDDDR3ReqAddr    is array(0 to DDR3MUXCOUNT - 1) of unsigned(27 downto 0);

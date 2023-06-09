@@ -154,22 +154,25 @@ begin
    
    rdram_rnw <= '1';
    
-   
-   lineScaled <= (videoout_request.lineInNext * VI_Y_SCALE_FACTOR) + (VI_Y_SCALE_OFFSET & '0');
-   
    process (clk1x)
    begin
       if rising_edge(clk1x) then
+      
+         if (videoout_out.vblank = '1') then
+            lineScaled <= resize(VI_Y_SCALE_OFFSET & '0', lineScaled'length);
+         elsif (videoout_request.lineInNext /= lineAct and videoout_request.fetch = '1') then  
+            lineScaled <= lineScaled + VI_Y_SCALE_FACTOR;     
+         end if;
          
          if (VI_CTRL_TYPE = "10") then
-            rdram_address_calc    <= VI_ORIGIN + to_unsigned(to_integer(lineScaled) * to_integer(VI_WIDTH) * 2 / 1024, 24);
+            rdram_address_calc    <= VI_ORIGIN + to_unsigned(to_integer(lineScaled(lineScaled'left downto 10)) * to_integer(VI_WIDTH) * 2, 24);
             if (VI_X_SCALE_FACTOR > x"200") then -- hack for 320/640 pixel width
                rdram_burstcount_calc <= 9x"A0";
             else
                rdram_burstcount_calc <= 9x"50";
             end if;
          elsif (VI_CTRL_TYPE = "11") then
-            rdram_address_calc    <= VI_ORIGIN + to_unsigned(to_integer(lineScaled) * to_integer(VI_WIDTH) * 4 / 1024, 24);
+            rdram_address_calc    <= VI_ORIGIN + to_unsigned(to_integer(lineScaled(lineScaled'left downto 10)) * to_integer(VI_WIDTH) * 4, 24);
             if (VI_X_SCALE_FACTOR > x"200") then -- hack for 320/640 pixel width
                rdram_burstcount_calc <= 9x"140";
             else

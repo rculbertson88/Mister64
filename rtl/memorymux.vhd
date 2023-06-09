@@ -138,7 +138,7 @@ begin
       -- rsp
       bus_RSP_read       <= '0';
       bus_RSP_write      <= '0';
-      bus_RSP_addr       <= mem_address(19 downto 0);
+      bus_RSP_addr       <= mem_address(19 downto 2) & "00";
       bus_RSP_dataWrite  <= data_rotated;
       if (mem_request = '1' and address >= 16#04000000# and address < 16#04100000#) then
          bus_RSP_read    <= mem_rnw;
@@ -148,7 +148,7 @@ begin
       -- RDP
       bus_RDP_read       <= '0';
       bus_RDP_write      <= '0';
-      bus_RDP_addr       <= mem_address(19 downto 0);
+      bus_RDP_addr       <= mem_address(19 downto 2) & "00";
       bus_RDP_dataWrite  <= data_rotated;
       if (mem_request = '1' and address >= 16#04100000# and address < 16#04200000#) then
          bus_RDP_read    <= mem_rnw;
@@ -158,7 +158,7 @@ begin
       -- MI
       bus_MI_read       <= '0';
       bus_MI_write      <= '0';
-      bus_MI_addr       <= mem_address(19 downto 0);
+      bus_MI_addr       <= mem_address(19 downto 2) & "00";
       bus_MI_dataWrite  <= data_rotated;
       if (mem_request = '1' and address >= 16#04300000# and address < 16#04400000#) then
          bus_MI_read    <= mem_rnw;
@@ -168,7 +168,7 @@ begin
       -- VI
       bus_VI_read       <= '0';
       bus_VI_write      <= '0';
-      bus_VI_addr       <= mem_address(19 downto 0);
+      bus_VI_addr       <= mem_address(19 downto 2) & "00";
       bus_VI_dataWrite  <= data_rotated;
       if (mem_request = '1' and address >= 16#04400000# and address < 16#04500000#) then
          bus_VI_read    <= mem_rnw;
@@ -178,7 +178,7 @@ begin
       -- AI
       bus_AI_read       <= '0';
       bus_AI_write      <= '0';
-      bus_AI_addr       <= mem_address(19 downto 0);
+      bus_AI_addr       <= mem_address(19 downto 2) & "00";
       bus_AI_dataWrite  <= data_rotated;
       if (mem_request = '1' and address >= 16#04500000# and address < 16#04600000#) then
          bus_AI_read    <= mem_rnw;
@@ -188,7 +188,7 @@ begin
       -- PI registers
       bus_PIreg_read       <= '0';
       bus_PIreg_write      <= '0';
-      bus_PIreg_addr       <= mem_address(19 downto 0);
+      bus_PIreg_addr       <= mem_address(19 downto 2) & "00";
       bus_PIreg_dataWrite  <= data_rotated;
       if (mem_request = '1' and address >= 16#04600000# and address < 16#04700000#) then
          bus_PIreg_read    <= mem_rnw;
@@ -198,7 +198,7 @@ begin
       -- RI
       bus_RI_read       <= '0';
       bus_RI_write      <= '0';
-      bus_RI_addr       <= mem_address(19 downto 0);
+      bus_RI_addr       <= mem_address(19 downto 2) & "00";
       bus_RI_dataWrite  <= data_rotated;
       if (mem_request = '1' and address >= 16#04700000# and address < 16#04800000#) then
          bus_RI_read    <= mem_rnw;
@@ -208,7 +208,7 @@ begin
       -- SI
       bus_SI_read       <= '0';
       bus_SI_write      <= '0';
-      bus_SI_addr       <= mem_address(19 downto 0);
+      bus_SI_addr       <= mem_address(19 downto 2) & "00";
       bus_SI_dataWrite  <= data_rotated;
       if (mem_request = '1' and address >= 16#04800000# and address < 16#04900000#) then
          bus_SI_read    <= mem_rnw;
@@ -232,7 +232,7 @@ begin
       -- PIF
       bus_PIF_read       <= '0';
       bus_PIF_write      <= '0';
-      bus_PIF_addr       <= mem_address(10 downto 0);
+      bus_PIF_addr       <= mem_address(10 downto 2) & "00";
       bus_PIF_dataWrite  <= mem_dataWrite(31 downto 0);
       if (mem_request = '1' and address >= 16#1FC00000# and address < 16#1FC00800#) then
          bus_PIF_read    <= mem_rnw;

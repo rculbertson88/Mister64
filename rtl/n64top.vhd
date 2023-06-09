@@ -191,6 +191,7 @@ architecture arch of n64top is
    signal SS_Adr                 : unsigned(11 downto 0);
    signal SS_wren                : std_logic_vector(13 downto 0);
    signal SS_rden                : std_logic_vector(13 downto 0);
+   signal SS_DataRead_RDP        : std_logic_vector(63 downto 0);
    signal SS_DataRead_PI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_VI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_CPU        : std_logic_vector(63 downto 0);
@@ -268,6 +269,7 @@ begin
    port map
    (
       clk1x                => clk1x,        
+      clk2x                => clk2x,        
       ce                   => ce_1x,           
       reset                => reset_intern_1x, 
 
@@ -278,7 +280,23 @@ begin
       bus_read             => bus_RDP_read,     
       bus_write            => bus_RDP_write,    
       bus_dataRead         => bus_RDP_dataRead, 
-      bus_done             => bus_RDP_done
+      bus_done             => bus_RDP_done,
+      
+      rdram_request        => rdram_request(DDR3MUX_RDP),   
+      rdram_rnw            => rdram_rnw(DDR3MUX_RDP),       
+      rdram_address        => rdram_address(DDR3MUX_RDP),   
+      rdram_burstcount     => rdram_burstcount(DDR3MUX_RDP),
+      rdram_granted        => rdram_granted(DDR3MUX_RDP),      
+      rdram_done           => rdram_done(DDR3MUX_RDP),   
+      ddr3_DOUT            => ddr3_DOUT,       
+      ddr3_DOUT_READY      => ddr3_DOUT_READY, 
+      
+      SS_reset             => SS_reset,
+      SS_DataWrite         => SS_DataWrite,
+      SS_Adr               => SS_Adr(0 downto 0),
+      SS_wren              => SS_wren(4),
+      SS_rden              => SS_rden(4),
+      SS_DataRead          => SS_DataRead_RDP
    );
    
    iMI : entity work.MI

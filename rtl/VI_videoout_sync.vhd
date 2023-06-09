@@ -259,8 +259,8 @@ begin
             clkDiv <= 10;
          end if;
          
-         if (to_integer(videoout_settings.VI_WIDTH(9 downto 0)) < 320) then
-            xmax <= 320;
+         if (to_integer(videoout_settings.VI_WIDTH(9 downto 0)) < 256) then
+            xmax <= 256;
          else  
             xmax <= to_integer(videoout_settings.VI_WIDTH(9 downto 0));
          end if;
@@ -306,7 +306,7 @@ begin
                      videoout_out.r      <= overlay_data( 7 downto 0);
                      videoout_out.g      <= overlay_data(15 downto 8);
                      videoout_out.b      <= overlay_data(23 downto 16);
-                  elsif (videoout_settings.CTRL_TYPE(1) = '0') then
+                  elsif (videoout_settings.CTRL_TYPE(1) = '0' or videoout_request.xpos >= to_integer(videoout_settings.VI_WIDTH(9 downto 0))) then
                      videoout_out.r      <= (others => '0');
                      videoout_out.g      <= (others => '0');
                      videoout_out.b      <= (others => '0');
