@@ -18,14 +18,16 @@ entity RDP_command is
       commandIsIdle        : out std_logic;
       commandWordDone      : out std_logic := '0';
             
-      settings_poly        : out tsettings_poly;
+      poly_done            : in  std_logic;
+      settings_poly        : out tsettings_poly := SETTINGSPOLYINIT;
+      poly_start           : out std_logic := '0';
       
-      settings_scissor     : out tsettings_scissor;
+      settings_scissor     : out tsettings_scissor := SETTINGSSCISSORINIT;
       settings_otherModes  : out tsettings_otherModes;
       settings_fillcolor   : out tsettings_fillcolor;
       settings_blendcolor  : out tsettings_blendcolor;
       settings_combineMode : out tsettings_combineMode;
-      settings_colorImage  : out tsettings_colorImage
+      settings_colorImage  : out tsettings_colorImage := (others => (others => '0'))
    );
 end entity;
 
@@ -36,7 +38,8 @@ architecture arch of RDP_command is
       IDLE, 
       READCOMMAND,
       EVALCOMMAND,
-      EVALTRIANGLE
+      EVALTRIANGLE,
+      WAITRASTER
    ); 
    signal state  : tState := IDLE;
 
@@ -55,6 +58,7 @@ begin
       if rising_edge(clk1x) then
       
          commandWordDone <= '0';
+         poly_start      <= '0';
       
          if (reset = '1') then
             
@@ -156,8 +160,23 @@ begin
                         settings_otherModes.atomicPrim      <= CommandData(55);
                      
                      when 6x"36" => -- fill rectangle
-                        commandWordDone <= '1';
-                        -- todo                          
+                        commandWordDone        <= '1';
+                        poly_start             <= '1';
+                        commandRAMPtr          <= commandRAMPtr;
+                        state                  <= WAITRASTER;
+                        settings_poly.lft      <= '1';
+                        settings_poly.YL       <= "000" & signed(CommandData(43 downto 32));
+                        settings_poly.YM       <= "000" & signed(CommandData(43 downto 32));
+                        settings_poly.YH       <= "000" & signed(CommandData(11 downto  0));     
+                        settings_poly.XL       <= 6x"0" & signed(CommandData(23 downto 12)) & 14x"0";
+                        settings_poly.XH       <= 6x"0" & signed(CommandData(23 downto 12)) & 14x"0";
+                        settings_poly.XM       <= 6x"0" & signed(CommandData(55 downto 44)) & 14x"0";
+                        settings_poly.DXLDy    <= (others => '0');
+                        settings_poly.DXHDy    <= (others => '0');
+                        settings_poly.DXMDy    <= (others => '0');
+                        if (settings_otherModes.cycleType >= 2) then
+                           settings_poly.YL(1 downto 0) <= "11";
+                        end if;
                         
                      when 6x"37" => -- set fill color
                         commandWordDone <= '1';
@@ -218,13 +237,22 @@ begin
                      when 2 =>
                         settings_poly.XM       <= signed(CommandData(63 downto 32));
                         settings_poly.DXMDy    <= signed(CommandData(29 downto  0));
-                        if (commandRAMPtr = commandCntNext) then
-                           state <= IDLE;
-                        else
-                           state <= EVALCOMMAND;
-                        end if;
+                        state                  <= WAITRASTER;
+                        commandRAMPtr          <= commandRAMPtr;
+                        poly_start             <= '1';
+                        
                      when others => null;
                   end case;
+                  
+               when WAITRASTER =>
+                  if (poly_done = '1') then
+                     if (commandRAMPtr = commandCntNext) then
+                        state <= IDLE;
+                     else
+                        state         <= EVALCOMMAND;
+                        commandRAMPtr <= commandRAMPtr + 1;
+                     end if;
+                  end if;
             
             end case; -- state
             

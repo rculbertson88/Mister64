@@ -19,6 +19,14 @@ package pRDP is
       DXMDy       : signed(29 downto 0);
    end record;    
 
+   constant SETTINGSPOLYINIT : tsettings_poly := 
+   (
+      lft            => '0',
+      maxLODlevel    => (others => '0'),
+      tile           => (others => '0'),
+      others => (others => '0')
+   );  
+
    type tsettings_scissor is record
       ScissorXL     : unsigned(11 downto 0);
       ScissorXH     : unsigned(11 downto 0);
@@ -26,7 +34,14 @@ package pRDP is
       ScissorYH     : unsigned(11 downto 0);
       ScissorField  : std_logic;
       ScissorOdd    : std_logic;
-   end record;     
+   end record;   
+
+   constant SETTINGSSCISSORINIT : tsettings_scissor := 
+   (
+      ScissorField   => '0',
+      ScissorOdd     => '0',
+      others => (others => '0')
+   );    
    
    type tsettings_otherModes is record
       alphaCompare       : std_logic;
@@ -104,5 +119,10 @@ package pRDP is
       FB_size      : unsigned(1 downto 0);
       FB_format    : unsigned(2 downto 0);
    end record; 
-   
+
+   constant SIZE_4BIT  : unsigned(1 downto 0) := "00";
+   constant SIZE_8BIT  : unsigned(1 downto 0) := "01";
+   constant SIZE_16BIT : unsigned(1 downto 0) := "10";
+   constant SIZE_32BIT : unsigned(1 downto 0) := "11";
+
 end package;

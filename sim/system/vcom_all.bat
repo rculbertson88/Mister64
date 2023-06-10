@@ -52,6 +52,7 @@ src/tb/cpu_mul.vhd ^
 ../../rtl/MI.vhd ^
 ../../rtl/RDP_package.vhd ^
 ../../rtl/RDP_command.vhd ^
+../../rtl/RDP_raster.vhd ^
 ../../rtl/RDP.vhd ^
 ../../rtl/DDR3Mux.vhd ^
 ../../rtl/statemanager.vhd ^

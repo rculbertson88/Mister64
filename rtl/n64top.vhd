@@ -286,6 +286,8 @@ begin
       rdram_rnw            => rdram_rnw(DDR3MUX_RDP),       
       rdram_address        => rdram_address(DDR3MUX_RDP),   
       rdram_burstcount     => rdram_burstcount(DDR3MUX_RDP),
+      rdram_writeMask      => rdram_writeMask(DDR3MUX_RDP), 
+      rdram_dataWrite      => rdram_dataWrite(DDR3MUX_RDP),     
       rdram_granted        => rdram_granted(DDR3MUX_RDP),      
       rdram_done           => rdram_done(DDR3MUX_RDP),   
       ddr3_DOUT            => ddr3_DOUT,       
