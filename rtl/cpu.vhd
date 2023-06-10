@@ -439,7 +439,7 @@ architecture arch of cpu is
    signal debugCnt                     : unsigned(31 downto 0);
    signal debugSum                     : unsigned(31 downto 0);
    signal debugTmr                     : unsigned(31 downto 0);
-   signal debugwrite                   : std_logic;
+   signal debugwrite                   : std_logic := '0';
    
 -- synthesis translate_off
    signal stallcountNo                 : integer;
@@ -603,7 +603,7 @@ begin
 	);
    
    regs_wren_a    <= '1' when (ss_regs_load = '1') else
-                     '1' when (ce_93 = '1' and writebackWriteEnable = '1' and debugwrite = '1') else 
+                     '1' when (ce_93 = '1' and writebackWriteEnable = '1') else 
                      '0';
    
    regs_data_a    <= ss_regs_data when (ss_regs_load = '1') else 
@@ -2386,10 +2386,10 @@ begin
                cpu_export.cop0regs <= cop0_export;
                
 -- synthesis translate_on
-               debugwrite <= '1';
-               if (debugCnt(31) = '1' and debugSum(31) = '1' and debugTmr(31) = '1' and writebackTarget = 0) then
-                  debugwrite <= '0';
-               end if;
+               --debugwrite <= '1';
+               --if (debugCnt(31) = '1' and debugSum(31) = '1' and debugTmr(31) = '1' and writebackTarget = 0) then
+               --   debugwrite <= '0';
+               --end if;
                
             end if;
              
