@@ -125,4 +125,24 @@ package pRDP is
    constant SIZE_16BIT : unsigned(1 downto 0) := "10";
    constant SIZE_32BIT : unsigned(1 downto 0) := "11";
 
+
+   -- export
+   -- synthesis translate_off
+   type rdp_export_type is record
+      exporttype     : integer;
+      addr           : unsigned(31 downto 0);
+      data           : unsigned(63 downto 0);
+      x              : unsigned(15 downto 0);
+      y              : unsigned(15 downto 0);
+      debug1         : unsigned(31 downto 0);
+      debug2         : unsigned(31 downto 0);
+      debug3         : unsigned(31 downto 0);
+   end record;
+   
+   constant rdp_export_init : rdp_export_type := (
+      exporttype => 0, 
+      others => (others => '0')
+   );   
+   -- synthesis translate_on
+
 end package;

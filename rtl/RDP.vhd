@@ -1,6 +1,7 @@
 library IEEE;
 use IEEE.std_logic_1164.all;  
 use IEEE.numeric_std.all; 
+use STD.textio.all;
 
 library mem;
 use work.pFunctions.all;
@@ -126,7 +127,16 @@ architecture arch of RDP is
    -- savestates
    type t_ssarray is array(0 to 1) of unsigned(63 downto 0);
    signal ss_in  : t_ssarray := (others => (others => '0'));  
-   signal ss_out : t_ssarray := (others => (others => '0'));   
+   signal ss_out : t_ssarray := (others => (others => '0')); 
+
+   --export
+   -- synthesis translate_off
+   signal export_command_done       : std_logic; 
+   signal export_command_array      : rdp_export_type;
+   
+   signal export_line_done          : std_logic; 
+   signal export_line_list          : rdp_export_type; 
+   -- synthesis translate_on   
 
 begin 
 
@@ -287,6 +297,9 @@ begin
                      commandCntNext    <= resize(DPC_END(23 downto 3) - DPC_CURRENT(23 downto 3), 5);
                      rdram_burstcount  <= "00000" & resize(DPC_END(23 downto 3) - DPC_CURRENT(23 downto 3), 5);
                   end if;
+                  -- synthesis translate_off
+                  export_command_array.addr <= x"00" & DPC_CURRENT;
+                  -- synthesis translate_on
                end if;
                
             when WAITCOMMANDDATA =>
@@ -363,7 +376,11 @@ begin
       
       poly_done            => poly_done,       
       settings_poly        => settings_poly,       
-      poly_start           => poly_start,          
+      poly_start           => poly_start,     
+
+      -- synthesis translate_off
+      export_command_done  => export_command_done, 
+      -- synthesis translate_on      
                               
       settings_scissor     => settings_scissor,   
       settings_otherModes  => settings_otherModes, 
@@ -388,6 +405,11 @@ begin
       poly_start           => poly_start,   
       loading_mode         => '0',
       poly_done            => poly_done,
+      
+      -- synthesis translate_off
+      export_line_done     => export_line_done,
+      export_line_list     => export_line_list,
+      -- synthesis translate_on
 
       writePixel           => writePixel,     
       writePixelX          => writePixelX,    
@@ -526,6 +548,70 @@ begin
       
       end if;
    end process;
+   
+--##############################################################
+--############################### export
+--##############################################################
+   
+   -- synthesis translate_off
+   goutput : if 1 = 1 generate
+      type ttracecounts_out is array(0 to 29) of integer;
+      signal tracecounts_out : ttracecounts_out;
+   begin
+   
+      process
+         file outfile          : text;
+         variable f_status     : FILE_OPEN_STATUS;
+         variable line_out     : line;
+         variable stringbuffer : string(1 to 31);
+      begin
+   
+         file_open(f_status, outfile, "R:\\rdp_n64_sim.txt", write_mode);
+         file_close(outfile);
+         file_open(f_status, outfile, "R:\\rdp_n64_sim.txt", append_mode);
+         
+         for i in 0 to 29 loop
+            tracecounts_out(i) <= 0;
+         end loop;
+         
+         while (true) loop
+            
+            wait until rising_edge(clk1x);
+            
+            if (export_command_done = '1') then
+               write(line_out, string'("Command: I ")); 
+               write(line_out, to_string_len(tracecounts_out(2) + 1, 8));
+               write(line_out, string'(" A ")); 
+               write(line_out, to_hstring(export_command_array.addr + (commandRAMPtr - 1) * 8));
+               write(line_out, string'(" D "));
+               write(line_out, to_hstring(CommandData));
+               writeline(outfile, line_out);
+               tracecounts_out(2) <= tracecounts_out(2) + 1;
+            end if;
+            
+            if (export_line_done = '1') then
+               write(line_out, string'("LINE: I ")); 
+               write(line_out, to_string_len(tracecounts_out(20) + 1, 8));
+               write(line_out, string'(" A 00000000 D 00000000 X    0 Y ")); 
+               write(line_out, to_string_len(to_integer(export_line_list.y), 4));
+               write(line_out, string'(" D1 "));
+               write(line_out, to_hstring(export_line_list.debug1));
+               write(line_out, string'(" D2 "));
+               write(line_out, to_hstring(export_line_list.debug2));
+               write(line_out, string'(" D3 "));
+               write(line_out, to_hstring(export_line_list.debug3));
+               writeline(outfile, line_out);
+               tracecounts_out(20) <= tracecounts_out(20) + 1;
+            end if;
+            
+         end loop;
+         
+      end process;
+   
+   end generate goutput;
+
+   -- synthesis translate_on   
+
 
 end architecture;
 

@@ -22,6 +22,10 @@ entity RDP_command is
       settings_poly        : out tsettings_poly := SETTINGSPOLYINIT;
       poly_start           : out std_logic := '0';
       
+      -- synthesis translate_off
+      export_command_done  : out std_logic := '0'; 
+      -- synthesis translate_on
+      
       settings_scissor     : out tsettings_scissor := SETTINGSSCISSORINIT;
       settings_otherModes  : out tsettings_otherModes;
       settings_fillcolor   : out tsettings_fillcolor;
@@ -53,6 +57,10 @@ begin
 
    commandIsIdle <= '1' when (state = IDLE) else '0';
 
+   -- synthesis translate_off
+   export_command_done <= '1' when (state = EVALCOMMAND) else '0';
+   -- synthesis translate_on
+
    process (clk1x)
    begin
       if rising_edge(clk1x) then
@@ -83,7 +91,7 @@ begin
                   if (commandRAMPtr = commandCntNext) then
                      state <= IDLE;
                   end if;
-                  
+
                   case (CommandData(61 downto 56)) is
                   
                      when 6x"00" => -- NOP
@@ -176,6 +184,7 @@ begin
                         settings_poly.DXMDy    <= (others => '0');
                         if (settings_otherModes.cycleType >= 2) then
                            settings_poly.YL(1 downto 0) <= "11";
+                           settings_poly.YM(1 downto 0) <= "11";
                         end if;
                         
                      when 6x"37" => -- set fill color
@@ -226,6 +235,7 @@ begin
             
                when EVALTRIANGLE =>
                   commandRAMPtr   <= commandRAMPtr + 1;
+                  commandWordDone <= '1';
                   triCnt <= triCnt + 1;
                   case (to_integer(triCnt)) is
                      when 0 =>

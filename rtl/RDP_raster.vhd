@@ -20,6 +20,11 @@ entity RDP_raster is
       loading_mode         : in  std_logic;
       poly_done            : out std_logic := '0';
       
+      -- synthesis translate_off
+      export_line_done     : out std_logic := '0'; 
+      export_line_list     : out rdp_export_type := rdp_export_init; 
+      -- synthesis translate_on
+      
       writePixel           : out std_logic := '0';
       writePixelX          : out unsigned(11 downto 0) := (others => '0');
       writePixelY          : out unsigned(11 downto 0) := (others => '0');
@@ -33,7 +38,8 @@ architecture arch of RDP_raster is
    (  
       POLYIDLE, 
       EVALLINE,
-      WAITLINE
+      WAITLINE,
+      POLYFINISH
    ); 
    signal polystate  : tpolyState := POLYIDLE;    
 
@@ -57,7 +63,7 @@ architecture arch of RDP_raster is
    signal allover       : std_logic := '0';
    signal allunder      : std_logic := '0';
    signal allinval      : std_logic := '0';
-   signal unsrcx        : signed(12 downto 0) := (others => '0');
+   signal unscrx        : signed(12 downto 0) := (others => '0');
    signal maxxmx        : unsigned(11 downto 0) := (others => '0');
    signal minxmx        : unsigned(11 downto 0) := (others => '0');
       
@@ -88,6 +94,7 @@ architecture arch of RDP_raster is
       y       : unsigned(11 downto 0);
       xStart  : unsigned(11 downto 0); 
       xEnd    : unsigned(11 downto 0);
+      unscrx  :   signed(12 downto 0);
    end record;
    signal lineInfo      : tlineInfo;
    signal startLine     : std_logic := '0';
@@ -117,7 +124,7 @@ begin
                   
    yHLimitMux     <= settings_poly.YH(14 downto 0)           when (loading_mode = '1' or settings_poly.YH(13) = '1') else
                   "000" & signed(settings_scissor.ScissorYH) when (settings_poly.YH(12) = '1') else
-                  settings_poly.YH(14 downto 0)              when (unsigned(settings_poly.YH(11 downto 0)) < settings_scissor.ScissorYH) else
+                  settings_poly.YH(14 downto 0)              when (settings_poly.YH >= to_integer(settings_scissor.ScissorYH)) else
                   "000" & signed(settings_scissor.ScissorYH);
    
    yhclose        <= yHLimitMux(14 downto 2) & "00";
@@ -156,12 +163,19 @@ begin
                      '0';
    
    process (clk1x)
+      variable unscrx_new : signed(12 downto 0) := (others => '0');
+      variable maxxmx_new : unsigned(11 downto 0) := (others => '0');
+      variable minxmx_new : unsigned(11 downto 0) := (others => '0');
    begin
       if rising_edge(clk1x) then
       
+         unscrx_new := unscrx;
+         maxxmx_new := maxxmx;
+         minxmx_new := minxmx;
+      
          poly_done  <= '0';
          startLine  <= '0';
-      
+         
          if (reset = '1') then
             
             polystate <= POLYIDLE;
@@ -178,17 +192,22 @@ begin
                      -- normalize_dzpix
                      -- if (do_offset) .. if (otherModes_cycleType != 2)
                      xright         <= settings_poly.XH(31 downto 1) & '0';
-                     xleft          <= settings_poly.XM(31 downto 1) & '0';
+                     if (settings_poly.YH(14 downto 2) & "00" = settings_poly.YM) then
+                        secondHalf <= '1';
+                        xleft      <= settings_poly.XL(31 downto 1) & '0';
+                     else
+                        secondHalf  <= '0';
+                        xleft       <= settings_poly.XM(31 downto 1) & '0';
+                     end if;
                      ycur           <= settings_poly.YH(14 downto 2) & "00";
                      ldflag         <= (others => not do_offset);
                      yllimit        <= yLLimitMux;
                      if (settings_poly.YL(14 downto 2) > yLLimitMux(14 downto 2)) then
-                        ylfar       <= yLLimitMux(14 downto 2) & "11";
-                     else
                         ylfar       <= (yLLimitMux(14 downto 2) + 1) & "11";
+                     else
+                        ylfar       <= yLLimitMux(14 downto 2) & "11";
                      end if;
                      yhlimit        <= yHLimitMux;
-                     secondHalf     <= '0';
                      allover        <= '1';
                      allunder       <= '1';
                      allinval       <= '1';
@@ -199,15 +218,14 @@ begin
                when EVALLINE =>
                   ycur <= ycur + 1;
                   if (ycur >= ylfar) then
-                     polystate <= POLYIDLE;
-                     poly_done <= '1'; -- todo: needs to be delayed until drawing is done!
+                     polystate <= POLYFINISH;
                   end if;
                   
                   if ((loading_mode = '1' and ycur(14 downto 12) = "000") or (loading_mode = '0' and ycur >= yhclose)) then
 
                      if (ycur(1 downto 0) = 0) then
-                        maxxmx <= (others => '0');
-                        minxmx <= (others => '1');
+                        maxxmx_new     := (others => '0');
+                        minxmx_new     := (others => '1');
                         allover        <= '1';
                         allunder       <= '1';
                         allinval       <= '1';
@@ -228,24 +246,29 @@ begin
                      
                      if (invaly = '0') then
                         if (settings_poly.lft = '1') then
-                           if (xlsc(14 downto 3) > maxxmx) then maxxmx <= xlsc(14 downto 3); end if;
-                           if (xrsc(14 downto 3) < minxmx) then minxmx <= xrsc(14 downto 3); end if;
+                           if (xlsc(14 downto 3) > maxxmx_new) then maxxmx_new := xlsc(14 downto 3); end if;
+                           if (xrsc(14 downto 3) < minxmx_new) then minxmx_new := xrsc(14 downto 3); end if;
                         else
-                           if (xlsc(14 downto 3) < minxmx) then minxmx <= xlsc(14 downto 3); end if;
-                           if (xrsc(14 downto 3) > maxxmx) then maxxmx <= xrsc(14 downto 3); end if;
+                           if (xlsc(14 downto 3) < minxmx_new) then minxmx_new := xlsc(14 downto 3); end if;
+                           if (xrsc(14 downto 3) > maxxmx_new) then maxxmx_new := xrsc(14 downto 3); end if;
                         end if;
                      end if;
                 
                      if (unsigned(ycur(1 downto 0)) = ldflag) then
-                        unsrcx <= xright(28 downto 16);
+                        unscrx_new := xright(28 downto 16);
                         -- todo: line information for color/texture/z
                      end if;
                      
+                     unscrx <= unscrx_new;
+                     maxxmx <= maxxmx_new;
+                     minxmx <= minxmx_new;
+                     
                      if (unsigned(ycur(1 downto 0)) = 3) then
                         startLine         <= '1';
-                        lineInfo.y        <= unsigned(ycur(13 downto 2));
-                        lineInfo.xStart   <= minxmx;
-                        lineInfo.xEnd     <= maxxmx;
+                        lineInfo.y        <= unsigned(ycur(13 downto 2)); 
+                        lineInfo.xStart   <= minxmx_new;
+                        lineInfo.xEnd     <= maxxmx_new;
+                        lineInfo.unscrx   <= unscrx_new;
                         if (linestate /= LINEIDLE) then
                            polystate      <= WAITLINE;
                         end if;
@@ -270,6 +293,12 @@ begin
                   if (linestate = LINEIDLE) then
                      polystate <= EVALLINE;
                   end if;
+                  
+               when POLYFINISH =>
+                  if (linestate = LINEIDLE) then
+                     polystate <= POLYIDLE;
+                     poly_done <= '1'; 
+                  end if;
             
             end case; -- polystate
             
@@ -283,7 +312,11 @@ begin
       if rising_edge(clk1x) then
       
          writePixel <= '0';
-      
+         
+         -- synthesis translate_off
+         export_line_done  <= '0'; 
+         -- synthesis translate_on
+         
          if (reset = '1') then
             
             linestate <= LINEIDLE;
@@ -303,6 +336,13 @@ begin
                         posX <= lineInfo.xEnd;
                         endX <= lineInfo.xStart;
                      end if;
+                     -- synthesis translate_off
+                     export_line_done        <= '1'; 
+                     export_line_list.y      <= resize(lineInfo.y, 16);
+                     export_line_list.debug1 <= resize(lineInfo.xStart, 32);
+                     export_line_list.debug2 <= resize(lineInfo.xEnd, 32);
+                     export_line_list.debug3 <= resize(unsigned(lineInfo.unscrx), 32);
+                     -- synthesis translate_on
                   end if;                  
                
                when DRAWLINE =>
