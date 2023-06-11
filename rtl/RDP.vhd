@@ -101,7 +101,6 @@ architecture arch of RDP is
    signal writePixel                : std_logic;
    signal writePixelX               : unsigned(11 downto 0);
    signal writePixelY               : unsigned(11 downto 0);
-   signal writePixelSize            : unsigned(1 downto 0);
    signal writePixelColor           : unsigned(31 downto 0);
 
    -- Pixel merging
@@ -283,7 +282,7 @@ begin
                   rdram_rnw         <= '0';
                   rdram_address     <= 5x"0" & unsigned(fifoOut_Dout(83 downto 64)) & "000";
                   rdram_writeMask   <= fifoOut_Dout(91 downto 84);
-                  rdram_dataWrite   <= byteswap64(fifoOut_Dout(63 downto 0));
+                  rdram_dataWrite   <= fifoOut_Dout(63 downto 0);
                   rdram_burstcount  <= to_unsigned(1, 10);
                elsif (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1') then
                   memState          <= WAITCOMMANDDATA;

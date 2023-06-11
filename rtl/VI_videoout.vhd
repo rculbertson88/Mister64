@@ -105,9 +105,6 @@ architecture arch of VI_videoout is
    signal overlay_data        : std_logic_vector(23 downto 0);
    signal overlay_ena         : std_logic;
    
-   signal overlay_test_data   : std_logic_vector(23 downto 0);
-   signal overlay_test_ena    : std_logic;   
-   
    signal errortext           : unsigned(7 downto 0);
    signal overlay_error_data  : std_logic_vector(23 downto 0);
    signal overlay_error_ena   : std_logic;   
@@ -265,9 +262,6 @@ begin
    );   
    
    -- texts
-   ioverlayTextclockrate : entity work.VI_overlay generic map (4, 4, 64, x"000000")
-   port map ( clk1x, videoout_out.ce, '1', videoout_request.xpos, to_integer(videoout_request.lineDisp), overlay_test_data, overlay_test_ena, to_unsigned("Test")); 
-
    errortext <= resize(errorCode, 8) + 16#30# when (errorCode < 10) else resize(errorCode, 8) + 16#37#;
    ioverlayError : entity work.VI_overlay generic map (2, 4, 44, x"0000FF")
    port map
@@ -282,10 +276,9 @@ begin
       textstring             => x"45" & errortext
    ); 
    
-   overlay_ena <= overlay_error_ena or overlay_test_ena;
+   overlay_ena <= overlay_error_ena;
    
    overlay_data <= overlay_error_data when (overlay_error_ena = '1') else
-                   overlay_test_data  when (overlay_test_ena = '1') else
                    (others => '0');
    
 end architecture;

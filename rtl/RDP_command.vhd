@@ -58,7 +58,9 @@ begin
    commandIsIdle <= '1' when (state = IDLE) else '0';
 
    -- synthesis translate_off
-   export_command_done <= '1' when (state = EVALCOMMAND) else '0';
+   export_command_done <=  '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"08" and commandCntNext - commandRAMPtr >= 3) else 
+                           '1' when (state = EVALCOMMAND and (CommandData(61 downto 56) < 6x"08" or CommandData(61 downto 56) > 6x"08")) else 
+                           '0';
    -- synthesis translate_on
 
    process (clk1x)

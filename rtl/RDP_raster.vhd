@@ -3,6 +3,7 @@ use IEEE.std_logic_1164.all;
 use IEEE.numeric_std.all; 
 
 use work.pRDP.all;
+use work.pFunctions.all;
 
 entity RDP_raster is
    port 
@@ -358,18 +359,18 @@ begin
                   writePixel           <= '1';
                   writePixelX          <= posX;
                   writePixelY          <= posY;
-                  writePixelColor      <= settings_fillcolor.color;
+                  writePixelColor      <= byteswap32(settings_fillcolor.color);
                  
                   if (settings_colorImage.FB_size = SIZE_16BIT) then
                      if (posX(0) = '0') then
-                        writePixelColor(15 downto 0) <= settings_fillcolor.color(31 downto 16);
+                        writePixelColor(15 downto 0) <= byteswap16(settings_fillcolor.color(31 downto 16));
+                     else
+                        writePixelColor(15 downto 0) <= byteswap16(settings_fillcolor.color(15 downto 0)); 
                      end if;
                   end if;
                   
                   if (settings_otherModes.cycleType = "00") then -- HACK!
-                     writePixelColor( 5 downto  1) <= settings_blendcolor.blend_B(7 downto 3);
-                     writePixelColor(10 downto  6) <= settings_blendcolor.blend_G(7 downto 3);
-                     writePixelColor(15 downto 11) <= settings_blendcolor.blend_R(7 downto 3);
+                     writePixelColor(15 downto 0) <= byteswap16(settings_blendcolor.blend_R(7 downto 3) & settings_blendcolor.blend_G(7 downto 3) & settings_blendcolor.blend_B(7 downto 3) & '0');
                   end if;
             
             end case; -- linestate
