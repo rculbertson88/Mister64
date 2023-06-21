@@ -65,7 +65,20 @@ architecture arch of cpu is
    signal regs1_address_b              : std_logic_vector(4 downto 0);
    signal regs1_q_b                    : std_logic_vector(63 downto 0);
    signal regs2_address_b              : std_logic_vector(4 downto 0);
-   signal regs2_q_b                    : std_logic_vector(63 downto 0);   
+   signal regs2_q_b                    : std_logic_vector(63 downto 0);  
+
+   -- FPU register file
+   signal FPUregs_address_a            : std_logic_vector(4 downto 0);
+   signal FPUregs_data_a               : std_logic_vector(63 downto 0);
+   signal FPUregs_wren_a               : std_logic;
+   signal FPUregs1_address_b           : std_logic_vector(4 downto 0);
+   signal FPUregs1_q_b                 : std_logic_vector(63 downto 0);
+   signal FPUregs2_address_b           : std_logic_vector(4 downto 0);
+   signal FPUregs2_q_b                 : std_logic_vector(63 downto 0);  
+
+   signal FPUWriteTarget               : unsigned(4 downto 0) := (others => '0');
+   signal FPUWriteData                 : unsigned(63 downto 0) := (others => '0');
+   signal FPUWriteEnable               : std_logic := '0';   
    
    -- other register
    signal PC                           : unsigned(63 downto 0) := (others => '0');
@@ -115,6 +128,7 @@ architecture arch of cpu is
    signal exception                    : std_logic;
    signal exceptionNew1                : std_logic := '0';
    signal exceptionNew3                : std_logic := '0';
+   signal exception_COP                : unsigned(1 downto 0);
    
    signal exception_SR                 : unsigned(31 downto 0) := (others => '0');
    signal exception_CAUSE              : unsigned(31 downto 0) := (others => '0');
@@ -196,15 +210,14 @@ architecture arch of cpu is
    signal decodeRD                     : unsigned(4 downto 0) := (others => '0');
    signal decodeTarget                 : unsigned(4 downto 0) := (others => '0');
    signal decodeJumpTarget             : unsigned(25 downto 0) := (others => '0');
-   
    signal decodeForwardValue1          : std_logic := '0';
    signal decodeForwardValue2          : std_logic := '0';
-   
    signal decodeUseImmidateValue2      : std_logic := '0';
-   
    signal decodeShiftSigned            : std_logic := '0';
    signal decodeShift32                : std_logic := '0';
    signal decodeShiftAmountType        : std_logic_vector(1 downto 0) := "00";
+   signal decodeFPUValue1              : unsigned(63 downto 0) := (others => '0');
+   signal decodeFPUValue2              : unsigned(63 downto 0) := (others => '0');
    
    type t_decodeBitFuncType is
    (
@@ -263,6 +276,8 @@ architecture arch of cpu is
    signal decRD                        : unsigned(4 downto 0);
    signal decTarget                    : unsigned(4 downto 0);
    signal decJumpTarget                : unsigned(25 downto 0);
+   signal decFPUSource1                : unsigned(4 downto 0);
+   signal decFPUSource2                : unsigned(4 downto 0);
             
    -- stage 3   
    signal value2_muxedSigned           : unsigned(63 downto 0);
@@ -333,6 +348,8 @@ architecture arch of cpu is
    signal executeLoadType              : CPU_LOADTYPE;
    signal executeCacheEnable           : std_logic := '0';
    signal executeCacheCommand          : unsigned(4 downto 0) := (others => '0');
+   signal execute_COP1_Target          : unsigned(4 downto 0) := (others => '0');
+   signal executeCOP1ReadEnable        : std_logic := '0';
 
    signal hiloWait                     : integer range 0 to 69;
    
@@ -370,6 +387,7 @@ architecture arch of cpu is
    signal EXEllBit                     : std_logic := '0';
    signal EXEERET                      : std_logic := '0';
    signal EXECacheEnable               : std_logic := '0';
+   signal ExeCOP1ReadEnable            : std_logic := '0';
    
    --MULT/DIV
    type CPU_HILOCALC is
@@ -401,6 +419,17 @@ architecture arch of cpu is
    signal eretPC                       : unsigned(63 downto 0) := (others => '0');
    signal exceptionPC                  : unsigned(63 downto 0) := (others => '0');
    signal COP0ReadValue                : unsigned(63 downto 0) := (others => '0');
+   
+   signal COP0_enable                  : std_logic;
+   signal COP1_enable                  : std_logic;
+   signal COP2_enable                  : std_logic;
+   signal COP3_enable                  : std_logic;
+   signal fpuRegMode                   : std_logic;
+
+   -- COP1
+   signal cop1_stage4_writeEnable      : std_logic := '0';
+   signal cop1_stage4_data             : unsigned(63 downto 0) := (others => '0');
+   signal cop1_stage4_target           : unsigned(4 downto 0) := (others => '0');
 
    -- stage 4 
    -- reg      
@@ -412,6 +441,7 @@ architecture arch of cpu is
    signal writebackLoadType            : CPU_LOADTYPE;
    signal writebackReadAddress         : unsigned(31 downto 0) := (others => '0');
    signal writebackReadLastData        : unsigned(63 downto 0) := (others => '0');
+   signal writeback_COP1_ReadEnable    : std_logic := '0';
          
    -- wire     
    signal mem4_request                 : std_logic := '0';
@@ -434,6 +464,10 @@ architecture arch of cpu is
    signal ss_regs_load                 : std_logic := '0';
    signal ss_regs_addr                 : unsigned(4 downto 0);
    signal ss_regs_data                 : std_logic_vector(63 downto 0);   
+   
+   signal ss_FPUregs_load              : std_logic := '0';
+   signal ss_FPUregs_addr              : unsigned(4 downto 0);
+   signal ss_FPUregs_data              : std_logic_vector(63 downto 0);   
    
    -- debug
    signal debugCnt                     : unsigned(31 downto 0);
@@ -583,6 +617,55 @@ begin
          end if;
       end if;
    end process;
+   
+--##############################################################
+--############################### FPU register file
+--##############################################################
+   iregisterfileFPU1 : entity mem.RamMLAB
+	GENERIC MAP 
+   (
+      width                               => 64,
+      widthad                             => 5
+	)
+	PORT MAP (
+      inclock    => clk93,
+      wren       => FPUregs_wren_a,
+      data       => FPUregs_data_a,
+      wraddress  => FPUregs_address_a,
+      rdaddress  => FPUregs1_address_b,
+      q          => FPUregs1_q_b
+	);
+   
+   FPUregs_wren_a    <= '1' when (ss_fpuregs_load = '1') else
+                        '1' when (ce_93 = '1' and cop1_stage4_writeEnable = '1') else 
+                        '1' when (ce_93 = '1' and FPUWriteEnable = '1') else 
+                        '0';
+   
+   FPUregs_data_a    <= ss_FPUregs_data                    when (ss_FPUregs_load = '1') else 
+                        std_logic_vector(cop1_stage4_data) when (cop1_stage4_writeEnable = '1') else
+                        std_logic_vector(FPUWriteData);
+                     
+   FPUregs_address_a <= std_logic_vector(ss_FPUregs_addr)    when (ss_FPUregs_load = '1') else 
+                        std_logic_vector(cop1_stage4_target) when (cop1_stage4_writeEnable = '1') else
+                        std_logic_vector(FPUWriteTarget);
+   
+   FPUregs1_address_b <= std_logic_vector(decFPUSource1);
+   FPUregs2_address_b <= std_logic_vector(decFPUSource2);
+   
+   iregisterfileFPU2 : entity mem.RamMLAB
+	GENERIC MAP 
+   (
+      width                               => 64,
+      widthad                             => 5
+	)
+	PORT MAP (
+      inclock    => clk93,
+      wren       => FPUregs_wren_a,
+      data       => FPUregs_data_a,
+      wraddress  => FPUregs_address_a,
+      rdaddress  => FPUregs2_address_b,
+      q          => FPUregs2_q_b
+	);
    
 --##############################################################
 --############################### register file
@@ -775,6 +858,21 @@ begin
    decRD         <= opcodeCacheMuxed(15 downto 11);
    decTarget     <= opcodeCacheMuxed(20 downto 16) when (opcodeCacheMuxed(31 downto 26) > 0) else opcodeCacheMuxed(15 downto 11);                  
 
+
+   process (opcodeCacheMuxed, fpuRegMode, decOP)
+   begin
+      decFPUSource1 <= opcodeCacheMuxed(15 downto 11);
+      decFPUSource2 <= opcodeCacheMuxed(20 downto 16);
+      
+      if (fpuRegMode = '0') then
+         decFPUSource1(0) <= '0';
+         if (decOP = 16#39# or decOP = 16#3D#) then -- SWC1 and SDC1
+            decFPUSource2(0) <= '0';
+         end if;
+      end if;
+      
+   end process;
+
    process (clk93)
    begin
       if (rising_edge(clk93)) then
@@ -830,6 +928,9 @@ begin
                   decodeForwardValue2 <= '0';
                   if (decSource1 > 0 and decodeTarget = decSource1) then decodeForwardValue1 <= '1'; end if;
                   if (decSource2 > 0 and decodeTarget = decSource2) then decodeForwardValue2 <= '1'; end if;
+
+                  decodeFPUValue1 <= unsigned(FPUregs1_q_b);
+                  decodeFPUValue2 <= unsigned(FPUregs2_q_b);
 
                   -- decoding default
                   decodeUseImmidateValue2 <= '0';
@@ -1225,8 +1326,8 @@ begin
    resultDataMuxed64(63 downto 32) <= (others => resultDataMuxed(31)) when decodeResult32 else resultDataMuxed(63 downto 32);
 
    process (decodeImmData, decodeJumpTarget, decodeSource1, decodeSource2, decodeValue1, decodeValue2, decodeOP, decodeFunct, decodeShamt, decodeRD, 
-            exception, stall3, stall, value1, value2, pcOld0, resultData, eretPC, 
-            hi, lo, executeIgnoreNext, decodeNew, llBit, calcResult_add, calcResult_sub, calcMemAddr)
+            exception, stall3, stall, value1, value2, pcOld0, resultData, eretPC, decodeFPUValue2,
+            hi, lo, executeIgnoreNext, decodeNew, llBit, calcResult_add, calcResult_sub, calcMemAddr, COP1_enable)
       variable calcResult           : unsigned(63 downto 0);
       variable rotatedData          : unsigned(63 downto 0) := (others => '0');
    begin
@@ -1234,6 +1335,7 @@ begin
       EXEerror_instr          <= '0';
    
       exceptionNew3           <= '0';
+      exception_COP           <= "00";
       EXEERET                 <= '0';
       stallNew3               <= stall3;
       EXEresultWriteEnable    <= '0';          
@@ -1256,6 +1358,8 @@ begin
       EXECOP0Read64           <= '0';
       EXECOP0Register         <= decodeRD;
       EXECOP0WriteValue       <= value2;
+      
+      ExeCOP1ReadEnable       <= '0';
       
       EXEcalcMULT             <= '0';
       EXEcalcMULTU            <= '0';      
@@ -1792,8 +1896,16 @@ begin
                end if;             
 
             when 16#35# => -- LDC1 
-               --report "LDC1 not implemented" severity failure; 
-               EXEerror_instr     <= '1'; 
+               EXELoadType <= LOADTYPE_QWORD;
+               EXEMem64Bit <= '1';
+               if (COP1_enable = '0') then
+                  exceptionNew3    <= '1';
+                  exceptionCode_3  <= x"B";
+                  exception_COP    <= "01";
+               else
+                  ExeCOP1ReadEnable <= '1';
+                  EXEReadEnable     <= '1';
+               end if;
 
             when 16#37# => -- LD
                EXELoadType <= LOADTYPE_QWORD;
@@ -1839,9 +1951,17 @@ begin
                   EXEMemWriteEnable    <= llBit;
                end if;          
                
-            when 16#3D# => -- SCD1 
-               --report "SCD1 not implemented" severity failure; 
-               EXEerror_instr     <= '1'; 
+            when 16#3D# => -- SDC1 
+               EXEMem64Bit     <= '1';
+               EXEMemWriteMask <= "11111111";
+               if (COP1_enable = '0') then
+                  exceptionNew3    <= '1';
+                  exceptionCode_3  <= x"B";
+                  exception_COP    <= "01";
+               else
+                  EXEMemWriteEnable <= '1';
+                  EXEMemWriteData   <= byteswap32(decodeFPUValue2(63 downto 32)) & byteswap32(decodeFPUValue2(31 downto 0));
+               end if;
                
             when 16#3F# => -- SD
                EXEMem64Bit     <= '1';
@@ -2005,9 +2125,13 @@ begin
                      executeCOP0Register           <= EXECOP0Register;
 
                      llBit                         <= EXEllBit;  
+                     
+                     executeCOP1ReadEnable         <= ExeCOP1ReadEnable;
 
                      executeCacheEnable            <= EXECacheEnable;
-                     executeCacheCommand           <= decodeSource2(4 downto 0);
+                     executeCacheCommand           <= decodeSource2;
+                     
+                     execute_COP1_Target           <= decodeSource2;
                      
                      -- new mul/div
                      if (EXEcalcMULT = '1') then
@@ -2189,12 +2313,14 @@ begin
             writebackNew                     <= '0';
             writebackStallFromMEM            <= '0';                  
             writebackWriteEnable             <= '0';
+            cop1_stage4_writeEnable          <= '0';
             
          elsif (ce_93 = '1') then
          
-            stall4         <= stallNew4;
-            dataReadData   := unsigned(mem_finished_dataRead);
-            oldData        := writebackReadLastData;
+            stall4                  <= stallNew4;
+            dataReadData            := unsigned(mem_finished_dataRead);
+            oldData                 := writebackReadLastData;
+            cop1_stage4_writeEnable <= '0';
 
             if (stall4Masked = 0) then
             
@@ -2216,6 +2342,9 @@ begin
                   writebackReadLastData        <= executeMemReadLastData;
 
                   writebackWriteEnable         <= resultWriteEnable;
+                  
+                  writeback_COP1_ReadEnable    <= executeCOP1ReadEnable;
+                  cop1_stage4_target           <= execute_COP1_Target;
                   
                   if (executeMemWriteEnable = '1') then
                   
@@ -2254,10 +2383,30 @@ begin
             
             if (mem_finished_read = '1') then
             
-               stall4 <= '0';
-               writebackNew         <= '1';
+               stall4        <= '0';
+               writebackNew  <= '1';
                
-               if (writebackTarget > 0) then
+               cop1_stage4_data <= byteswap32(dataReadData(31 downto 0)) & byteswap32(dataReadData(63 downto 32));
+               
+               if (writeback_COP1_ReadEnable = '1') then
+                  cop1_stage4_writeEnable <= '1';
+                  if (fpuRegMode = '1') then
+                     if (writebackLoadType = LOADTYPE_DWORD) then
+                        cop1_stage4_data <= x"00000000" & byteswap32(dataReadData(31 downto 0)); -- todo: byte enable for lower 32 bit, upper 32bit should be kept
+                     end if;
+                  else
+                     cop1_stage4_target(0) <= '0';
+                     if (writebackLoadType = LOADTYPE_DWORD) then
+                        if (cop1_stage4_target(0) = '1') then
+                           cop1_stage4_data <= byteswap32(dataReadData(31 downto 0)) & x"00000000"; -- todo: byte enable
+                        else
+                           cop1_stage4_data <= x"00000000" & byteswap32(dataReadData(31 downto 0)); -- todo: byte enable
+                        end if;
+                     end if;
+                  end if;
+               end if;
+               
+               if (writebackTarget > 0 and writeback_COP1_ReadEnable = '0') then
                   writebackWriteEnable <= '1';
                end if;
                
@@ -2427,13 +2576,19 @@ begin
       exception1        => exceptionNew1,
       exceptionCode_1   => "0000", -- todo
       exceptionCode_3   => exceptionCode_3,
-      exception_COP     => "00",
+      exception_COP     => exception_COP,
       isDelaySlot       => executeBranchdelaySlot,
       pcOld1            => PCold1,
       
       eretPC            => eretPC,
       exceptionPC       => exceptionPC,
       exception         => exception,   
+      
+      COP0_enable       => COP0_enable,
+      COP1_enable       => COP1_enable,
+      COP2_enable       => COP2_enable,
+      COP3_enable       => COP3_enable,
+      fpuRegMode        => fpuRegMode,
 
       writeEnable       => executeCOP0WriteEnable,
       regIndex          => executeCOP0Register,
@@ -2481,7 +2636,8 @@ begin
    begin
       if (rising_edge(clk93)) then
       
-         ss_regs_load <= '0';
+         ss_regs_load    <= '0';
+         ss_FPUregs_load <= '0';
       
          if (SS_reset = '1') then
          
@@ -2494,19 +2650,26 @@ begin
             ss_regs_loading <= '1';
             ss_regs_addr    <= (others => '0');
             ss_regs_data    <= (others => '0');
+            ss_FPUregs_addr <= (others => '0');
+            ss_FPUregs_data <= (others => '0');
             
          elsif (SS_wren_CPU = '1' and SS_Adr < 32) then
             ss_in(to_integer(SS_Adr)) <= SS_DataWrite;
-            
          elsif (SS_wren_CPU = '1' and SS_Adr >= 32 and SS_Adr < 64) then
             ss_regs_load <= '1';
             ss_regs_addr <= SS_Adr(4 downto 0);
             ss_regs_data <= SS_DataWrite;
+         elsif (SS_wren_CPU = '1' and SS_Adr >= 96 and SS_Adr < 128) then
+            ss_FPUregs_load <= '1';
+            ss_FPUregs_addr <= SS_Adr(4 downto 0);
+            ss_FPUregs_data <= SS_DataWrite;
          end if;
          
          if (ss_regs_loading = '1') then
-            ss_regs_load <= '1';
-            ss_regs_addr <= ss_regs_addr + 1;
+            ss_regs_load    <= '1';
+            ss_regs_addr    <= ss_regs_addr + 1;            
+            ss_FPUregs_load <= '1';
+            ss_FPUregs_addr <= ss_regs_addr + 1;
             if (ss_regs_addr = 31) then
                ss_regs_loading <= '0';
             end if;

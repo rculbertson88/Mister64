@@ -30,6 +30,12 @@ entity cpu_cop0 is
       eretPC            : out unsigned(63 downto 0) := (others => '0');
       exceptionPC       : out unsigned(63 downto 0) := (others => '0');
       exception         : out std_logic := '0';
+      
+      COP0_enable       : out std_logic;
+      COP1_enable       : out std_logic;
+      COP2_enable       : out std_logic;
+      COP3_enable       : out std_logic;
+      fpuRegMode        : out std_logic;
                         
       writeEnable       : in  std_logic;
       regIndex          : in  unsigned(4 downto 0);
@@ -111,6 +117,12 @@ architecture arch of cpu_cop0 is
 
 begin 
 
+   COP0_enable <= COP0_12_SR_enable_cop0;
+   COP1_enable <= COP0_12_SR_enable_cop1;
+   COP2_enable <= COP0_12_SR_enable_cop2;
+   COP3_enable <= COP0_12_SR_enable_cop3;
+   fpuRegMode  <= COP0_12_SR_floatingPointMode;
+   
    process (all)
    begin
       
