@@ -22,6 +22,7 @@ entity cpu is
       
       error_instr           : out std_logic := '0';
       error_stall           : out std_logic := '0';
+      error_FPU             : out std_logic := '0';
       
       mem_request           : out std_logic := '0';
       mem_rnw               : out std_logic := '0'; 
@@ -144,8 +145,8 @@ architecture arch of cpu is
    signal exception_JMPnext            : unsigned(31 downto 0);     
                
    signal opcode0                      : unsigned(31 downto 0) := (others => '0');
--- synthesis translate_off
    signal opcode1                      : unsigned(31 downto 0) := (others => '0');
+-- synthesis translate_off
    signal opcode2                      : unsigned(31 downto 0) := (others => '0');
    signal opcode3                      : unsigned(31 downto 0) := (others => '0');
    signal opcode4                      : unsigned(31 downto 0) := (others => '0');
@@ -216,8 +217,12 @@ architecture arch of cpu is
    signal decodeShiftSigned            : std_logic := '0';
    signal decodeShift32                : std_logic := '0';
    signal decodeShiftAmountType        : std_logic_vector(1 downto 0) := "00";
+   signal decodeFPUSource1             : unsigned(4 downto 0) := (others => '0');
+   signal decodeFPUSource2             : unsigned(4 downto 0) := (others => '0');
    signal decodeFPUValue1              : unsigned(63 downto 0) := (others => '0');
    signal decodeFPUValue2              : unsigned(63 downto 0) := (others => '0');
+   signal decodeFPUCommandEnable       : std_logic := '0';
+   signal decodeFPUTransferEnable      : std_logic := '0';
    
    type t_decodeBitFuncType is
    (
@@ -258,7 +263,8 @@ architecture arch of cpu is
       RESULTMUX_OR,        
       RESULTMUX_XOR,       
       RESULTMUX_NOR,       
-      RESULTMUX_BIT,       
+      RESULTMUX_BIT,
+      RESULTMUX_FPU,      
       RESULTMUX_LUI
    );
    signal decodeResultMux : t_decodeResultMux;   
@@ -431,6 +437,11 @@ architecture arch of cpu is
    signal cop1_stage4_data             : unsigned(63 downto 0) := (others => '0');
    signal cop1_stage4_target           : unsigned(4 downto 0) := (others => '0');
 
+   signal FPU_command_ena              : std_logic := '0';
+   signal FPU_command_done             : std_logic := '0';
+   signal FPU_TransferEna              : std_logic := '0';
+   signal FPU_TransferData             : unsigned(63 downto 0);
+
    -- stage 4 
    -- reg      
    signal writebackNew                 : std_logic := '0';
@@ -489,6 +500,7 @@ architecture arch of cpu is
 -- synthesis translate_off
    type tRegs is array(0 to 31) of unsigned(63 downto 0);
    signal regs                         : tRegs := (others => (others => '0'));
+   signal FPUregs                      : tRegs := (others => (others => '0'));
    
    signal cop0_export                  : tExportRegs := (others => (others => '0'));
    signal cop0_export_1                : tExportRegs := (others => (others => '0'));
@@ -858,12 +870,11 @@ begin
    decRD         <= opcodeCacheMuxed(15 downto 11);
    decTarget     <= opcodeCacheMuxed(20 downto 16) when (opcodeCacheMuxed(31 downto 26) > 0) else opcodeCacheMuxed(15 downto 11);                  
 
-
    process (opcodeCacheMuxed, fpuRegMode, decOP)
    begin
       decFPUSource1 <= opcodeCacheMuxed(15 downto 11);
       decFPUSource2 <= opcodeCacheMuxed(20 downto 16);
-      
+   
       if (fpuRegMode = '0') then
          decFPUSource1(0) <= '0';
          if (decOP = 16#39# or decOP = 16#3D#) then -- SWC1 and SDC1
@@ -898,10 +909,7 @@ begin
                   decodeNew        <= '1'; 
                
                   pcOld1           <= pcOld0;
-                  
--- synthesis translate_off
                   opcode1          <= opcodeCacheMuxed;
--- synthesis translate_on
                                     
                   decodeImmData    <= decImmData;   
                   decodeJumpTarget <= decJumpTarget;
@@ -912,6 +920,8 @@ begin
                   decodeShamt      <= '0' & decShamt;     
                   decodeRD         <= decRD;        
                   decodeTarget     <= decTarget;    
+                  decodeFPUSource1 <= decFPUSource1;
+                  decodeFPUSource2 <= decFPUSource2;
                   
                   -- operand fetching
                   decodeValue1     <= unsigned(regs1_q_b);
@@ -939,6 +949,8 @@ begin
                   decodeResult32          <= '0';
                   decodeBranchType        <= BRANCH_OFF;
                   decodeBranchLikely      <= '0';
+                  decodeFPUCommandEnable  <= '0';
+                  decodeFPUTransferEnable <= '0';
 
                   -- decoding opcode specific
                   case (to_integer(decOP)) is
@@ -1155,6 +1167,14 @@ begin
                      when 16#10# => -- COP0
                         if (decSource1(4) = '1' and decImmData(6 downto 0) = 16#18#) then -- ERET
                            decodeBranchType     <= BRANCH_ERET;
+                        end if;                     
+                        
+                     when 16#11# => -- COP1
+                        decodeResultMux         <= RESULTMUX_FPU;
+                        if (decSource1(4) = '1') then -- FPU execute
+                           decodeFPUCommandEnable  <= '1';
+                        elsif (decSource1(3 downto 0) < 3) then
+                           decodeFPUTransferEnable <= '1';
                         end if;
                         
                      when 16#14# => -- BEQL
@@ -1200,6 +1220,9 @@ begin
                -- operand forwarding in stall
                if (decodeSource1 > 0 and writebackTarget = decodeSource1 and writebackWriteEnable = '1') then decodeValue1 <= writebackData; end if;
                if (decodeSource2 > 0 and writebackTarget = decodeSource2 and writebackWriteEnable = '1') then decodeValue2 <= writebackData; end if;
+      
+               if (cop1_stage4_target = decodeFPUSource1 and cop1_stage4_writeEnable = '1') then decodeFPUValue1 <= cop1_stage4_data; end if;
+               if (cop1_stage4_target = decodeFPUSource2 and cop1_stage4_writeEnable = '1') then decodeFPUValue2 <= cop1_stage4_data; end if;
       
             end if; -- stall
 
@@ -1320,13 +1343,14 @@ begin
                       calcResult_xor    when (decodeResultMux = RESULTMUX_XOR)        else
                       calcResult_nor    when (decodeResultMux = RESULTMUX_NOR)        else
                       calcResult_bit    when (decodeResultMux = RESULTMUX_BIT)        else
+                      FPU_TransferData  when (decodeResultMux = RESULTMUX_FPU)        else
                       unsigned(resize(signed(decodeImmData) & x"0000", 64)); -- (decodeResultMux = RESULTMUX_LUI);
                       
    resultDataMuxed64(31 downto 0) <= resultDataMuxed(31 downto 0);
    resultDataMuxed64(63 downto 32) <= (others => resultDataMuxed(31)) when decodeResult32 else resultDataMuxed(63 downto 32);
 
    process (decodeImmData, decodeJumpTarget, decodeSource1, decodeSource2, decodeValue1, decodeValue2, decodeOP, decodeFunct, decodeShamt, decodeRD, 
-            exception, stall3, stall, value1, value2, pcOld0, resultData, eretPC, decodeFPUValue2,
+            exception, stall3, stall, value1, value2, pcOld0, resultData, eretPC, decodeFPUValue2, decodeFPUCommandEnable,
             hi, lo, executeIgnoreNext, decodeNew, llBit, calcResult_add, calcResult_sub, calcMemAddr, COP1_enable)
       variable calcResult           : unsigned(63 downto 0);
       variable rotatedData          : unsigned(63 downto 0) := (others => '0');
@@ -1376,8 +1400,14 @@ begin
       EXEllBit                <= llBit;
       
       exceptionCode_3         <= x"0";
-
+      
+      FPU_command_ena         <= '0';
+      FPU_TransferEna         <= '0';
+      
       if (exception = '0' and stall = 0 and executeIgnoreNext = '0' and decodeNew = '1') then
+             
+         FPU_command_ena      <= decodeFPUCommandEnable;
+         FPU_TransferEna      <= decodeFPUTransferEnable;
              
          case (to_integer(decodeOP)) is
          
@@ -1535,8 +1565,10 @@ begin
                      EXEerror_instr     <= '1'; 
                      
                   when 16#34# => -- TEQ
-                     report "TEQ not implemented" severity failure; 
-                     EXEerror_instr     <= '1'; 
+                     if (cmpEqual = '1') then
+                        exceptionNew3   <= '1';
+                        exceptionCode_3 <= x"D";
+                     end if;
                      
                   when 16#36# => -- TNE
                      report "TNE not implemented" severity failure; 
@@ -1667,8 +1699,13 @@ begin
                --end if;
                
             when 16#11# => -- COP1
-               --report "cop1 not implemented" severity failure; 
-               EXEerror_instr     <= '1';               
+               if (COP1_enable = '0' or (decodeSource1(4) = '0' and decodeSource1(3 downto 0) > 8)) then
+                  exceptionNew3    <= '1';
+                  exceptionCode_3  <= x"B";
+                  exception_COP    <= "01";
+               else  
+                  EXEresultWriteEnable <= decodeFPUTransferEnable;
+               end if;
                
             when 16#12# => -- COP2
                --report "cop2 not implemented" severity failure; 
@@ -1871,8 +1908,15 @@ begin
                end if; 
 
             when 16#31# => -- LWC1
-               --report "LWC1 not implemented" severity failure; 
-               EXEerror_instr     <= '1';
+               EXELoadType <= LOADTYPE_DWORD;
+               if (COP1_enable = '0') then
+                  exceptionNew3    <= '1';
+                  exceptionCode_3  <= x"B";
+                  exception_COP    <= "01";
+               else
+                  ExeCOP1ReadEnable <= '1';
+                  EXEReadEnable     <= '1';
+               end if;
 
             when 16#32# => -- LWC2 -> NOP
                null;
@@ -1930,8 +1974,15 @@ begin
                end if;
                
             when 16#39# => -- SWC1 
-               --report "SWC1 not implemented" severity failure; 
-               EXEerror_instr     <= '1';
+               EXEMemWriteMask(3 downto 0) <= "1111";
+               if (COP1_enable = '0') then
+                  exceptionNew3    <= '1';
+                  exceptionCode_3  <= x"B";
+                  exception_COP    <= "01";
+               else
+                  EXEMemWriteEnable            <= '1';
+                  EXEMemWriteData(31 downto 0) <= byteswap32(decodeFPUValue2(31 downto 0));
+               end if;
                
             when 16#3A# => -- SWC2 -> nop
                null;
@@ -2518,10 +2569,8 @@ begin
                      debugSum <= debugSum + writebackData(31 downto 0);
                   end if;
                end if;
-               
                debugCnt          <= debugCnt + 1;
 -- synthesis translate_off
-
 
                cpu_done          <= '1';
                cpu_export.pc     <= pcOld4;
@@ -2529,7 +2578,8 @@ begin
                cpu_export.hi     <= hi_2;
                cpu_export.lo     <= lo_2;
                for i in 0 to 31 loop
-                  cpu_export.regs(i) <= regs(i);
+                  cpu_export.regs(i)    <= regs(i);
+                  cpu_export.FPUregs(i) <= FPUregs(i);
                end loop;
                cop0_export_1       <= cop0_export;
                cpu_export.cop0regs <= cop0_export;
@@ -2548,7 +2598,14 @@ begin
 -- synthesis translate_off
          if (ss_regs_load = '1') then
             regs(to_integer(ss_regs_addr)) <= unsigned(ss_regs_data);
+         end if;          
+         if (ss_FPUregs_load = '1') then
+            FPUregs(to_integer(ss_FPUregs_addr)) <= unsigned(ss_FPUregs_data);
          end if; 
+         
+         if (FPUregs_wren_a = '1') then
+            FPUregs(to_integer(unsigned(FPUregs_address_a))) <= unsigned(FPUregs_data_a);
+         end if;
 -- synthesis translate_on
          
       end if;
@@ -2624,6 +2681,31 @@ begin
       divisor   => DIVdivisor,  
       quotient  => DIVquotient, 
       remainder => DIVremainder
+   );
+   
+   icpu_FPU : entity work.cpu_FPU
+   port map
+   (
+      clk93             => clk93,         
+      reset             => reset_93, 
+      error_FPU         => error_FPU,
+
+      fpuRegMode        => fpuRegMode,      
+                                         
+      command_ena       => FPU_command_ena,
+      command_code      => opcode1,  
+      command_op1       => decodeFPUValue1,  
+      command_op2       => decodeFPUValue2,   
+      command_done      => FPU_command_done,
+      
+      transfer_ena      => FPU_TransferEna,
+      transfer_code     => decodeSource1(3 downto 0),
+      transfer_RD       => decodeRD,
+      transfer_data     => FPU_TransferData,
+                                      
+      FPUWriteTarget    => FPUWriteTarget,
+      FPUWriteData      => FPUWriteData,  
+      FPUWriteEnable    => FPUWriteEnable
    );
    
 --##############################################################

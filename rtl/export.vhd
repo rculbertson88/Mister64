@@ -12,6 +12,7 @@ package pexport is
 
    type cpu_export_type is record
       regs           : tExportRegs;
+      FPUregs        : tExportRegs;
       cop0regs       : tExportRegs;
       pc             : unsigned(63 downto 0);
       hi             : unsigned(63 downto 0);
@@ -20,6 +21,7 @@ package pexport is
    end record;
    
    constant export_init : cpu_export_type := (
+      (others => (others => '0')), 
       (others => (others => '0')), 
       (others => (others => '0')), 
       (others => '0'), 
@@ -215,6 +217,18 @@ begin
                   write(line_out, to_lower(to_string(i)));
                   write(line_out, string'(" "));
                   write(line_out, to_lower(to_hstring(export_cpu.cop0regs(i))) & " ");
+               end if;
+            end loop;             
+            
+            for i in 0 to 31 loop
+               if (export_cpu.FPUregs(i) /= export_cpu_last.FPUregs(i)) then
+                  write(line_out, string'("F"));
+                  if (i < 10) then 
+                     write(line_out, string'("0"));
+                  end if;
+                  write(line_out, to_lower(to_string(i)));
+                  write(line_out, string'(" "));
+                  write(line_out, to_lower(to_hstring(export_cpu.FPUregs(i))) & " ");
                end if;
             end loop; 
 

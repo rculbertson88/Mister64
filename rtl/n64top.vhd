@@ -78,12 +78,13 @@ architecture arch of n64top is
    
    -- error codes
    signal errorEna               : std_logic;
-   signal errorCode              : unsigned(3 downto 0) := (others => '0');
+   signal errorCode              : unsigned(7 downto 0) := (others => '0');
    
    signal errorMEMMUX            : std_logic;
    signal errorCPU_instr         : std_logic;
    signal errorCPU_stall         : std_logic;
    signal errorDDR3              : std_logic;
+   signal errorCPU_FPU           : std_logic;
    
    -- irq
    signal irqRequest             : std_logic;
@@ -235,12 +236,15 @@ begin
    process (reset_intern_1x, errorCPU_instr) begin if (errorCPU_instr = '1') then errorCode(1) <= '1'; elsif (reset_intern_1x = '1') then errorCode(1) <= '0'; end if; end process;
    process (reset_intern_1x, errorCPU_stall) begin if (errorCPU_stall = '1') then errorCode(2) <= '1'; elsif (reset_intern_1x = '1') then errorCode(2) <= '0'; end if; end process;
    process (reset_intern_1x, errorDDR3     ) begin if (errorDDR3      = '1') then errorCode(3) <= '1'; elsif (reset_intern_1x = '1') then errorCode(3) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_FPU  ) begin if (errorCPU_FPU   = '1') then errorCode(4) <= '1'; elsif (reset_intern_1x = '1') then errorCode(4) <= '0'; end if; end process;
+   
+   errorCode(7 downto 5) <= "000";
    
    process (clk1x)
    begin
       if rising_edge(clk1x) then
          errorEna <= '0';
-         if (errorCode /= x"0") then
+         if (errorCode /= x"00") then
             errorEna <= '1'; 
          end if;
       end if;
@@ -632,6 +636,7 @@ begin
       
       error_instr       => errorCPU_instr,
       error_stall       => errorCPU_stall,
+      error_FPU         => errorCPU_FPU,
          
       mem_request       => mem_request,  
       mem_rnw           => mem_rnw,         

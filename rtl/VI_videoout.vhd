@@ -15,7 +15,7 @@ entity VI_videoout is
       reset_1x             : in  std_logic;
       
       errorEna             : in  std_logic;
-      errorCode            : in  unsigned(3 downto 0);
+      errorCode            : in  unsigned(7 downto 0);
       
       VI_CTRL_TYPE         : in unsigned(1 downto 0);
       VI_CTRL_SERRATE      : in std_logic;
@@ -105,7 +105,7 @@ architecture arch of VI_videoout is
    signal overlay_data        : std_logic_vector(23 downto 0);
    signal overlay_ena         : std_logic;
    
-   signal errortext           : unsigned(7 downto 0);
+   signal errortext           : unsigned(15 downto 0);
    signal overlay_error_data  : std_logic_vector(23 downto 0);
    signal overlay_error_ena   : std_logic;   
    
@@ -262,8 +262,9 @@ begin
    );   
    
    -- texts
-   errortext <= resize(errorCode, 8) + 16#30# when (errorCode < 10) else resize(errorCode, 8) + 16#37#;
-   ioverlayError : entity work.VI_overlay generic map (2, 4, 44, x"0000FF")
+   errortext( 7 downto 0) <= resize(errorCode(3 downto 0), 8) + 16#30# when (errorCode(3 downto 0) < 10) else resize(errorCode(3 downto 0), 8) + 16#37#;
+   errortext(15 downto 8) <= resize(errorCode(7 downto 4), 8) + 16#30# when (errorCode(7 downto 4) < 10) else resize(errorCode(7 downto 4), 8) + 16#37#;
+   ioverlayError : entity work.VI_overlay generic map (3, 4, 44, x"0000FF")
    port map
    (
       clk                    => clk1x,
