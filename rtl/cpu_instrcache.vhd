@@ -22,7 +22,9 @@ entity cpu_instrcache is
       ddr3_DOUT         : in  std_logic_vector(63 downto 0);
       ddr3_DOUT_READY   : in  std_logic;
       
-      read_addr         : in  unsigned(28 downto 0);
+      read_select       : in  std_logic;
+      read_addr1        : in  unsigned(28 downto 0);
+      read_addr2        : in  unsigned(28 downto 0);
       read_hit          : out std_logic;
       read_data         : out std_logic_vector(31 downto 0) := (others => '0');
       
@@ -44,8 +46,13 @@ architecture arch of cpu_instrcache is
    signal tag_address_a    : std_logic_vector(8 downto 0) := (others => '0');
    signal tag_data_a       : std_logic_vector(17 downto 0) := (others => '0');
    signal tag_wren_a       : std_logic := '0';
-   signal tag_address_b    : std_logic_vector(8 downto 0);
-   signal tag_q_b          : std_logic_vector(17 downto 0);
+   signal tag_address_b1   : std_logic_vector(8 downto 0);
+   signal tag_address_b2   : std_logic_vector(8 downto 0);
+   signal tag_q_b1         : std_logic_vector(17 downto 0);
+   signal tag_q_b2         : std_logic_vector(17 downto 0);
+
+   signal read_hit1        : std_logic;
+   signal read_hit2        : std_logic;
 
    -- data
    signal ram_grant_2x     : std_logic := '0';
@@ -68,8 +75,12 @@ architecture arch of cpu_instrcache is
    
 begin 
 
+   -- use two tag rams, so different fetch paths can be calculated in parallel to improve timing
+
+   read_hit <= read_hit2 when (read_select = '1') else read_hit1;
+
    ------------------ tags
-   itagram : entity mem.RamMLAB
+   itagram1 : entity mem.RamMLAB
    generic map
    (
       width      => 18, -- 17 bits(28..12) of address + 1 bit valid
@@ -81,13 +92,31 @@ begin
       wren       => tag_wren_a,
       data       => tag_data_a,
       wraddress  => tag_address_a,
-      rdaddress  => tag_address_b,
-      q          => tag_q_b
+      rdaddress  => tag_address_b1,
+      q          => tag_q_b1
    );
    
-   tag_address_b <= std_logic_vector(read_addr(13 downto 5));
-
-   read_hit      <= '1' when (unsigned(tag_q_b(16 downto 0)) = read_addr(28 downto 12) and tag_q_b(17) = '1') else '0';
+   tag_address_b1 <= std_logic_vector(read_addr1(13 downto 5));
+   read_hit1      <= '1' when (unsigned(tag_q_b1(16 downto 0)) = read_addr1(28 downto 12) and tag_q_b1(17) = '1') else '0';
+   
+   itagram2 : entity mem.RamMLAB
+   generic map
+   (
+      width      => 18, -- 17 bits(28..12) of address + 1 bit valid
+      widthad    => 9
+   )
+   port map
+   (
+      inclock    => clk93,
+      wren       => tag_wren_a,
+      data       => tag_data_a,
+      wraddress  => tag_address_a,
+      rdaddress  => tag_address_b2,
+      q          => tag_q_b2
+   );
+   
+   tag_address_b2 <= std_logic_vector(read_addr2(13 downto 5));
+   read_hit2      <= '1' when (unsigned(tag_q_b2(16 downto 0)) = read_addr2(28 downto 12) and tag_q_b2(17) = '1') else '0';
 
    --------- data
    
@@ -135,7 +164,9 @@ begin
       q_b         => cache_q_b
    );
    
-   cache_address_b <= std_logic_vector(read_addr(13 downto 2)) when (state = IDLE) else std_logic_vector(fill_addr(13 downto 2));
+   cache_address_b <= std_logic_vector(fill_addr(13 downto 2))  when (state /= IDLE) else
+                      std_logic_vector(read_addr2(13 downto 2)) when (read_select = '1') else
+                      std_logic_vector(read_addr1(13 downto 2));
    
    read_data       <= byteswap32(cache_q_b);
    

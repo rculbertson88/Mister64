@@ -173,6 +173,9 @@ architecture arch of cpu is
    -- stage 1          
    -- cache
    signal FetchAddr                    : unsigned(63 downto 0) := (others => '0'); 
+   signal FetchAddr1                   : unsigned(63 downto 0) := (others => '0'); 
+   signal FetchAddr2                   : unsigned(63 downto 0) := (others => '0'); 
+   signal FetchAddrSelect              : std_logic;
    signal fetchCache                   : std_logic;
    signal useCached_data               : std_logic := '0';
    
@@ -769,7 +772,9 @@ begin
       ddr3_DOUT         => ddr3_DOUT,      
       ddr3_DOUT_READY   => ddr3_DOUT_READY,
       
-      read_addr         => FetchAddr(28 downto 0),
+      read_select       => FetchAddrSelect,
+      read_addr1        => FetchAddr1(28 downto 0),
+      read_addr2        => FetchAddr2(28 downto 0),
       read_hit          => instrcache_hit,
       read_data         => instrcache_data,
       
@@ -787,7 +792,9 @@ begin
    exceptionNew1   <= '0';
    
    -- todo: only in kernelmode and only in 32bit mode
-   fetchCache     <= '1' when (FetchAddr(31 downto 29) = "100") else '0';
+   fetchCache     <= '1' when (FetchAddr1(31 downto 29) = "100") else '0';
+   
+   FetchAddr <= FetchAddr2 when (FetchAddrSelect = '1') else FetchAddr1;
    
    process (clk93)
    begin
@@ -1310,19 +1317,25 @@ begin
    cmpNegative <= value1(63);
    cmpZero     <= '1' when (value1 = 0) else '0';
    
-   FetchAddr       <= exceptionPC                                    when (exception = '1') else
-                      PCnext                                         when (executeIgnoreNext = '1') else
-                      value1                                         when (decodeBranchType = BRANCH_ALWAYS_REG) else
-                      pcOld0(63 downto 28) & decodeJumpTarget & "00" when (decodeBranchType = BRANCH_JUMPIMM) else
-                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BGEZ and (cmpZero = '1' or cmpNegative = '0'))  else
-                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BLTZ and cmpNegative = '1')                     else
-                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BEQ  and cmpEqual = '1')                        else
-                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BNE  and cmpEqual = '0')                        else
-                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BLEZ and (cmpZero = '1' or cmpNegative = '1'))  else
-                      PCnextBranch                                   when (decodeBranchType = BRANCH_BRANCH_BGTZ and (cmpZero = '0' and cmpNegative = '0')) else
-                      PCnextBranch                                   when (decodeBranchType = BRANCH_BC1         and decodeSource2(0) = FPU_CF) else
-                      eretPC                                         when (decodeBranchType = BRANCH_ERET) else
-                      PCnext;
+   -- use two nextaddress/branch paths with 2 tag rams, so different paths can be calculated in parallel to improve timing
+   
+   FetchAddrSelect <= '1'  when (decodeBranchType = BRANCH_BRANCH_BGEZ and (cmpZero = '1' or cmpNegative = '0'))  else
+                      '1'  when (decodeBranchType = BRANCH_BRANCH_BLTZ and cmpNegative = '1')                     else
+                      '1'  when (decodeBranchType = BRANCH_BRANCH_BEQ  and cmpEqual = '1')                        else
+                      '1'  when (decodeBranchType = BRANCH_BRANCH_BNE  and cmpEqual = '0')                        else
+                      '1'  when (decodeBranchType = BRANCH_BRANCH_BLEZ and (cmpZero = '1' or cmpNegative = '1'))  else
+                      '1'  when (decodeBranchType = BRANCH_BRANCH_BGTZ and (cmpZero = '0' and cmpNegative = '0')) else
+                      '1'  when (decodeBranchType = BRANCH_BC1         and decodeSource2(0) = FPU_CF) else
+                      '0';
+   
+   FetchAddr1 <= exceptionPC                                    when (exception = '1') else
+                 PCnext                                         when (executeIgnoreNext = '1') else
+                 value1                                         when (decodeBranchType = BRANCH_ALWAYS_REG) else
+                 pcOld0(63 downto 28) & decodeJumpTarget & "00" when (decodeBranchType = BRANCH_JUMPIMM) else
+                 eretPC                                         when (decodeBranchType = BRANCH_ERET) else
+                 PCnext;
+
+   FetchAddr2 <= PCnextBranch;
 
    EXEBranchdelaySlot <= '0' when (executeIgnoreNext = '1') else
                          '1' when (decodeBranchType = BRANCH_ALWAYS_REG) else
