@@ -21,6 +21,7 @@ entity cpu_cop0 is
       eret              : in  std_logic;
       exception3        : in  std_logic;
       exception1        : in  std_logic;
+      exceptionFPU      : in  std_logic;
       exceptionCode_1   : in  unsigned(3 downto 0);
       exceptionCode_3   : in  unsigned(3 downto 0);
       exception_COP     : in  unsigned(1 downto 0);
@@ -393,18 +394,21 @@ begin
             
             -- new exception
             exception <= '0';
-            if (exception3 = '1' or exception1 = '1') then
+            if (exceptionFPU = '1' or exception3 = '1' or exception1 = '1') then
             
                exception <= '1';
                
                COP0_12_SR_exceptionLevel   <= '1';
                
-               if (exception3 = '1') then
-                  COP0_13_CAUSE_exceptionCode <= '0' & exceptionCode_3;
+               COP0_13_CAUSE_coprocessorError <= "00";
+               if (exceptionFPU = '1') then
+                  COP0_13_CAUSE_exceptionCode    <= '0' & x"F";
+               elsif (exception3 = '1') then
+                  COP0_13_CAUSE_exceptionCode    <= '0' & exceptionCode_3;
+                  COP0_13_CAUSE_coprocessorError <= exception_COP;
                else
                   COP0_13_CAUSE_exceptionCode <= '0' & exceptionCode_1;
                end if;
-               COP0_13_CAUSE_coprocessorError <= exception_COP;
                
                COP0_13_CAUSE_branchDelay <= isDelaySlot;
                if (isDelaySlot = '1') then

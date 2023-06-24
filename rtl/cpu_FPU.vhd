@@ -9,6 +9,10 @@ entity cpu_FPU is
       reset             : in  std_logic;
       error_FPU         : out std_logic := '0';
       
+      -- synthesis translate_off
+      csr_export       : out unsigned(24 downto 0);
+      -- synthesis translate_on
+      
       fpuRegMode        : in  std_logic;
 
       command_ena       : in  std_logic;
@@ -20,7 +24,11 @@ entity cpu_FPU is
       transfer_ena      : in  std_logic;
       transfer_code     : in  unsigned(3 downto 0);
       transfer_RD       : in  unsigned(4 downto 0);
+      transfer_value    : in  unsigned(63 downto 0);
       transfer_data     : out unsigned(63 downto 0);
+      
+      exceptionFPU      : out std_logic := '0';
+      FPU_CF            : out std_logic := '0';
       
       FPUWriteTarget    : out unsigned(4 downto 0) := (others => '0');
       FPUWriteData      : out unsigned(63 downto 0) := (others => '0');
@@ -31,12 +39,38 @@ end entity;
 architecture arch of cpu_FPU is
    
    signal csr     : unsigned(24 downto 0) := (others => '0'); 
+   alias csr_roundmode              is csr(1 downto 0);
+   alias csr_flag_inexact           is csr(2);
+   alias csr_flag_underflow         is csr(3);
+   alias csr_flag_overflow          is csr(4);
+   alias csr_flag_divisionByZero    is csr(5);
+   alias csr_flag_invalidOperation  is csr(6);
+   alias csr_ena_inexact            is csr(7);
+   alias csr_ena_underflow          is csr(8);
+   alias csr_ena_overflow           is csr(9);
+   alias csr_ena_divisionByZero     is csr(10);
+   alias csr_ena_invalidOperation   is csr(11);
+   alias csr_cause_inexact          is csr(12);
+   alias csr_cause_underflow        is csr(13);
+   alias csr_cause_overflow         is csr(14);
+   alias csr_cause_divisionByZero   is csr(15);
+   alias csr_cause_invalidOperation is csr(16);
+   alias csr_cause_unimplemented    is csr(17);
+   alias csr_compare                is csr(23);
+   alias csr_flushSubnormals        is csr(24);
    
    signal bit64   : std_logic;
    signal OPgroup : unsigned(4 downto 0);
    signal OP      : unsigned(5 downto 0);
 
 begin 
+   
+   -- synthesis translate_off
+   csr_export <= csr;
+   -- synthesis translate_on
+   
+   FPU_CF <= csr_compare;
+   
 
    bit64   <= command_code(21);
    OPgroup <= command_code(25 downto 21);
@@ -46,6 +80,7 @@ begin
    begin
       
       command_done <= '0';
+      exceptionFPU <= '0';
       
       if (command_ena = '1') then
          if (OPgroup = 16 or OPgroup = 17) then
@@ -64,13 +99,28 @@ begin
                transfer_data <= unsigned(resize(signed(command_op1(63 downto 32)), 64));
             end if;
          
-         when x"2" =>
+         when x"2" => -- cfc1
             transfer_data <= (others => '0');
             if (transfer_RD = 0) then
                transfer_data(11 downto 8) <= x"A";  -- revision
             end if;
             if (transfer_RD = 31) then
                transfer_data(24 downto 0) <= csr; 
+            end if;
+            
+         when x"3" | x"7" => -- DCFC1 / DCTC1
+            if (transfer_ena = '1') then
+               exceptionFPU <= '1';       
+            end if;
+            
+         when x"6" => -- ctc1
+            if (transfer_ena = '1' and transfer_RD = 31) then
+               if (transfer_value(17) = '1')                              then exceptionFPU <= '1'; end if;
+               if (transfer_value(16) = '1' and transfer_value(11) = '1') then exceptionFPU <= '1'; end if;
+               if (transfer_value(15) = '1' and transfer_value(10) = '1') then exceptionFPU <= '1'; end if;
+               if (transfer_value(14) = '1' and transfer_value( 9) = '1') then exceptionFPU <= '1'; end if;
+               if (transfer_value(13) = '1' and transfer_value( 8) = '1') then exceptionFPU <= '1'; end if;
+               if (transfer_value(12) = '1' and transfer_value( 7) = '1') then exceptionFPU <= '1'; end if;
             end if;
             
          when others => null;
@@ -120,17 +170,44 @@ begin
             end if;
             
             if (transfer_ena = '1') then
+            
+               FPUWriteTarget <= transfer_RD;
+               FPUWriteData   <= transfer_value;
+            
                case (transfer_code) is
                   when x"0" => null; -- mfc1
                   when x"1" => null; -- dmfc1
                   when x"2" => null; -- cfc1
                      
-                  when x"3" => error_FPU <= '1'; -- DCFC1
-                  when x"4" => error_FPU <= '1'; -- mtc1
-                  when x"5" => error_FPU <= '1'; -- dmtc1
-                  when x"6" => error_FPU <= '1'; -- ctc1
-                  when x"7" => error_FPU <= '1'; -- DCTC1
-                  when x"8" => error_FPU <= '1'; -- BC1 
+                  when x"3" | x"7" => -- DCFC1 / DCTC1
+                     csr_cause_inexact          <= '0';
+                     csr_cause_underflow        <= '0';
+                     csr_cause_overflow         <= '0';
+                     csr_cause_divisionByZero   <= '0';
+                     csr_cause_invalidOperation <= '0';
+                     csr_cause_unimplemented    <= '1';
+                  
+                  when x"4" => -- mtc1
+                     FPUWriteEnable             <= '1';
+                     -- todo: only writes upper/lower 32 bit depending on fpuRegMode
+                  
+                  when x"5" => -- dmtc1
+                     FPUWriteEnable             <= '1';
+                     
+                  when x"6" => -- ctc1
+                     if (transfer_RD = 31) then
+                        csr(17 downto  0) <= transfer_value(17 downto  0);
+                        csr(24 downto 23) <= transfer_value(24 downto 23);
+                     end if;
+                  
+                  when x"8" => -- BC1 
+                     csr_cause_inexact          <= '0';
+                     csr_cause_underflow        <= '0';
+                     csr_cause_overflow         <= '0';
+                     csr_cause_divisionByZero   <= '0';
+                     csr_cause_invalidOperation <= '0';
+                     csr_cause_unimplemented    <= '0';
+                  
                   when others => null;
                end case;
             end if;

@@ -18,12 +18,14 @@ package pexport is
       hi             : unsigned(63 downto 0);
       lo             : unsigned(63 downto 0);
       opcode         : unsigned(31 downto 0);
+      csr            : unsigned(31 downto 0);
    end record;
    
    constant export_init : cpu_export_type := (
       (others => (others => '0')), 
       (others => (others => '0')), 
       (others => (others => '0')), 
+      (others => '0'), 
       (others => '0'), 
       (others => '0'), 
       (others => '0'), 
@@ -234,6 +236,8 @@ begin
 
             if (export_cpu.hi /= export_cpu_last.hi)   then write(line_out, string'("HI "));  write(line_out, to_lower(to_hstring(export_cpu.hi)) & " "); end if;
             if (export_cpu.lo /= export_cpu_last.lo)   then write(line_out, string'("LO "));  write(line_out, to_lower(to_hstring(export_cpu.lo)) & " "); end if;
+            
+            if (export_cpu.csr /= export_cpu_last.csr) then write(line_out, string'("CSR ")); write(line_out, to_lower(to_hstring(export_cpu.csr)) & " "); end if;
             
             --if (export_cpu.cause /= export_cpu_last.cause)   then write(line_out, string'("CAUSE "));  write(line_out, to_lower(to_hstring(export_cpu.cause)) & " "); end if;
             
