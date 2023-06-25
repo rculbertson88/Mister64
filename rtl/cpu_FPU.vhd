@@ -39,6 +39,8 @@ end entity;
 architecture arch of cpu_FPU is
    
    constant OP_ABS : unsigned(5 downto 0) := 6x"05";
+   constant OP_MOV : unsigned(5 downto 0) := 6x"06";
+   constant OP_NEG : unsigned(5 downto 0) := 6x"07";
    
    signal csr     : unsigned(24 downto 0) := (others => '0'); 
    alias csr_roundmode              is csr(1 downto 0);
@@ -131,7 +133,7 @@ begin
       
       if (command_ena = '1') then
          if (OPgroup = 16 or OPgroup = 17) then
-            if (op = 6 or op = 7 or op = 16#21# or op >= 16#30#) then -- FABS, FMOV, FNEG, CVT.d and all compares complete in 1 clock cycle
+            if (op = 16#21# or op >= 16#30#) then -- FABS, FMOV, FNEG, CVT.d and all compares complete in 1 clock cycle
                command_done <= '1';
             else
                command_done <= '1'; -- workaround so CPU doesn't hang up
@@ -139,6 +141,15 @@ begin
             
             case (op) is
                when OP_ABS =>
+                  command_done  <= '1';
+                  causeReset    <= '1';
+                  checkInputs   <= '1';
+                  outputInvalid <= nanA;   
+
+               when OP_MOV =>
+                  command_done <= '1';
+                  
+               when OP_NEG =>
                   command_done  <= '1';
                   causeReset    <= '1';
                   checkInputs   <= '1';
@@ -235,7 +246,7 @@ begin
                FPUWriteTarget <= command_code(10 downto 6);
             
                if (OPgroup = 16 or OPgroup = 17) then
-                  if (op = 5) then -- FABS
+                  if (op = OP_ABS) then
                      FPUWriteEnable <= '1';
                      if (bit64) then
                         FPUWriteData <= '0' & command_op1(62 downto 0);
@@ -243,11 +254,11 @@ begin
                         FPUWriteData <= 33x"0" & command_op1(30 downto 0);
                      end if;
                   end if;
-                  if (op = 6) then -- FABS
+                  if (op = OP_MOV) then
                      FPUWriteEnable <= '1';
                      FPUWriteData   <= command_op1;
                   end if;
-                  if (op = 7) then -- FNEG
+                  if (op = OP_NEG) then
                      FPUWriteEnable <= '1';
                      if (bit64) then
                         FPUWriteData <= not(command_op1(63)) & command_op1(62 downto 0);
