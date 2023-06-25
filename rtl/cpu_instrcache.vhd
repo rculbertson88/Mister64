@@ -126,14 +126,15 @@ begin
       
          if (ram_grant = '1'and ram_active = '1') then
             ram_grant_2x <= '1';
-         elsif (ram_done = '1') then
-            ram_grant_2x <= '0';
          end if;
          
          if (ram_grant = '1') then
             cache_addr_a <= ram_addr(13 downto 5) & "00";
          elsif (ddr3_DOUT_READY = '1') then
             cache_addr_a <= cache_addr_a + 1;
+            if (ram_grant_2x = '1' and cache_addr_a(1 downto 0) = "11") then
+               ram_grant_2x <= '0';
+            end if;
          end if;
          
       end if;

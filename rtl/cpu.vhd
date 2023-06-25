@@ -1738,12 +1738,18 @@ begin
                end if;
                
             when 16#12# => -- COP2
-               --report "cop2 not implemented" severity failure; 
-               EXEerror_instr     <= '1';
+               if (COP2_enable = '0') then
+                  exceptionNew3    <= '1';
+                  exceptionCode_3  <= x"B";
+                  exception_COP    <= "10";
+               else  
+                  -- todo
+               end if;
                
             when 16#13# => -- COP3
-               report "cop3 not implemented" severity failure; 
-               EXEerror_instr     <= '1';
+               exceptionNew3    <= '1';
+               exceptionCode_3  <= x"A";
+               exception_COP    <= "11";
                
             when 16#14# => -- BEQL
                null;
