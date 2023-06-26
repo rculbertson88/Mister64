@@ -2099,8 +2099,8 @@ begin
             llBit                         <= '0';
             hiloWait                      <= 0;
             
-            hi                            <= (others => '0');
-            lo                            <= (others => '0');
+            hi                            <= unsigned(ss_in(3)); -- (others => '0');
+            lo                            <= unsigned(ss_in(4)); -- (others => '0');
             
          elsif (ce_93 = '1') then
             
@@ -2139,6 +2139,12 @@ begin
                         lo <= unsigned(DIVquotient(63 downto 0));
                   end case;
                end if;
+            end if;
+            
+            -- FPU unstall
+            if (FPU_command_done = '1') then
+               stall3     <= '0';
+               executeNew <= '1';
             end if;
 
             if (stall = 0) then
@@ -2303,6 +2309,10 @@ begin
                      if (EXEReadEnable = '1' or EXECOP0ReadEnable = '1') then
                         stall3              <= '1';
                         executeStallFromMEM <= '1';
+                     end if;
+                     
+                     if (FPU_command_ena = '1' and FPU_command_done = '0') then
+                        stall3 <= '1';
                      end if;
                      
                   end if;

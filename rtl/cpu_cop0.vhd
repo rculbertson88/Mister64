@@ -112,6 +112,9 @@ architecture arch of cpu_cop0 is
    
    signal bit64mode                       : std_logic := '0';
    
+   signal nextEPC_1                       : unsigned(63 downto 0) := (others => '0');
+   signal isDelaySlot_1                   : std_logic := '0';
+   
    -- savestates
    type t_ssarray is array(0 to 31) of unsigned(63 downto 0);
    signal ss_in  : t_ssarray := (others => (others => '0'));  
@@ -216,7 +219,8 @@ begin
    end process;
 
    process (clk93)
-      variable mode : unsigned(1 downto 0); 
+      variable mode        : unsigned(1 downto 0); 
+      variable nextEPC     : unsigned(63 downto 0);
    begin
       if (rising_edge(clk93)) then
       
@@ -306,142 +310,157 @@ begin
             
             bit64mode                       <= '0';
 
-         elsif (ce = '1' and stall = 0) then
+         elsif (ce = '1') then
          
-            if (writeEnable = '1') then
-            
-               COP0_LATCH <= writeValue;
+            if (stall = 0) then
+               if (writeEnable = '1') then
                
-               case (to_integer(regIndex)) is
+                  COP0_LATCH <= writeValue;
                   
-                  when 0 =>
-                     COP0_0_INDEX_tlbEntry     <= writeValue(5 downto 0);
-                     COP0_0_INDEX_probefailure <= writeValue(31);
+                  case (to_integer(regIndex)) is
                      
-                     when 2 => COP0_2_ENTRYLO0 <= writeValue(29 downto 0);
-                     when 3 => COP0_3_ENTRYLO1 <= writeValue(29 downto 0);
-                     when 4 => COP0_4_CONTEXT(63 downto 23) <= writeValue(63 downto 23);
-                     when 5 => COP0_5_PAGEMASK <= writeValue(24 downto 13);
-                     
-                     when 6 => 
-                        COP0_6_WIRED    <= writeValue(5 downto 0);
-                        COP0_1_RANDOM   <= to_unsigned(31, 6); -- maybe delayed?
-                     
-                     when 9 => COP0_9_COUNT <= writeValue(31 downto 0) & '0'; -- maybe delayed?
-                     
-                     when 10 =>
-                        COP0_10_ENTRYHI_addressSpaceID <= writeValue(7 downto 0);
-                        COP0_10_ENTRYHI_virtualAddress <= writeValue(39 downto 13);
-                        COP0_10_ENTRYHI_region         <= writeValue(63 downto 62);
+                     when 0 =>
+                        COP0_0_INDEX_tlbEntry     <= writeValue(5 downto 0);
+                        COP0_0_INDEX_probefailure <= writeValue(31);
                         
-                     when 11 =>
-                        COP0_11_COMPARE   <= writeValue(31 downto 0);
-                        COP0_13_CAUSE_interruptPending(7) <= '0';
-                     
-                     when 12 =>
-                        -- todo: missing setMode
-                        COP0_12_SR_interruptEnable     <= writeValue(0 );
-                        COP0_12_SR_exceptionLevel      <= writeValue(1 );
-                        COP0_12_SR_errorLevel          <= writeValue(2 );
-                        COP0_12_SR_privilegeMode       <= writeValue(4 downto 3);
-                        COP0_12_SR_userExtendedAddr    <= writeValue(5);
-                        COP0_12_SR_supervisorAddr      <= writeValue(6);
-                        COP0_12_SR_kernelExtendedAddr  <= writeValue(7);
-                        COP0_12_SR_interruptMask       <= writeValue(15 downto 8);
-                        COP0_12_SR_de                  <= writeValue(16);
-                        COP0_12_SR_ce                  <= writeValue(17);
-                        COP0_12_SR_condition           <= writeValue(18);
-                        COP0_12_SR_softReset           <= writeValue(20);
-                        --COP0_12_SR_tlbShutdown         <= writeValue(21); -- read only
-                        COP0_12_SR_vectorLocation      <= writeValue(22);
-                        COP0_12_SR_instructionTracing  <= writeValue(24);
-                        COP0_12_SR_reverseEndian       <= writeValue(25);
-                        COP0_12_SR_floatingPointMode   <= writeValue(26);
-                        COP0_12_SR_lowPowerMode        <= writeValue(27);
-                        COP0_12_SR_enable_cop0         <= writeValue(28);
-                        COP0_12_SR_enable_cop1         <= writeValue(29);
-                        COP0_12_SR_enable_cop2         <= writeValue(30);
-                        COP0_12_SR_enable_cop3         <= writeValue(31);
+                        when 2 => COP0_2_ENTRYLO0 <= writeValue(29 downto 0);
+                        when 3 => COP0_3_ENTRYLO1 <= writeValue(29 downto 0);
+                        when 4 => COP0_4_CONTEXT(63 downto 23) <= writeValue(63 downto 23);
+                        when 5 => COP0_5_PAGEMASK <= writeValue(24 downto 13);
                         
-                     when 13 => COP0_13_CAUSE_interruptPending(1 downto 0) <= writeValue(9 downto 8);
-                     when 14 => COP0_14_EPC <= writeValue;
-                     
-                     when 16 =>
-                        COP0_16_CONFIG_cacheAlgoKSEG0 <= writeValue(1 downto 0);
-                        COP0_16_CONFIG_cu             <= writeValue(3 downto 2);   
-                        COP0_16_CONFIG_bigEndian      <= writeValue(15);
-                        COP0_16_CONFIG_sysadWBPattern <= writeValue(27 downto 24); 
-                        --COP0_16_CONFIG_systemClockRatio <= writeValue(30 downto 28); -- read only
-                  
-                     when 17 => COP0_17_LOADLINKEDADDRESS(31 downto 0) <= writeValue(31 downto 0);
-                     
-                     when 18 => COP0_18_WATCHLO <= writeValue(31 downto 3) & '0' & writeValue(1 downto 0);
-                     when 19 => COP0_19_WATCHHI <= writeValue(3 downto 0);
-                     when 20 => COP0_20_XCONTEXT(63 downto 33) <= writeValue(63 downto 33);
-                     when 26 => COP0_26_PARITYERROR <= writeValue(7 downto 0);
-                     
-                     when 28 =>
-                        COP0_28_TAGLO_primaryCacheState <= writeValue(7 downto 6);
-                        COP0_28_TAGLO_physicalAddress   <= writeValue(27 downto 8);
+                        when 6 => 
+                           COP0_6_WIRED    <= writeValue(5 downto 0);
+                           COP0_1_RANDOM   <= to_unsigned(31, 6); -- maybe delayed?
                         
-                     when 30 => COP0_30_EPCERROR <= writeValue;
-                  
-                  when others => null;   
+                        when 9 => COP0_9_COUNT <= writeValue(31 downto 0) & '0'; -- maybe delayed?
+                        
+                        when 10 =>
+                           COP0_10_ENTRYHI_addressSpaceID <= writeValue(7 downto 0);
+                           COP0_10_ENTRYHI_virtualAddress <= writeValue(39 downto 13);
+                           COP0_10_ENTRYHI_region         <= writeValue(63 downto 62);
+                           
+                        when 11 =>
+                           COP0_11_COMPARE   <= writeValue(31 downto 0);
+                           COP0_13_CAUSE_interruptPending(7) <= '0';
+                        
+                        when 12 =>
+                           -- todo: missing setMode
+                           COP0_12_SR_interruptEnable     <= writeValue(0 );
+                           COP0_12_SR_exceptionLevel      <= writeValue(1 );
+                           COP0_12_SR_errorLevel          <= writeValue(2 );
+                           COP0_12_SR_privilegeMode       <= writeValue(4 downto 3);
+                           COP0_12_SR_userExtendedAddr    <= writeValue(5);
+                           COP0_12_SR_supervisorAddr      <= writeValue(6);
+                           COP0_12_SR_kernelExtendedAddr  <= writeValue(7);
+                           COP0_12_SR_interruptMask       <= writeValue(15 downto 8);
+                           COP0_12_SR_de                  <= writeValue(16);
+                           COP0_12_SR_ce                  <= writeValue(17);
+                           COP0_12_SR_condition           <= writeValue(18);
+                           COP0_12_SR_softReset           <= writeValue(20);
+                           --COP0_12_SR_tlbShutdown         <= writeValue(21); -- read only
+                           COP0_12_SR_vectorLocation      <= writeValue(22);
+                           COP0_12_SR_instructionTracing  <= writeValue(24);
+                           COP0_12_SR_reverseEndian       <= writeValue(25);
+                           COP0_12_SR_floatingPointMode   <= writeValue(26);
+                           COP0_12_SR_lowPowerMode        <= writeValue(27);
+                           COP0_12_SR_enable_cop0         <= writeValue(28);
+                           COP0_12_SR_enable_cop1         <= writeValue(29);
+                           COP0_12_SR_enable_cop2         <= writeValue(30);
+                           COP0_12_SR_enable_cop3         <= writeValue(31);
+                           
+                        when 13 => COP0_13_CAUSE_interruptPending(1 downto 0) <= writeValue(9 downto 8);
+                        when 14 => COP0_14_EPC <= writeValue;
+                        
+                        when 16 =>
+                           COP0_16_CONFIG_cacheAlgoKSEG0 <= writeValue(1 downto 0);
+                           COP0_16_CONFIG_cu             <= writeValue(3 downto 2);   
+                           COP0_16_CONFIG_bigEndian      <= writeValue(15);
+                           COP0_16_CONFIG_sysadWBPattern <= writeValue(27 downto 24); 
+                           --COP0_16_CONFIG_systemClockRatio <= writeValue(30 downto 28); -- read only
                      
+                        when 17 => COP0_17_LOADLINKEDADDRESS(31 downto 0) <= writeValue(31 downto 0);
+                        
+                        when 18 => COP0_18_WATCHLO <= writeValue(31 downto 3) & '0' & writeValue(1 downto 0);
+                        when 19 => COP0_19_WATCHHI <= writeValue(3 downto 0);
+                        when 20 => COP0_20_XCONTEXT(63 downto 33) <= writeValue(63 downto 33);
+                        when 26 => COP0_26_PARITYERROR <= writeValue(7 downto 0);
+                        
+                        when 28 =>
+                           COP0_28_TAGLO_primaryCacheState <= writeValue(7 downto 6);
+                           COP0_28_TAGLO_physicalAddress   <= writeValue(27 downto 8);
+                           
+                        when 30 => COP0_30_EPCERROR <= writeValue;
+                     
+                     when others => null;   
+                        
+                  end case;
+                     
+               end if; -- write enable
+               
+               -- eret
+               if (eret = '1') then
+                  if (COP0_12_SR_errorLevel = '1') then
+                     COP0_12_SR_errorLevel <= '0';
+                  else
+                     COP0_12_SR_exceptionLevel <= '0';
+                  end if;
+               end if;
+               
+               -- set mode
+               mode := COP0_12_SR_privilegeMode;
+               if (mode > 2) then mode := "10"; end if;
+               if (COP0_12_SR_exceptionLevel = '1') then mode := "00"; end if;
+               if (COP0_12_SR_errorLevel     = '1') then mode := "00"; end if;
+               -- should also switch endian mode, but we don't allow little endian in this CPU implementation!
+               case (mode) is
+                  when "00" => bit64mode <= COP0_12_SR_kernelExtendedAddr;
+                  when "01" => bit64mode <= COP0_12_SR_supervisorAddr;
+                  when "10" => bit64mode <= COP0_12_SR_userExtendedAddr;
+                  when others => null;
                end case;
-                   
-            end if; -- write enable
-            
-            -- new exception
-            exception <= '0';
-            if (exceptionFPU = '1' or exception3 = '1' or exception1 = '1') then
-            
-               exception <= '1';
                
-               COP0_12_SR_exceptionLevel   <= '1';
-               
-               COP0_13_CAUSE_coprocessorError <= "00";
-               if (exceptionFPU = '1') then
-                  COP0_13_CAUSE_exceptionCode    <= '0' & x"F";
-               elsif (exception3 = '1') then
-                  COP0_13_CAUSE_exceptionCode    <= '0' & exceptionCode_3;
-                  COP0_13_CAUSE_coprocessorError <= exception_COP;
-               else
-                  COP0_13_CAUSE_exceptionCode <= '0' & exceptionCode_1;
-               end if;
-               
-               COP0_13_CAUSE_branchDelay <= isDelaySlot;
-               if (isDelaySlot = '1') then
-                  COP0_14_EPC <= pcOld1 - 4; -- should this be pcOld2 instead?
-               else
-                  COP0_14_EPC <= pcOld1;
-               end if;
-            
-            end if;
-            
-            -- eret
-            if (eret = '1') then
-               if (COP0_12_SR_errorLevel = '1') then
-                  COP0_12_SR_errorLevel <= '0';
-               else
-                  COP0_12_SR_exceptionLevel <= '0';
-               end if;
-            end if;
-            
-            -- set mode
-            mode := COP0_12_SR_privilegeMode;
-            if (mode > 2) then mode := "10"; end if;
-            if (COP0_12_SR_exceptionLevel = '1') then mode := "00"; end if;
-            if (COP0_12_SR_errorLevel     = '1') then mode := "00"; end if;
-            -- should also switch endian mode, but we don't allow little endian in this CPU implementation!
-            case (mode) is
-               when "00" => bit64mode <= COP0_12_SR_kernelExtendedAddr;
-               when "01" => bit64mode <= COP0_12_SR_supervisorAddr;
-               when "10" => bit64mode <= COP0_12_SR_userExtendedAddr;
-               when others => null;
-            end case;
+            end if; -- stall
 
-         end if; -- ce + stall
+            -- new exception
+            nextEPC := pcOld1;
+            if (isDelaySlot = '1') then
+               nextEPC := pcOld1 - 4; -- should this be pcOld2 instead?
+            end if;
+            if (stall = 0) then
+               exception     <= '0';
+               nextEPC_1     <= nextEPC;
+               isDelaySlot_1 <= isDelaySlot;
+            end if;
+            
+            if (stall = 0 or exceptionFPU = '1') then
+               if (exceptionFPU = '1' or exception3 = '1' or exception1 = '1') then
+               
+                  exception <= '1';
+                  
+                  COP0_12_SR_exceptionLevel   <= '1';
+                  
+                  COP0_13_CAUSE_coprocessorError <= "00";
+                  if (exceptionFPU = '1') then
+                     COP0_13_CAUSE_exceptionCode    <= '0' & x"F";
+                  elsif (exception3 = '1') then
+                     COP0_13_CAUSE_exceptionCode    <= '0' & exceptionCode_3;
+                     COP0_13_CAUSE_coprocessorError <= exception_COP;
+                  else
+                     COP0_13_CAUSE_exceptionCode <= '0' & exceptionCode_1;
+                  end if;
+                  
+                  if (stall = 0) then
+                     COP0_14_EPC               <= nextEPC;
+                     COP0_13_CAUSE_branchDelay <= isDelaySlot;
+                  else
+                     COP0_14_EPC               <= nextEPC_1;
+                     COP0_13_CAUSE_branchDelay <= isDelaySlot_1;
+                  end if;
+               
+               end if;
+            end if;
+
+         end if; -- ce
       end if;
    end process;
    

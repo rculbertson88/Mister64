@@ -20,7 +20,7 @@ architecture arch of etb is
    
    signal fpuRegMode        : std_logic := '0';
 
-   signal command_ena       : std_logic;
+   signal command_ena       : std_logic := '0';
    signal command_code      : unsigned(31 downto 0) := (others => '0');
    signal command_op1       : unsigned(63 downto 0) := (others => '0');
    signal command_op2       : unsigned(63 downto 0) := (others => '0');
