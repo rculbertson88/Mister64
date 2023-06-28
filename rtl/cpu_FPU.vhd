@@ -105,9 +105,10 @@ architecture arch of cpu_FPU is
    signal OP      : unsigned(5 downto 0);
    
    signal causeReset          : std_logic;
-   signal operandCount2       : std_logic;
    signal checkInputs_dn      : std_logic;
-   signal checkInputs_nan     : std_logic;
+   signal checkInputs_nan     : std_logic;   
+   signal checkInputs2_dn     : std_logic;
+   signal checkInputs2_nan    : std_logic;
    signal outputInvalid       : std_logic;
    signal InvalidWidth        : std_logic;
    
@@ -122,6 +123,8 @@ architecture arch of cpu_FPU is
    signal infB      : std_logic;      
    signal nanA      : std_logic;
    signal nanB      : std_logic;   
+   signal exp0A     : std_logic;
+   signal exp0B     : std_logic;
    signal dnA       : std_logic;
    signal dnB       : std_logic;      
    signal zeroA     : std_logic;
@@ -149,10 +152,12 @@ architecture arch of cpu_FPU is
    signal signA_1                         : std_logic := '0';
    signal signB_1                         : std_logic := '0';  
    signal expA_1                          : unsigned(10 downto 0);
+   signal expB_1                          : unsigned(10 downto 0);
    signal mantA_1                         : unsigned(51 downto 0) := (others => '0');
    signal infA_1                          : std_logic := '0';
    signal nanA_1                          : std_logic := '0';
    signal zeroA_1                         : std_logic := '0';
+   signal outputInvalid_1                 : std_logic := '0';
    
    signal int_abs                         : unsigned(56 downto 0) := (others => '0');
    signal clz_int                         : integer range 0 to 56 := 0;
@@ -181,6 +186,25 @@ architecture arch of cpu_FPU is
    
    signal overflow_overwrite  : std_logic := '0';
    signal underflow_overwrite : std_logic := '0';
+   
+   -- ADD
+   signal ADD_start           : std_logic := '0';
+   signal SUB_start           : std_logic := '0';
+   signal ADD_stage1          : std_logic := '0';
+   signal ADD_stage2          : std_logic := '0';
+   signal ADD_useADD          : std_logic := '0';
+   signal ADD_swapped         : std_logic := '0';
+   signal ADD_AGrB            : std_logic := '0';
+   signal ADD_exp_initial     : unsigned(10 downto 0);
+   signal ADD_exp             : unsigned(10 downto 0);
+   signal ADD_value1          : unsigned(55 downto 0);
+   signal ADD_shift_value     : unsigned(55 downto 0);
+   signal ADD_shift_result    : unsigned(55 downto 0);
+   signal ADD_shift_result_or : unsigned(55 downto 0);
+   signal ADD_shift_amount    : integer range -63 to 63 := 0;
+   signal ADD_shift_lostbits  : std_logic;
+   signal ADD_result          : unsigned(56 downto 0);
+   signal ADD_leadingZeros    : integer range 0 to 56 := 0;
    
    -- CDS
    signal CDS_start           : std_logic := '0';
@@ -239,11 +263,14 @@ begin
    nanA    <= '1' when (infA = '1' and mantA > 0) else '0';
    nanB    <= '1' when (infB = '1' and mantB > 0) else '0';   
    
-   dnA    <= '1' when (expA = 0 and mantA > 0) else '0';
-   dnB    <= '1' when (expB = 0 and mantB > 0) else '0';   
+   exp0A   <= '1' when (expA = 0) else '0';
+   exp0B   <= '1' when (expB = 0) else '0';   
    
-   zeroA  <= '1' when (expA = 0 and mantA = 0) else '0';
-   zeroB  <= '1' when (expB = 0 and mantB = 0) else '0';
+   dnA     <= '1' when (exp0A = '1' and mantA > 0) else '0';
+   dnB     <= '1' when (exp0B = '1' and mantB > 0) else '0';   
+           
+   zeroA   <= '1' when (exp0A = '1' and mantA = 0) else '0';
+   zeroB   <= '1' when (exp0B = '1' and mantB = 0) else '0';
 
 ---------------------------------------------------------------------
 --------------- Combinatorial ---------------------------------------
@@ -277,9 +304,10 @@ begin
       command_done      <= '0';
       exceptionFPU      <= '0';
       causeReset        <= '0';
-      operandCount2     <= '0';
       checkInputs_dn    <= '0';
-      checkInputs_nan   <= '0';
+      checkInputs_nan   <= '0';      
+      checkInputs2_dn   <= '0';
+      checkInputs2_nan  <= '0';
       outputInvalid     <= '0';
       
       InvalidWidth   <= bit64;
@@ -288,13 +316,19 @@ begin
          if (OPgroup = 16 or OPgroup = 17) then
             case (op) is
                
-               when OP_ADD  => command_done <= '1'; -- todo
-               when OP_SUB  => command_done <= '1'; -- todo
+               when OP_ADD | OP_SUB  =>
+                  causeReset        <= '1';
+                  checkInputs_dn    <= '1';
+                  checkInputs_nan   <= '1';                  
+                  checkInputs2_dn   <= '1';
+                  checkInputs2_nan  <= '1';
+                  outputInvalid     <= nanA or nanB or (infA and infB);
+       
                when OP_MUL  => command_done <= '1'; -- todo
                when OP_DIV  => command_done <= '1'; -- todo
                when OP_SQRT => command_done <= '1'; -- todo
             
-               when OP_ABS =>
+               when OP_ABS | OP_NEG =>
                   command_done      <= '1';
                   causeReset        <= '1';
                   checkInputs_dn    <= '1';
@@ -303,45 +337,10 @@ begin
 
                when OP_MOV =>
                   command_done <= '1';
-                  
-               when OP_NEG =>
-                  command_done      <= '1';
-                  causeReset        <= '1';
-                  checkInputs_dn    <= '1';
-                  checkInputs_nan   <= '1';
-                  outputInvalid     <= nanA;
                
-               when OP_ROUND_L  =>
+               when OP_ROUND_L | OP_TRUNC_L | OP_CEIL_L | OP_FLOOR_L | OP_ROUND_W | OP_TRUNC_W | OP_CEIL_W | OP_FLOOR_W | OP_CVT_W | OP_CVT_L =>
                   causeReset        <= '1';
-                  checkInputs_dn    <= '1';
-                  
-               when OP_TRUNC_L  =>
-                  causeReset        <= '1';
-                  checkInputs_dn    <= '1';
-                  
-               when OP_CEIL_L   =>
-                  causeReset        <= '1';
-                  checkInputs_dn    <= '1';
-                  
-               when OP_FLOOR_L  =>
-                  causeReset        <= '1';
-                  checkInputs_dn    <= '1';
-                  
-               when OP_ROUND_W  =>                  
-                  causeReset        <= '1';  
-                  checkInputs_dn    <= '1';                  
-                  
-               when OP_TRUNC_W  =>
-                  causeReset        <= '1';
-                  checkInputs_dn    <= '1';
-                  
-               when OP_CEIL_W   =>
-                  causeReset        <= '1';
-                  checkInputs_dn    <= '1';
-                  
-               when OP_FLOOR_W  =>
-                  causeReset        <= '1';         
-                  checkInputs_dn    <= '1';                  
+                  checkInputs_dn    <= '1';          
                
                when OP_CVT_S    =>            
                   outputInvalid <= nanA;
@@ -366,14 +365,6 @@ begin
                   else
                      exceptionFPU <= '1';
                   end if;
-               
-               when OP_CVT_W    => 
-                  causeReset        <= '1';
-                  checkInputs_dn    <= '1';
-               
-               when OP_CVT_L    =>
-                  causeReset        <= '1';
-                  checkInputs_dn    <= '1';
                   
                when OP_C_F | OP_C_UN | OP_C_EQ | OP_C_UEQ | OP_C_OLT | OP_C_ULT | OP_C_OLE | OP_C_ULE | OP_C_SF | OP_C_NGLE | OP_C_SEQ | OP_C_NGL | OP_C_LT | OP_C_NGE | OP_C_LE | OP_C_NGT =>
                   command_done <= '1';
@@ -455,17 +446,32 @@ begin
          command_done <= '1';
       end if;
       
-      if (checkInputs_nan = '1') then
-         if (dnA = '0' and nanA = '1') then
-            if ((bit64 = '1' and command_op1(51) = '1') or (bit64 = '0' and command_op1(22) = '1')) then
-               if (csr_ena_invalidOperation = '1') then
-                  exceptionFPU <= '1';
-                  command_done <= '1';
-               end if;
-            else
+      if (checkInputs2_dn = '1' and dnB = '1') then
+         exceptionFPU <= '1';
+         command_done <= '1';
+      end if;
+      
+      if (checkInputs_nan = '1' and nanA = '1') then
+         if ((bit64 = '1' and command_op1(51) = '1') or (bit64 = '0' and command_op1(22) = '1')) then
+            if (csr_ena_invalidOperation = '1') then
                exceptionFPU <= '1';
                command_done <= '1';
             end if;
+         else
+            exceptionFPU <= '1';
+            command_done <= '1';
+         end if;
+      end if;      
+      
+      if (checkInputs2_nan = '1' and nanB = '1') then
+         if ((bit64 = '1' and command_op2(51) = '1') or (bit64 = '0' and command_op2(22) = '1')) then
+            if (csr_ena_invalidOperation = '1') then
+               exceptionFPU <= '1';
+               command_done <= '1';
+            end if;
+         else
+            exceptionFPU <= '1';
+            command_done <= '1';
          end if;
       end if;
       
@@ -497,9 +503,13 @@ begin
             exceptionFPU <= '1';
          end if;
          
-         if ((round_overflow = '1' or flag_overflow = '1') and csr_ena_overflow = '1') then
+         if (flag_invalid = '0' and (round_overflow = '1' or flag_overflow = '1') and csr_ena_overflow = '1') then
             exceptionFPU <= '1';
          end if;
+         
+         if (flag_invalid = '1' and csr_ena_invalidOperation = '1') then
+            exceptionFPU <= '1';
+         end if;    
          
       end if;
   
@@ -514,17 +524,21 @@ begin
    begin
       if (rising_edge(clk93)) then
       
-         bit64_1        <= bit64;
-         signA_1        <= signA;
-         signB_1        <= signB;
-         expA_1         <= expA;
-         mantA_1        <= mantA;
-         infA_1         <= infA;
-         nanA_1         <= nanA;
-         zeroA_1        <= zeroA;
+         bit64_1         <= bit64;
+         signA_1         <= signA;
+         signB_1         <= signB;
+         expA_1          <= expA;
+         expB_1          <= expB;
+         mantA_1         <= mantA;
+         infA_1          <= infA;
+         nanA_1          <= nanA;
+         zeroA_1         <= zeroA;
+         outputInvalid_1 <= outputInvalid;
       
          FPUWriteEnable                <= '0';
          error_FPU                     <= '0';           
+         ADD_start                     <= '0';
+         SUB_start                     <= '0';
          CDS_start                     <= '0';
          CIS_start                     <= '0';
          CID_start                     <= '0';
@@ -556,8 +570,12 @@ begin
                if (OPgroup = 16 or OPgroup = 17) then
                   case (op) is
                         
-                     when OP_ADD  => null;
-                     when OP_SUB  => null;
+                     when OP_ADD  =>
+                        ADD_start <= '1';
+                     
+                     when OP_SUB  => 
+                        SUB_start <= '1';
+                        
                      when OP_MUL  => null;
                      when OP_DIV  => null;
                      when OP_SQRT => null;
@@ -704,14 +722,25 @@ begin
                   end case;
                end if;
                
-               if (checkInputs_dn = '1' and dnA = '1') then
+               if ((checkInputs_dn = '1' and dnA = '1') or (checkInputs2_dn = '1' and dnB = '1')) then
                   csr_cause_unimplemented <= '1';
                   exception_inputInvalid  <= '1';
-               end if;
-      
-               if (checkInputs_nan = '1') then
-                  if (dnA = '0' and nanA = '1') then
+               else
+                  if (checkInputs_nan = '1' and nanA = '1') then
                      if ((bit64 = '1' and command_op1(51) = '1') or (bit64 = '0' and command_op1(22) = '1')) then
+                        csr_cause_invalidOperation <= '1';
+                        if (csr_ena_invalidOperation = '1') then
+                           exception_inputInvalid <= '1';
+                        else
+                           csr_flag_invalidOperation <= '1';
+                        end if;
+                     else
+                        exception_inputInvalid  <= '1';
+                        csr_cause_unimplemented <= '1';
+                     end if;
+                  end if;
+                  if (checkInputs2_nan = '1' and nanB = '1' and nanA = '0') then
+                     if ((bit64 = '1' and command_op2(51) = '1') or (bit64 = '0' and command_op2(22) = '1')) then
                         csr_cause_invalidOperation <= '1';
                         if (csr_ena_invalidOperation = '1') then
                            exception_inputInvalid <= '1';
@@ -813,11 +842,19 @@ begin
                   end if;
                end if;
                
-               if (overflow_overwrite = '1' and (round_overflow = '1' or flag_overflow = '1')) then
-                  if (bit64Out = '1') then
-                     FPUWriteData <= signOut & 11x"7FE" & x"FFFFFFFFFFFFF";
+               if (round_overflow = '1' or flag_overflow = '1') then
+                  if (overflow_overwrite = '1' ) then
+                     if (bit64Out = '1') then
+                        FPUWriteData <= signOut & 11x"7FE" & x"FFFFFFFFFFFFF";
+                     else
+                        FPUWriteData <= 32x"0" & signOut & x"FE" & 23x"7FFFF";
+                     end if;
                   else
-                     FPUWriteData <= 32x"0" & signOut & x"FE" & 23x"7FFFF";
+                     if (bit64Out = '1') then
+                        FPUWriteData <= signOut & 11x"7FF" & 52x"0";
+                     else
+                        FPUWriteData <= 32x"0" & signOut & x"FF" & 23x"0";
+                     end if;
                   end if;
                end if;            
                
@@ -850,7 +887,7 @@ begin
                   end if;
                end if;
                
-               if (flag_underflow = '1') then
+               if (flag_invalid = '0' and flag_underflow = '1') then
                   csr_cause_underflow <= '1';
                   if (csr_ena_underflow = '1') then
                      FPUWriteEnable    <= '0';
@@ -859,7 +896,7 @@ begin
                   end if;
                end if;                       
                
-               if (round_overflow = '1' or flag_overflow = '1') then
+               if (flag_invalid = '0' and (round_overflow = '1' or flag_overflow = '1')) then
                   csr_cause_overflow <= '1';
                   if (csr_ena_overflow = '1') then
                      FPUWriteEnable    <= '0';
@@ -985,7 +1022,44 @@ begin
       end if;
       
    end process;
-         
+   
+   -- ADD/SUB
+   ADD_shift_result <= shift_right(ADD_shift_value, ADD_shift_amount);
+   
+   ADD_shift_result_or <= ADD_shift_result(ADD_shift_result'left downto 1) & (ADD_shift_result(0) or ADD_shift_lostbits);
+   
+   ADD_useADD <= '1' when (signA_1  = signB_1 and SUB_start = '0') else
+                 '1' when (signA_1 /= signB_1 and SUB_start = '1') else
+                 '0';
+   
+   process (all)
+   begin
+   
+      ADD_shift_lostbits <= '0';
+      for i in 0 to 55 loop
+         if (i < ADD_shift_amount and ADD_shift_value(i) = '1') then
+            ADD_shift_lostbits <= '1';
+         end if;
+      end loop;
+      
+      if (bit64Out = '1') then
+         ADD_leadingZeros <= 56;
+         for i in 0 to 55 loop
+            if (add_result(i) = '1') then
+               ADD_leadingZeros <= 55 - i;
+            end if;
+         end loop;
+      else
+         ADD_leadingZeros <= 27;
+         for i in 0 to 26 loop
+            if (add_result(i) = '1') then
+               ADD_leadingZeros <= 26 - i;
+            end if;
+         end loop;
+      end if;
+      
+   end process;
+
 ---------------------------------------------------------------------
 --------------- clocked calculations --------------------------------
 ---------------------------------------------------------------------
@@ -1015,6 +1089,101 @@ begin
          underflow_overwrite <= '0';
          if (roundmode_save = 2 and signOut = '0') then underflow_overwrite <= '1'; end if;
          if (roundmode_save = 3 and signOut = '1') then underflow_overwrite <= '1'; end if;
+      
+         ---------------------------------
+         --------------- ADD/SUB ---------
+         ---------------------------------
+         ADD_stage1 <= (ADD_start or SUB_start) and (not exception_inputInvalid);
+         ADD_stage2 <= ADD_stage1;
+         
+         -- stage 0
+         if (expA > expB) then
+            ADD_exp_initial <= expA;
+            ADD_value1      <= '0' & mantA & "000";
+            ADD_shift_value <= '0' & mantB & "000";
+            ADD_swapped     <= '0';
+            if (bit64 = '1') then
+               ADD_value1(55)      <= not exp0A;
+               ADD_shift_value(55) <= not exp0B;
+            else
+               ADD_value1(26)      <= not exp0A;
+               ADD_shift_value(26) <= not exp0B;
+            end if;
+            if ((expA - expB) > 55) then
+               ADD_shift_amount <= 55;
+            else
+               ADD_shift_amount <= to_integer(expA) - to_integer(expB);
+            end if;   
+         else
+            ADD_exp_initial <= expB;
+            ADD_value1      <= '0' & mantB & "000";
+            ADD_shift_value <= '0' & mantA & "000";
+            ADD_swapped     <= '1';
+            if (bit64 = '1') then
+               ADD_value1(55)      <= not exp0B;
+               ADD_shift_value(55) <= not exp0A;
+            else
+               ADD_value1(26)      <= not exp0B;
+               ADD_shift_value(26) <= not exp0A;
+            end if;
+            if ((expB - expA) > 55) then
+               ADD_shift_amount <= 55;
+            else
+               ADD_shift_amount <= to_integer(expB) - to_integer(expA);
+            end if;  
+         end if;
+         
+         ADD_AGrB <= '0';
+         if (expA > expB or (expA = expB and mantA > mantB)) then
+            ADD_AGrB <= '1';
+         end if;
+
+         -- stage 1
+         if (ADD_start = '1' or SUB_start = '1') then
+            flag_invalid <= outputInvalid_1;
+            signOut      <= ((not signA_1) and (not ADD_AGrB) and (SUB_start xor signB_1)) or ((signA_1) and (ADD_AGrB or (SUB_start xor signB_1)));
+            flag_inexact <= ADD_shift_lostbits;
+            ADD_exp      <= ADD_exp_initial;
+            
+            if (ADD_useADD = '1') then
+               ADD_result   <= resize(ADD_value1, 57) + resize(ADD_shift_result_or, 57);
+            elsif (ADD_AGrB /= ADD_swapped) then
+               ADD_result   <= resize(ADD_value1, 57) - resize(ADD_shift_result_or, 57);
+            else
+               ADD_result   <= resize(ADD_shift_result_or, 57) - resize(ADD_value1, 57);
+            end if;
+         end if;
+         
+         -- stage 2
+         if (ADD_stage1 = '1') then
+            shifter_input <= ADD_result(56 downto 0);
+              
+            if (ADD_result = 0) then
+               ADD_exp <= (others => '0'); 
+               signout <= '0';
+            elsif (ADD_leadingZeros >= ADD_exp) then
+               ADD_exp        <= (others => '0'); 
+               flag_underflow <= '1';
+               shifter_amount <= 57;
+               shifter_right  <= '1';
+            elsif ((bit64Out = '1' and ADD_result(56) = '1') or (bit64Out = '0' and ADD_result(27) = '1')) then
+               shifter_input(0) <= '1';
+               shifter_amount   <= 1;
+               shifter_right    <= '1';
+               ADD_exp          <= ADD_exp + 1;
+            else
+               ADD_exp          <= ADD_exp - ADD_leadingZeros;
+               shifter_amount   <= ADD_leadingZeros;
+               shifter_right    <= '0';
+            end if;
+            
+         end if;
+
+         -- stage 3
+         if (ADD_stage2 = '1') then
+            round_store  <= '1';
+            round_in_exp <= ADD_exp;
+         end if;
       
          ---------------------------------
          --------------- CDS  ------------
