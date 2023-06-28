@@ -216,11 +216,11 @@ begin
          wait until rising_edge(clk93);
          
          -- eval result
-         if (FPUWriteEnable = exceptionA) then
+         if (FPUWriteEnable = exceptionA and command_code < 16#30#) then
             errorCount <= errorCount + 1;
             errorsWE   <= errorsWE + 1;
          end if;      
-         if (exceptionA = '0' and FPUWriteData /= RS) then
+         if (exceptionA = '0' and FPUWriteData /= RS and command_code < 16#30#) then
             errorCount <= errorCount + 1;
             errorsRS   <= errorsRS + 1;
          end if;         

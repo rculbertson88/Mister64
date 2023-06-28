@@ -126,6 +126,11 @@ architecture arch of cpu_FPU is
    signal dnB       : std_logic;      
    signal zeroA     : std_logic;
    signal zeroB     : std_logic; 
+   
+   signal cmp_inputInvalid_a : std_logic;
+   signal cmp_inputInvalid_b : std_logic;
+   signal cmp_equal          : std_logic;
+   signal cmp_lesser         : std_logic;
 
    -- calculation pipeline   
    signal flag_inexact     : std_logic := '0';
@@ -244,6 +249,28 @@ begin
 --------------- Combinatorial ---------------------------------------
 ---------------------------------------------------------------------
 
+   cmp_inputInvalid_a <= '1' when (nanA = '1' and OP(3) = '1') else
+                         '1' when (nanA = '1' and OP(3) = '0' and bit64 = '1' and command_op1(51) = '1') else
+                         '1' when (nanA = '1' and OP(3) = '0' and bit64 = '0' and command_op1(22) = '1') else 
+                         '0';
+                         
+   cmp_inputInvalid_b <= '1' when (nanB = '1' and OP(3) = '1') else
+                         '1' when (nanB = '1' and OP(3) = '0' and bit64 = '1' and command_op2(51) = '1') else
+                         '1' when (nanB = '1' and OP(3) = '0' and bit64 = '0' and command_op2(22) = '1') else 
+                         '0';
+   
+   cmp_equal <= '1' when (zeroA = '1' and zeroB = '1') else
+                '1' when (signA = signB and expA = expB and mantA = mantB) else
+                '0';
+                
+   cmp_lesser <= '0'   when (zeroA = '1' and zeroB = '1') else
+                 signA when (signA /= signB) else
+                 '1'   when (signA = '1' and expA /= expB and expB < expA) else
+                 '1'   when (signA = '1' and expA  = expB and mantB < mantA) else
+                 '1'   when (signA = '0' and expA /= expB and expA < expB) else
+                 '1'   when (signA = '0' and expA  = expB and mantA < mantB) else
+                 '0';
+
    process (all)
    begin
         
@@ -349,7 +376,12 @@ begin
                   checkInputs_dn    <= '1';
                   
                when OP_C_F | OP_C_UN | OP_C_EQ | OP_C_UEQ | OP_C_OLT | OP_C_ULT | OP_C_OLE | OP_C_ULE | OP_C_SF | OP_C_NGLE | OP_C_SEQ | OP_C_NGL | OP_C_LT | OP_C_NGE | OP_C_LE | OP_C_NGT =>
-                  command_done <= '1'; -- todo  
+                  command_done <= '1';
+                  if (cmp_inputInvalid_a = '1' or cmp_inputInvalid_b = '1') then
+                     if (csr_ena_invalidOperation = '1') then
+                        exceptionFPU <= '1';
+                     end if;
+                  end if;
                
                when others =>
                   command_done <= '1';
@@ -622,8 +654,26 @@ begin
                         bit64Out    <= '1';                     
                         
                      when OP_C_F | OP_C_UN | OP_C_EQ | OP_C_UEQ | OP_C_OLT | OP_C_ULT | OP_C_OLE | OP_C_ULE | OP_C_SF | OP_C_NGLE | OP_C_SEQ | OP_C_NGL | OP_C_LT | OP_C_NGE | OP_C_LE | OP_C_NGT =>
-                        null;
-                     
+                        if (nanA = '1' or nanB = '1') then
+                           if (cmp_inputInvalid_a = '1' or cmp_inputInvalid_b = '1') then
+                              csr_cause_invalidOperation <= '1';
+                              if (csr_ena_invalidOperation = '0') then
+                                 csr_flag_invalidOperation <= '1';
+                                 csr_compare               <= op(0);
+                              end if;
+                           else
+                              csr_compare <= op(0);
+                           end if;
+                        else
+                           case (op(2 downto 1)) is
+                              when "00" => csr_compare <= '0'; -- CF0
+                              when "01" => csr_compare <= cmp_equal; -- EQ
+                              when "10" => csr_compare <= cmp_lesser; -- LT
+                              when "11" => csr_compare <= cmp_equal or cmp_lesser; -- LE
+                              when others => null;
+                           end case;
+                        end if;   
+                        
                      when others =>
                         error_FPU <= '1';
                         csr_cause_unimplemented <= '1';
@@ -1234,6 +1284,7 @@ begin
                export_rm   := fpuRegMode;
                export_r1   := command_op1;
                export_r2   := command_op2;
+               export_rs   := (others => '0');
                export_csrb := 7x"0" & csr;
                export_cfb  := csr_compare;
                export_e    := '0';
@@ -1241,7 +1292,6 @@ begin
             
             if (exceptionFPU = '1') then
                export_e    := '1';
-               export_rs   := (others => '0');
                export_next := '1';
             end if;
             
