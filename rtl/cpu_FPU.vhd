@@ -33,7 +33,8 @@ entity cpu_FPU is
       
       FPUWriteTarget    : out unsigned(4 downto 0) := (others => '0');
       FPUWriteData      : out unsigned(63 downto 0) := (others => '0');
-      FPUWriteEnable    : out std_logic := '0'
+      FPUWriteEnable    : out std_logic := '0';
+      FPUWriteMask      : out std_logic_vector(1 downto 0) := (others => '0')
    );
 end entity;
 
@@ -404,7 +405,7 @@ begin
       case (transfer_code) is
          when x"0" => -- mfc1
             transfer_data <= unsigned(resize(signed(command_op1(31 downto 0)), 64));
-            if (fpuRegMode = '1' and transfer_RD(0) = '1') then
+            if (fpuRegMode = '0' and transfer_RD(0) = '1') then
                transfer_data <= unsigned(resize(signed(command_op1(63 downto 32)), 64));
             end if;
          
@@ -564,6 +565,7 @@ begin
             if (command_ena = '1') then
             
                FPUWriteTarget <= command_code(10 downto 6);
+               FPUWriteMask   <= "11";
                bit64Out       <= bit64;
                roundmode_save <= csr_roundmode;
             
@@ -702,7 +704,7 @@ begin
                if (OPgroup = 20 or OPgroup = 21) then
                
                   if (signed(command_op1) >= INT64_MAX or signed(command_op1) < INT64_MIN) then
-                     exception_checkInputConvert2F <= '1';
+                     exception_checkInputConvert2F <= bit64;
                   end if;
                
                   case (op) is
@@ -772,6 +774,11 @@ begin
             
                FPUWriteTarget <= transfer_RD;
                FPUWriteData   <= transfer_value;
+               FPUWriteMask   <= "11";
+               
+               if (fpuRegMode = '0') then
+                  FPUWriteTarget(0) <= '0';
+               end if;
             
                case (transfer_code) is
                   when x"0" => null; -- mfc1
@@ -782,11 +789,20 @@ begin
                      csr_cause_unimplemented    <= '1';
                   
                   when x"4" => -- mtc1
-                     FPUWriteEnable             <= '1';
-                     -- todo: only writes upper/lower 32 bit depending on fpuRegMode
+                     FPUWriteEnable      <= '1';
+                     if (fpuRegMode = '1') then
+                        FPUWriteMask        <= "01"; 
+                     else
+                        if (transfer_RD(0) = '1') then
+                           FPUWriteData(63 downto 32) <= transfer_value(31 downto 0);
+                           FPUWriteMask   <= "10";
+                        else
+                           FPUWriteMask   <= "01";
+                        end if;
+                     end if;
                   
                   when x"5" => -- dmtc1
-                     FPUWriteEnable             <= '1';
+                     FPUWriteEnable      <= '1';
                      
                   when x"6" => -- ctc1
                      if (transfer_RD = 31) then
@@ -1167,7 +1183,6 @@ begin
                shifter_amount <= 57;
                shifter_right  <= '1';
             elsif ((bit64Out = '1' and ADD_result(56) = '1') or (bit64Out = '0' and ADD_result(27) = '1')) then
-               shifter_input(0) <= '1';
                shifter_amount   <= 1;
                shifter_right    <= '1';
                ADD_exp          <= ADD_exp + 1;
@@ -1409,10 +1424,10 @@ begin
          variable export_next : std_logic := '0';
       begin
    
-         file_open(f_status, outfile, "R:\\fpu_soft_fpga.txt", write_mode);
+         file_open(f_status, outfile, "R:\\fpu_fpga.txt", write_mode);
          file_close(outfile);
          
-         file_open(f_status, outfile, "R:\\fpu_soft_fpga.txt", append_mode);
+         file_open(f_status, outfile, "R:\\fpu_fpga.txt", append_mode);
          
          while (true) loop
             

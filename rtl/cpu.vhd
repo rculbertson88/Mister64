@@ -71,7 +71,7 @@ architecture arch of cpu is
    -- FPU register file
    signal FPUregs_address_a            : std_logic_vector(4 downto 0);
    signal FPUregs_data_a               : std_logic_vector(63 downto 0);
-   signal FPUregs_wren_a               : std_logic;
+   signal FPUregs_wren_a               : std_logic_vector(1 downto 0);
    signal FPUregs1_address_b           : std_logic_vector(4 downto 0);
    signal FPUregs1_q_b                 : std_logic_vector(63 downto 0);
    signal FPUregs2_address_b           : std_logic_vector(4 downto 0);
@@ -80,6 +80,7 @@ architecture arch of cpu is
    signal FPUWriteTarget               : unsigned(4 downto 0) := (others => '0');
    signal FPUWriteData                 : unsigned(63 downto 0) := (others => '0');
    signal FPUWriteEnable               : std_logic := '0';   
+   signal FPUWriteMask                 : std_logic_vector(1 downto 0) := (others => '0');
    
    -- other register
    signal PC                           : unsigned(63 downto 0) := (others => '0');
@@ -225,6 +226,8 @@ architecture arch of cpu is
    signal decodeFPUSource2             : unsigned(4 downto 0) := (others => '0');
    signal decodeFPUValue1              : unsigned(63 downto 0) := (others => '0');
    signal decodeFPUValue2              : unsigned(63 downto 0) := (others => '0');
+   signal decodeFPUForwardUse          : std_logic := '0';
+   signal decodeFPUTarget              : unsigned(4 downto 0) := (others => '0');
    signal decodeFPUCommandEnable       : std_logic := '0';
    signal decodeFPUTransferEnable      : std_logic := '0';
    signal decodeFPUTransferWrite       : std_logic := '0';
@@ -290,6 +293,9 @@ architecture arch of cpu is
    signal decJumpTarget                : unsigned(25 downto 0);
    signal decFPUSource1                : unsigned(4 downto 0);
    signal decFPUSource2                : unsigned(4 downto 0);
+   signal decRequiresFPUreg1           : std_logic; 
+   signal decRequiresFPUreg2           : std_logic;
+   signal decFPUForwardUse             : std_logic;
             
    -- stage 3   
    signal value2_muxedSigned           : unsigned(63 downto 0);
@@ -362,6 +368,7 @@ architecture arch of cpu is
    signal executeCacheCommand          : unsigned(4 downto 0) := (others => '0');
    signal execute_COP1_Target          : unsigned(4 downto 0) := (others => '0');
    signal executeCOP1ReadEnable        : std_logic := '0';
+   signal execute_unstallFPUForward    : std_logic := '0';
 
    signal hiloWait                     : integer range 0 to 69;
    
@@ -440,6 +447,7 @@ architecture arch of cpu is
 
    -- COP1
    signal cop1_stage4_writeEnable      : std_logic := '0';
+   signal cop1_stage4_writeMask        : std_logic_vector(1 downto 0) := (others => '0');
    signal cop1_stage4_data             : unsigned(63 downto 0) := (others => '0');
    signal cop1_stage4_target           : unsigned(4 downto 0) := (others => '0');
 
@@ -643,25 +651,39 @@ begin
 --##############################################################
 --############################### FPU register file
 --##############################################################
-   iregisterfileFPU1 : entity mem.RamMLAB
+   iregisterfileFPU1LO : entity mem.RamMLAB
 	GENERIC MAP 
    (
-      width                               => 64,
+      width                               => 32,
       widthad                             => 5
 	)
 	PORT MAP (
       inclock    => clk93,
-      wren       => FPUregs_wren_a,
-      data       => FPUregs_data_a,
+      wren       => FPUregs_wren_a(0),
+      data       => FPUregs_data_a(31 downto 0),
       wraddress  => FPUregs_address_a,
       rdaddress  => FPUregs1_address_b,
-      q          => FPUregs1_q_b
+      q          => FPUregs1_q_b(31 downto 0)
+	);
+   iregisterfileFPU1HI : entity mem.RamMLAB
+	GENERIC MAP 
+   (
+      width                               => 32,
+      widthad                             => 5
+	)
+	PORT MAP (
+      inclock    => clk93,
+      wren       => FPUregs_wren_a(1),
+      data       => FPUregs_data_a(63 downto 32),
+      wraddress  => FPUregs_address_a,
+      rdaddress  => FPUregs1_address_b,
+      q          => FPUregs1_q_b(63 downto 32)
 	);
    
-   FPUregs_wren_a    <= '1' when (ss_fpuregs_load = '1') else
-                        '1' when (ce_93 = '1' and cop1_stage4_writeEnable = '1') else 
-                        '1' when (ce_93 = '1' and FPUWriteEnable = '1') else 
-                        '0';
+   FPUregs_wren_a    <= "11" when (ss_fpuregs_load = '1') else
+                        cop1_stage4_writeMask when (ce_93 = '1' and cop1_stage4_writeEnable = '1') else 
+                        FPUWriteMask          when (ce_93 = '1' and FPUWriteEnable = '1') else 
+                        "00";
    
    FPUregs_data_a    <= ss_FPUregs_data                    when (ss_FPUregs_load = '1') else 
                         std_logic_vector(cop1_stage4_data) when (cop1_stage4_writeEnable = '1') else
@@ -674,19 +696,33 @@ begin
    FPUregs1_address_b <= std_logic_vector(decFPUSource1);
    FPUregs2_address_b <= std_logic_vector(decFPUSource2);
    
-   iregisterfileFPU2 : entity mem.RamMLAB
+   iregisterfileFPU2LO : entity mem.RamMLAB
 	GENERIC MAP 
    (
-      width                               => 64,
+      width                               => 32,
       widthad                             => 5
 	)
 	PORT MAP (
       inclock    => clk93,
-      wren       => FPUregs_wren_a,
-      data       => FPUregs_data_a,
+      wren       => FPUregs_wren_a(0),
+      data       => FPUregs_data_a(31 downto 0),
       wraddress  => FPUregs_address_a,
       rdaddress  => FPUregs2_address_b,
-      q          => FPUregs2_q_b
+      q          => FPUregs2_q_b(31 downto 0)
+	);
+   iregisterfileFPU2HI : entity mem.RamMLAB
+	GENERIC MAP 
+   (
+      width                               => 32,
+      widthad                             => 5
+	)
+	PORT MAP (
+      inclock    => clk93,
+      wren       => FPUregs_wren_a(1),
+      data       => FPUregs_data_a(63 downto 32),
+      wraddress  => FPUregs_address_a,
+      rdaddress  => FPUregs2_address_b,
+      q          => FPUregs2_q_b(63 downto 32)
 	);
    
 --##############################################################
@@ -895,8 +931,20 @@ begin
             decFPUSource2(0) <= '0';
          end if;
       end if;
-      
+  
    end process;
+   
+   decRequiresFPUreg1 <= '1' when (decOP = 16#11# and (decSource1(4) = '1' or decSource1(3 downto 1) = 0)) else 
+                         '0';
+                         
+   -- can be optimized to only request opcodes that really need 2 ops
+   decRequiresFPUreg2 <= '1' when (decOP = 16#11# and (decSource1(4) = '1' or decSource1(3 downto 1) = 0)) else 
+                         '1' when (decOP = 16#39# or decOP = 16#3D#) else
+                         '0';
+   
+   decFPUForwardUse <= (decodeFPUCommandEnable or decodeFPUTransferEnable) when (decRequiresFPUreg1 = '1' and decodeFPUTarget = decFPUSource1) else
+                       (decodeFPUCommandEnable or decodeFPUTransferEnable) when (decRequiresFPUreg2 = '1' and decodeFPUTarget = decFPUSource2) else
+                       '0';
 
    process (clk93)
    begin
@@ -953,8 +1001,15 @@ begin
                   if (decSource1 > 0 and decodeTarget = decSource1) then decodeForwardValue1 <= '1'; end if;
                   if (decSource2 > 0 and decodeTarget = decSource2) then decodeForwardValue2 <= '1'; end if;
 
+                  -- FPU operand featching
                   decodeFPUValue1 <= unsigned(FPUregs1_q_b);
                   decodeFPUValue2 <= unsigned(FPUregs2_q_b);
+                  decodeFPUTarget <= opcodeCacheMuxed(10 downto 6);
+                  
+                  if (FPUWriteTarget = decFPUSource1 and FPUWriteEnable = '1') then decodeFPUValue1 <= FPUWriteData; end if;
+                  if (FPUWriteTarget = decFPUSource2 and FPUWriteEnable = '1') then decodeFPUValue2 <= FPUWriteData; end if;
+
+                  decodeFPUForwardUse <= decFPUForwardUse;
 
                   -- decoding default
                   decodeUseImmidateValue2 <= '0';
@@ -1189,6 +1244,7 @@ begin
                         if (decSource1(4) = '1') then -- FPU execute
                            decodeFPUCommandEnable  <= '1';
                         else
+                           decodeFPUTarget         <= decRD;
                            decodeFPUTransferEnable <= '1';
                            if (decSource1(3 downto 0) < 3) then
                               decodeFPUTransferWrite <= '1';
@@ -1242,8 +1298,8 @@ begin
                if (decodeSource1 > 0 and writebackTarget = decodeSource1 and writebackWriteEnable = '1') then decodeValue1 <= writebackData; end if;
                if (decodeSource2 > 0 and writebackTarget = decodeSource2 and writebackWriteEnable = '1') then decodeValue2 <= writebackData; end if;
       
-               if (cop1_stage4_target = decodeFPUSource1 and cop1_stage4_writeEnable = '1') then decodeFPUValue1 <= cop1_stage4_data; end if;
-               if (cop1_stage4_target = decodeFPUSource2 and cop1_stage4_writeEnable = '1') then decodeFPUValue2 <= cop1_stage4_data; end if;
+               if (FPUWriteTarget = decodeFPUSource1 and FPUWriteEnable = '1') then decodeFPUValue1 <= FPUWriteData; end if;
+               if (FPUWriteTarget = decodeFPUSource2 and FPUWriteEnable = '1') then decodeFPUValue2 <= FPUWriteData; end if;
       
             end if; -- stall
 
@@ -2142,7 +2198,18 @@ begin
             end if;
             
             -- FPU unstall
+            execute_unstallFPUForward <= '0';
+            
             if (FPU_command_done = '1') then
+               if (decodeFPUForwardUse = '1') then
+                  execute_unstallFPUForward <= '1';
+               else
+                  stall3     <= '0';
+                  executeNew <= '1';
+               end if;
+            end if;
+            
+            if (execute_unstallFPUForward = '1') then
                stall3     <= '0';
                executeNew <= '1';
             end if;
@@ -2313,6 +2380,13 @@ begin
                      
                      if (FPU_command_ena = '1' and FPU_command_done = '0') then
                         stall3 <= '1';
+                     end if;
+                     
+                     if (decFPUForwardUse = '1') then
+                        stall3 <= '1';
+                        if (FPU_command_done = '1' or FPU_command_ena = '0') then
+                           execute_unstallFPUForward <= '1';
+                        end if;
                      end if;
                      
                   end if;
@@ -2487,17 +2561,21 @@ begin
                
                if (writeback_COP1_ReadEnable = '1') then
                   cop1_stage4_writeEnable <= '1';
+                  cop1_stage4_writeMask   <= "11";
                   if (fpuRegMode = '1') then
                      if (writebackLoadType = LOADTYPE_DWORD) then
-                        cop1_stage4_data <= x"00000000" & byteswap32(dataReadData(31 downto 0)); -- todo: byte enable for lower 32 bit, upper 32bit should be kept
+                        cop1_stage4_data(31 downto 0) <= byteswap32(dataReadData(31 downto 0));
+                        cop1_stage4_writeMask         <= "01";
                      end if;
                   else
                      cop1_stage4_target(0) <= '0';
                      if (writebackLoadType = LOADTYPE_DWORD) then
                         if (cop1_stage4_target(0) = '1') then
-                           cop1_stage4_data <= byteswap32(dataReadData(31 downto 0)) & x"00000000"; -- todo: byte enable
+                           cop1_stage4_data(63 downto 32) <= byteswap32(dataReadData(31 downto 0));
+                           cop1_stage4_writeMask          <= "10";
                         else
-                           cop1_stage4_data <= x"00000000" & byteswap32(dataReadData(31 downto 0)); -- todo: byte enable
+                           cop1_stage4_data(31 downto 0) <= byteswap32(dataReadData(31 downto 0));
+                           cop1_stage4_writeMask         <= "01";
                         end if;
                      end if;
                   end if;
@@ -2653,8 +2731,12 @@ begin
             FPUregs(to_integer(ss_FPUregs_addr)) <= unsigned(ss_FPUregs_data);
          end if; 
          
-         if (FPUregs_wren_a = '1') then
-            FPUregs(to_integer(unsigned(FPUregs_address_a))) <= unsigned(FPUregs_data_a);
+         if (FPUregs_wren_a(0) = '1') then
+            FPUregs(to_integer(unsigned(FPUregs_address_a)))(31 downto 0) <= unsigned(FPUregs_data_a(31 downto 0));
+         end if;        
+         
+         if (FPUregs_wren_a(1) = '1') then
+            FPUregs(to_integer(unsigned(FPUregs_address_a)))(63 downto 32) <= unsigned(FPUregs_data_a(63 downto 32));
          end if;
 -- synthesis translate_on
          
@@ -2764,7 +2846,8 @@ begin
                                       
       FPUWriteTarget    => FPUWriteTarget,
       FPUWriteData      => FPUWriteData,  
-      FPUWriteEnable    => FPUWriteEnable
+      FPUWriteEnable    => FPUWriteEnable,
+      FPUWriteMask      => FPUWriteMask
    );
    
 --##############################################################
