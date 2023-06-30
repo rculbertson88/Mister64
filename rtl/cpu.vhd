@@ -231,6 +231,8 @@ architecture arch of cpu is
    signal decodeFPUCommandEnable       : std_logic := '0';
    signal decodeFPUTransferEnable      : std_logic := '0';
    signal decodeFPUTransferWrite       : std_logic := '0';
+   signal decodeFPUMULS                : std_logic := '0';
+   signal decodeFPUMULD                : std_logic := '0';
    
    type t_decodeBitFuncType is
    (
@@ -1006,8 +1008,10 @@ begin
                   decodeFPUValue2 <= unsigned(FPUregs2_q_b);
                   decodeFPUTarget <= opcodeCacheMuxed(10 downto 6);
                   
-                  if (FPUWriteTarget = decFPUSource1 and FPUWriteEnable = '1') then decodeFPUValue1 <= FPUWriteData; end if;
-                  if (FPUWriteTarget = decFPUSource2 and FPUWriteEnable = '1') then decodeFPUValue2 <= FPUWriteData; end if;
+                  if (unsigned(FPUregs_address_a) = decFPUSource1 and FPUregs_wren_a(1) = '1') then decodeFPUValue1(63 downto 32) <= unsigned(FPUregs_data_a(63 downto 32)); end if;
+                  if (unsigned(FPUregs_address_a) = decFPUSource1 and FPUregs_wren_a(0) = '1') then decodeFPUValue1(31 downto  0) <= unsigned(FPUregs_data_a(31 downto  0)); end if;
+                  if (unsigned(FPUregs_address_a) = decFPUSource2 and FPUregs_wren_a(1) = '1') then decodeFPUValue2(63 downto 32) <= unsigned(FPUregs_data_a(63 downto 32)); end if;
+                  if (unsigned(FPUregs_address_a) = decFPUSource2 and FPUregs_wren_a(0) = '1') then decodeFPUValue2(31 downto  0) <= unsigned(FPUregs_data_a(31 downto  0)); end if;
 
                   decodeFPUForwardUse <= decFPUForwardUse;
 
@@ -1021,6 +1025,8 @@ begin
                   decodeFPUCommandEnable  <= '0';
                   decodeFPUTransferEnable <= '0';
                   decodeFPUTransferWrite  <= '0';
+                  decodeFPUMULS           <= '0';
+                  decodeFPUMULD           <= '0';
 
                   -- decoding opcode specific
                   case (to_integer(decOP)) is
@@ -1243,6 +1249,10 @@ begin
                         decodeResultMux         <= RESULTMUX_FPU;
                         if (decSource1(4) = '1') then -- FPU execute
                            decodeFPUCommandEnable  <= '1';
+                           if (decFunct = 2) then
+                              if (decSource1 = 16) then decodeFPUMULS <= '1'; end if;
+                              if (decSource1 = 17) then decodeFPUMULD <= '1'; end if;
+                           end if;
                         else
                            decodeFPUTarget         <= decRD;
                            decodeFPUTransferEnable <= '1';
@@ -1298,8 +1308,10 @@ begin
                if (decodeSource1 > 0 and writebackTarget = decodeSource1 and writebackWriteEnable = '1') then decodeValue1 <= writebackData; end if;
                if (decodeSource2 > 0 and writebackTarget = decodeSource2 and writebackWriteEnable = '1') then decodeValue2 <= writebackData; end if;
       
-               if (FPUWriteTarget = decodeFPUSource1 and FPUWriteEnable = '1') then decodeFPUValue1 <= FPUWriteData; end if;
-               if (FPUWriteTarget = decodeFPUSource2 and FPUWriteEnable = '1') then decodeFPUValue2 <= FPUWriteData; end if;
+               if (unsigned(FPUregs_address_a) = decodeFPUSource1 and FPUregs_wren_a(1) = '1') then decodeFPUValue1(63 downto 32) <= unsigned(FPUregs_data_a(63 downto 32)); end if;
+               if (unsigned(FPUregs_address_a) = decodeFPUSource1 and FPUregs_wren_a(0) = '1') then decodeFPUValue1(31 downto  0) <= unsigned(FPUregs_data_a(31 downto  0)); end if;
+               if (unsigned(FPUregs_address_a) = decodeFPUSource2 and FPUregs_wren_a(1) = '1') then decodeFPUValue2(63 downto 32) <= unsigned(FPUregs_data_a(63 downto 32)); end if;
+               if (unsigned(FPUregs_address_a) = decodeFPUSource2 and FPUregs_wren_a(0) = '1') then decodeFPUValue2(31 downto  0) <= unsigned(FPUregs_data_a(31 downto  0)); end if;
       
             end if; -- stall
 
@@ -2330,6 +2342,22 @@ begin
                         stall3   <= '1';
                      end if;
                      
+                     if (decodeFPUMULS = '1') then
+                        mulsign  <= '0';
+                        mul1 <= 40x"0" & '0' & std_logic_vector(decodeFPUValue1(22 downto 0));
+                        mul2 <= 40x"0" & '0' & std_logic_vector(decodeFPUValue2(22 downto 0));
+                        if (decodeFPUValue1(30 downto 23) > 0) then mul1(23) <= '1'; end if;
+                        if (decodeFPUValue2(30 downto 23) > 0) then mul2(23) <= '1'; end if;
+                     end if;
+                     
+                     if (decodeFPUMULD = '1') then
+                        mulsign  <= '0';
+                        mul1 <= 11x"0" & '0' & std_logic_vector(decodeFPUValue1(51 downto 0));
+                        mul2 <= 11x"0" & '0' & std_logic_vector(decodeFPUValue2(51 downto 0));
+                        if (decodeFPUValue1(62 downto 52) > 0) then mul1(52) <= '1'; end if;
+                        if (decodeFPUValue2(62 downto 52) > 0) then mul2(52) <= '1'; end if;
+                     end if;
+                     
                      if (EXEcalcDIV = '1') then
                         DIVis32     <= '1';
                         hiloWait    <= 37;
@@ -2840,6 +2868,8 @@ begin
       transfer_RD       => decodeRD,
       transfer_value    => value2,
       transfer_data     => FPU_TransferData,
+      
+      mul_result        => unsigned(mulResult),
       
       exceptionFPU      => exceptionFPU,
       FPU_CF            => FPU_CF,

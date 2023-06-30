@@ -39,6 +39,12 @@ architecture arch of etb is
    signal FPUWriteData      : unsigned(63 downto 0) := (others => '0');
    signal FPUWriteEnable    : std_logic := '0';  
    
+   -- mul
+   signal mul_1             : std_logic_vector(63 downto 0);
+   signal mul_2             : std_logic_vector(63 downto 0);
+   signal mul_delay         : std_logic_vector(127 downto 0);
+   signal mul_result        : std_logic_vector(127 downto 0);
+   
    -- testbench
    signal cmdCount          : integer := 0;
    signal errorCount        : integer := 0;
@@ -80,6 +86,8 @@ begin
       transfer_RD       => transfer_RD,   
       transfer_value    => transfer_value,
       transfer_data     => transfer_data, 
+      
+      mul_result        => unsigned(mul_result),
                            
       exceptionFPU      => exceptionFPU,  
       FPU_CF            => FPU_CF,        
@@ -88,6 +96,17 @@ begin
       FPUWriteData      => FPUWriteData,  
       FPUWriteEnable    => FPUWriteEnable
    );
+   
+   -- mul
+   process (clk93) is
+   begin
+      if rising_edge(clk93) then
+
+         mul_delay  <= std_logic_vector(unsigned(mul_1) * unsigned(mul_2));
+         mul_result <= mul_delay;
+
+      end if;
+   end process;
    
    transfer_RD    <= 5x"1F";
    
@@ -201,6 +220,19 @@ begin
 
          -- execute command
          command_ena  <= '1'; 
+         
+         if (command_code(21) = '1') then
+            mul_1 <= 11x"0" & '0' & std_logic_vector(command_op1(51 downto 0));
+            mul_2 <= 11x"0" & '0' & std_logic_vector(command_op2(51 downto 0));
+            if (command_op1(62 downto 52) > 0) then mul_1(52) <= '1'; end if;
+            if (command_op2(62 downto 52) > 0) then mul_2(52) <= '1'; end if;
+         else
+            mul_1 <= 40x"0" & '0' & std_logic_vector(command_op1(22 downto 0));
+            mul_2 <= 40x"0" & '0' & std_logic_vector(command_op2(22 downto 0));
+            if (command_op1(30 downto 23) > 0) then mul_1(23) <= '1'; end if;
+            if (command_op2(30 downto 23) > 0) then mul_2(23) <= '1'; end if;
+         end if;
+          
          wait until rising_edge(clk93);
          command_ena  <= '0';
          while (command_done = '0') loop

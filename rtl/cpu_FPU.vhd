@@ -28,6 +28,8 @@ entity cpu_FPU is
       transfer_value    : in  unsigned(63 downto 0);
       transfer_data     : out unsigned(63 downto 0);
       
+      mul_result        : in  unsigned(127 downto 0);
+      
       exceptionFPU      : out std_logic := '0';
       FPU_CF            : out std_logic := '0';
       
@@ -156,12 +158,14 @@ architecture arch of cpu_FPU is
    signal expB_1                          : unsigned(10 downto 0);
    signal mantA_1                         : unsigned(51 downto 0) := (others => '0');
    signal infA_1                          : std_logic := '0';
+   signal infB_1                          : std_logic := '0';
    signal nanA_1                          : std_logic := '0';
    signal zeroA_1                         : std_logic := '0';
+   signal zeroB_1                         : std_logic := '0';
    signal outputInvalid_1                 : std_logic := '0';
    
-   signal int_abs                         : unsigned(56 downto 0) := (others => '0');
-   signal clz_int                         : integer range 0 to 56 := 0;
+   signal clz_value                       : unsigned(56 downto 0) := (others => '0');
+   signal clz_result                      : integer range 0 to 56 := 0;
    signal exception_checkInputConvert2F   : std_logic := '0';
    signal exception_inputInvalid          : std_logic := '0';
    
@@ -188,6 +192,11 @@ architecture arch of cpu_FPU is
    signal overflow_overwrite  : std_logic := '0';
    signal underflow_overwrite : std_logic := '0';
    
+   -- shortcuts, e.g. add/mul with zeros
+   signal shortcut_store      : std_logic := '0';
+   signal shortcut_exp        : unsigned(10 downto 0);
+   signal shortcut_mant       : unsigned(51 downto 0);
+   
    -- ADD
    signal ADD_start           : std_logic := '0';
    signal SUB_start           : std_logic := '0';
@@ -206,6 +215,14 @@ architecture arch of cpu_FPU is
    signal ADD_shift_lostbits  : std_logic;
    signal ADD_result          : unsigned(56 downto 0);
    signal ADD_leadingZeros    : integer range 0 to 56 := 0;
+   
+   -- MUL
+   signal MUL_start           : std_logic := '0';
+   signal MUL_stage1          : std_logic := '0';
+   signal MUL_stage2          : std_logic := '0';
+   signal mul_stage3          : std_logic := '0';
+   signal MUL_exp_calc        : integer range -4095 to 4095 := 0;
+   signal MUL_exp             : unsigned(10 downto 0);
    
    -- CDS
    signal CDS_start           : std_logic := '0';
@@ -325,7 +342,14 @@ begin
                   checkInputs2_nan  <= '1';
                   outputInvalid     <= nanA or nanB or (infA and infB);
        
-               when OP_MUL  => command_done <= '1'; -- todo
+               when OP_MUL  =>
+                  causeReset        <= '1';
+                  checkInputs_dn    <= '1';
+                  checkInputs_nan   <= '1';                  
+                  checkInputs2_dn   <= '1';
+                  checkInputs2_nan  <= '1';
+                  outputInvalid     <= nanA or nanB or (infA and zeroB) or (infB and zeroA);
+               
                when OP_DIV  => command_done <= '1'; -- todo
                when OP_SQRT => command_done <= '1'; -- todo
             
@@ -490,7 +514,7 @@ begin
          command_done <= '1';
       end if;
       
-      if (round_store = '1') then
+      if (round_store = '1' or shortcut_store = '1') then
          command_done <= '1';
       end if;
          
@@ -532,14 +556,17 @@ begin
          expB_1          <= expB;
          mantA_1         <= mantA;
          infA_1          <= infA;
+         infB_1          <= infB;
          nanA_1          <= nanA;
          zeroA_1         <= zeroA;
+         zeroB_1         <= zeroB;
          outputInvalid_1 <= outputInvalid;
       
          FPUWriteEnable                <= '0';
          error_FPU                     <= '0';           
          ADD_start                     <= '0';
          SUB_start                     <= '0';
+         MUL_start                     <= '0';
          CDS_start                     <= '0';
          CIS_start                     <= '0';
          CID_start                     <= '0';
@@ -572,13 +599,9 @@ begin
                if (OPgroup = 16 or OPgroup = 17) then
                   case (op) is
                         
-                     when OP_ADD  =>
-                        ADD_start <= '1';
-                     
-                     when OP_SUB  => 
-                        SUB_start <= '1';
-                        
-                     when OP_MUL  => null;
+                     when OP_ADD  => ADD_start <= '1';
+                     when OP_SUB  => SUB_start <= '1';
+                     when OP_MUL  => MUL_start <= '1';
                      when OP_DIV  => null;
                      when OP_SQRT => null;
                   
@@ -837,6 +860,16 @@ begin
             csr_cause_unimplemented  <= '1';
          end if;
          
+         -- writeback shortcut
+         if (shortcut_store = '1') then
+            FPUWriteEnable <= '1';
+            if (bit64Out = '1') then
+               FPUWriteData <= signOut & shortcut_exp & shortcut_mant;
+            else
+               FPUWriteData <= 32x"0" & signOut & shortcut_exp(7 downto 0) & shortcut_mant(22 downto 0);
+            end if;
+         end if;
+         
          -- writeback after rounding
          if (round_store = '1') then
             FPUWriteEnable <= '1';
@@ -946,12 +979,12 @@ begin
    begin
       if (rising_edge(clk93)) then
       
-         clz_int <= 56;
-         for i in 0 to 55 loop
-            if (int_abs(i) = '1') then
-               clz_int <= 55 - i;
-            end if;
-         end loop;
+      clz_result <= 56;
+      for i in 0 to 55 loop
+         if (clz_value(i) = '1') then
+            clz_result <= 55 - i;
+         end if;
+      end loop;
 
       end if;
    end process;
@@ -1084,9 +1117,10 @@ begin
    begin
       if (rising_edge(clk93)) then
       
-         round_store  <= '0';
-         toInt_store  <= '0';
-         toInt_unimpl <= '0';
+         round_store     <= '0';
+         toInt_store     <= '0';
+         toInt_unimpl    <= '0';
+         shortcut_store  <= '0';
          
          if (command_ena = '1') then
             flag_inexact   <= '0';
@@ -1185,7 +1219,9 @@ begin
             elsif ((bit64Out = '1' and ADD_result(56) = '1') or (bit64Out = '0' and ADD_result(27) = '1')) then
                shifter_amount   <= 1;
                shifter_right    <= '1';
-               ADD_exp          <= ADD_exp + 1;
+               if ((bit64Out = '1' and ADD_exp < 16#7FF#) or (bit64Out = '0' and ADD_exp < 16#ff#)) then
+                  ADD_exp       <= ADD_exp + 1;
+               end if;
             else
                ADD_exp          <= ADD_exp - ADD_leadingZeros;
                shifter_amount   <= ADD_leadingZeros;
@@ -1200,6 +1236,89 @@ begin
             round_in_exp <= ADD_exp;
          end if;
       
+         ---------------------------------
+         --------------- MUL  ------------
+         ---------------------------------
+         MUL_stage1 <= MUL_start and (not exception_inputInvalid);
+         MUL_stage2 <= MUL_stage1;
+         MUL_stage3 <= MUL_stage2;
+         
+         -- stage 0
+         if (bit64 = '1') then
+            MUL_exp_calc <= to_integer(expA) + to_integer(expB) - 1023;
+         else
+            MUL_exp_calc <= to_integer(expA) + to_integer(expB) - 127;
+         end if;
+      
+         -- stage 1 - DSP delay
+         if (MUL_start = '1') then
+            signOut        <= signA_1 xor signB_1;
+            flag_invalid   <= outputInvalid_1;
+            flag_infinity  <= infA_1 or infB_1;
+            
+            if (exception_inputInvalid = '0' and outputInvalid_1 = '0' and (zeroA_1 = '1' or zeroB_1 = '1')) then
+               shortcut_store <= '1';
+               shortcut_exp   <= (others => '0');
+               shortcut_mant  <= (others => '0');
+               MUL_stage1     <= '0';
+            end if;
+            
+            if (MUL_exp_calc <= 0) then
+               MUL_exp <= (others => '0');
+               flag_underflow <= '1';
+               flag_inexact   <= '1';
+            elsif ((bit64Out = '1' and MUL_exp_calc > 16#7FF#) or (bit64Out = '0' and MUL_exp_calc > 16#FF#)) then
+               MUL_exp <= (others => '1');
+            else
+               MUL_exp <= to_unsigned(MUL_exp_calc, 11); 
+            end if;
+         end if;
+         
+         -- stage 2 -> mul/dsp delay
+      
+         -- stage 3
+         if (MUL_stage2 = '1') then
+            if (bit64Out = '1') then
+               shifter_input  <= mul_result(104 downto 48);
+               shifter_right  <= '1';
+               shifter_amount <= 0;
+               if (mul_result(47 downto 0) > 0) then
+                  flag_inexact <= '1';
+               end if;
+               if (mul_result(105) = '1') then
+                  shifter_amount   <= 2;
+                  shifter_right    <= '1';
+                  if (MUL_exp < 16#7ff#) then
+                     MUL_exp       <= MUL_exp + 1;
+                  end if;
+               else
+                  shifter_amount   <= 1;
+               end if;
+            else
+               shifter_input <= 10x"0" & mul_result(46 downto 0);
+               shifter_right <= '1';
+               if (mul_result(47) = '1') then
+                  shifter_amount   <= 21;
+                  if (MUL_exp < 16#ff#) then
+                     MUL_exp       <= MUL_exp + 1;
+                  end if;
+               else 
+                  shifter_amount   <= 20;
+               end if;
+            end if;
+         end if;
+         
+         -- stage 4
+         if (mul_stage3 = '1') then
+            if (bit64Out = '1') then
+               round_store  <= '1';
+               round_in_exp <= MUL_exp;
+            else
+               round_store  <= '1';
+               round_in_exp <= MUL_exp;
+            end if;
+         end if;
+         
          ---------------------------------
          --------------- CDS  ------------
          ---------------------------------
@@ -1251,34 +1370,36 @@ begin
          CISD_stage3 <= CISD_stage2;
          
          -- stage 0
-         if (bit64 = '1') then
-            int_abs <= unsigned(abs(resize(signed(command_op1(55 downto 0)), 57)));
-         else
-            int_abs <= 24x"0" & unsigned(abs(resize(signed(command_op1(31 downto 0)), 33)));
+         if (command_ena = '1' and OPgroup(2) = '1') then
+            if (bit64 = '1') then
+               clz_value <= unsigned(abs(resize(signed(command_op1(55 downto 0)), 57)));
+            else
+               clz_value <= 24x"0" & unsigned(abs(resize(signed(command_op1(31 downto 0)), 33)));
+            end if;
          end if;
          
          -- stage 1
          if (CIS_start = '1' or CID_start = '1') then
             signOut       <= signA_1;
-            shifter_input <= int_abs;
+            shifter_input <= clz_value;
          end if;
          
          -- stage 2
          if (CIS_stage1 = '1') then
-            if (clz_int = 56) then 
+            if (clz_result = 56) then 
                CID_exp <= 0;
             else
-               CID_exp   <= 127 + (55 - clz_int);
-               CID_shift <= 26 - (55 - clz_int);
+               CID_exp   <= 127 + (55 - clz_result);
+               CID_shift <= 26 - (55 - clz_result);
             end if;
          end if;
          
          if (CID_stage1 = '1') then
-            if (clz_int = 56) then 
+            if (clz_result = 56) then 
                CID_exp <= 0;
             else
-               CID_exp   <= 1023 + (55 - clz_int);
-               CID_shift <= 55 - (55 - clz_int);
+               CID_exp   <= 1023 + (55 - clz_result);
+               CID_shift <= 55 - (55 - clz_result);
             end if;
          end if;
          
@@ -1328,11 +1449,8 @@ begin
             -- prepare shifter
             signOut <= signA_1;
             shifter_input <= 5x"0" & mantA_1;
-            if (bit64_1 = '1') then
-               shifter_input(52) <= '1';
-            else
-               shifter_input(23) <= '1';
-            end if;
+            if (zeroA_1 = '0' and bit64_1 = '1') then shifter_input(52) <= '1'; end if;
+            if (zeroA_1 = '0' and bit64_1 = '0') then shifter_input(23) <= '1'; end if;
             if (toInt_shift < 0) then
                shifter_right  <= '1';
                if (toInt_shift < -63) then
