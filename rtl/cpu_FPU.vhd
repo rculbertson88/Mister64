@@ -145,6 +145,7 @@ architecture arch of cpu_FPU is
    signal flag_divbyzero   : std_logic := '0';
    signal flag_invalid     : std_logic := '0';
    signal flag_infinity    : std_logic := '0';
+   signal write_infinity   : std_logic := '0';
    
    signal signOut          : std_logic := '0';
    signal bit64Out         : std_logic := '0';
@@ -155,7 +156,6 @@ architecture arch of cpu_FPU is
    signal signA_1                         : std_logic := '0';
    signal signB_1                         : std_logic := '0';  
    signal expA_1                          : unsigned(10 downto 0);
-   signal expB_1                          : unsigned(10 downto 0);
    signal mantA_1                         : unsigned(51 downto 0) := (others => '0');
    signal infA_1                          : std_logic := '0';
    signal infB_1                          : std_logic := '0';
@@ -223,6 +223,19 @@ architecture arch of cpu_FPU is
    signal mul_stage3          : std_logic := '0';
    signal MUL_exp_calc        : integer range -4095 to 4095 := 0;
    signal MUL_exp             : unsigned(10 downto 0);
+   
+   -- DIV
+   signal DIV_start           : std_logic := '0';
+   signal DIV_running         : std_logic := '0';
+   signal DIV_done            : std_logic := '0';
+   signal dividend            : unsigned(55 downto 0);
+   signal divisor             : unsigned(55 downto 0);
+   signal divremain           : unsigned(55 downto 0);
+   signal quotient            : unsigned(55 downto 0);
+   signal divstep             : integer range -1 to 63;
+   signal DIV_complete        : std_logic := '1';
+   signal DIV_exp_calc        : integer range -4095 to 4095 := 0;
+   signal DIV_exp             : unsigned(10 downto 0);
    
    -- CDS
    signal CDS_start           : std_logic := '0';
@@ -350,7 +363,14 @@ begin
                   checkInputs2_nan  <= '1';
                   outputInvalid     <= nanA or nanB or (infA and zeroB) or (infB and zeroA);
                
-               when OP_DIV  => command_done <= '1'; -- todo
+               when OP_DIV  =>
+                  causeReset        <= '1';
+                  checkInputs_dn    <= '1';
+                  checkInputs_nan   <= '1';                  
+                  checkInputs2_dn   <= '1';
+                  checkInputs2_nan  <= '1';
+                  outputInvalid     <= nanA or nanB or (infA and infB) or (zeroA and zeroB);
+               
                when OP_SQRT => command_done <= '1'; -- todo
             
                when OP_ABS | OP_NEG =>
@@ -524,6 +544,10 @@ begin
             exceptionFPU <= '1';
          end if;
         
+         if (flag_divbyzero = '1' and csr_ena_divisionByZero = '1') then
+            exceptionFPU <= '1';
+         end if;         
+         
          if (flag_invalid = '0' and (round_inexact = '1' or flag_inexact = '1') and csr_ena_inexact = '1') then
             exceptionFPU <= '1';
          end if;
@@ -553,7 +577,6 @@ begin
          signA_1         <= signA;
          signB_1         <= signB;
          expA_1          <= expA;
-         expB_1          <= expB;
          mantA_1         <= mantA;
          infA_1          <= infA;
          infB_1          <= infB;
@@ -567,6 +590,7 @@ begin
          ADD_start                     <= '0';
          SUB_start                     <= '0';
          MUL_start                     <= '0';
+         DIV_start                     <= '0';
          CDS_start                     <= '0';
          CIS_start                     <= '0';
          CID_start                     <= '0';
@@ -602,7 +626,7 @@ begin
                      when OP_ADD  => ADD_start <= '1';
                      when OP_SUB  => SUB_start <= '1';
                      when OP_MUL  => MUL_start <= '1';
-                     when OP_DIV  => null;
+                     when OP_DIV  => DIV_start <= '1';
                      when OP_SQRT => null;
                   
                      when OP_ABS => 
@@ -883,7 +907,7 @@ begin
                   FPUWriteData <= 32x"0" & signOut & round_out32_exp & round_out32_mant;
                end if;
                
-               if (flag_infinity = '1') then
+               if (write_infinity = '1') then
                   if (bit64Out = '1') then
                      FPUWriteData <= signOut & 11x"7FF" & 52x"0";
                   else
@@ -926,6 +950,15 @@ begin
                FPUWriteEnable             <= '0';
             
             else
+            
+               if (flag_divbyzero = '1') then
+                  csr_cause_divisionByZero <= '1';
+                  if (csr_ena_divisionByZero = '1') then
+                     FPUWriteEnable    <= '0';
+                  else
+                     csr_flag_divisionByZero <= '1';
+                  end if;
+               end if;  
             
                if (flag_invalid = '0' and (round_inexact = '1' or flag_inexact = '1')) then
                   csr_cause_inexact <= '1';
@@ -1062,8 +1095,15 @@ begin
       if (bit64Out = '1' and round_Mant(56) = '1' and round_Mant(3) = '1') then round_inexact <= '1'; end if;
       
       -- overflow
-      if (bit64Out = '0' and round_out32_exp = x"FF")    then round_overflow <= not flag_infinity; end if;
-      if (bit64Out = '1' and round_out64_exp = 11x"7FF") then round_overflow <= not flag_infinity; end if;
+      if ((bit64Out = '0' and round_out32_exp = x"FF") or (bit64Out = '1' and round_out64_exp = 11x"7FF")) then 
+         round_overflow <= '1'; 
+         round_inexact  <= '1'; 
+      end if;
+      
+      if (flag_infinity = '1' or flag_divbyzero = '1') then
+         round_overflow <= '0'; 
+         round_inexact  <= '0'; 
+      end if;
       
       if (round_store = '0') then
          round_inexact  <= '0';
@@ -1108,6 +1148,48 @@ begin
       end if;
       
    end process;
+   
+   -- DIV
+   process (clk93)
+      variable dividend_next : unsigned(55 downto 0);
+   begin
+      if (rising_edge(clk93)) then
+      
+         if (command_ena = '1' and op = 3) then
+            dividend     <= 4x"0" & mantA;
+            divisor      <= 4x"0" & mantB;
+            quotient     <= (others => '0');
+            DIV_complete <= '0';
+            if (bit64 = '1') then
+               dividend(52) <= not exp0A;
+               divisor(52)  <= '1';
+                divstep     <= 55; 
+            else
+               dividend(23) <= not exp0A;
+               divisor(23)  <= '1';
+                divstep     <= 26;
+            end if;
+         elsif (DIV_complete = '0') then
+            dividend_next := dividend;
+            if (dividend >= divisor) then
+               quotient(divstep) <= '1';
+               dividend_next     := dividend_next - divisor;
+            end if;
+            divremain <= dividend_next;
+            dividend <= dividend_next(dividend_next'left-1 downto 0) & '0';
+            divstep  <= divstep - 1;
+            if (divstep = 0) then
+               DIV_complete <= '1';
+            end if;
+         end if;
+         
+         if (reset = '1') then
+            DIV_complete <= '1';
+         end if;
+
+      end if;
+   end process;
+   
 
 ---------------------------------------------------------------------
 --------------- clocked calculations --------------------------------
@@ -1129,6 +1211,7 @@ begin
             flag_divbyzero <= '0';
             flag_invalid   <= '0';
             flag_infinity  <= '0';
+            write_infinity <= '0';
          end if;
          
          overflow_overwrite <= '0';
@@ -1255,6 +1338,7 @@ begin
             signOut        <= signA_1 xor signB_1;
             flag_invalid   <= outputInvalid_1;
             flag_infinity  <= infA_1 or infB_1;
+            write_infinity <= infA_1 or infB_1;
             
             if (exception_inputInvalid = '0' and outputInvalid_1 = '0' and (zeroA_1 = '1' or zeroB_1 = '1')) then
                shortcut_store <= '1';
@@ -1310,13 +1394,92 @@ begin
          
          -- stage 4
          if (mul_stage3 = '1') then
-            if (bit64Out = '1') then
-               round_store  <= '1';
-               round_in_exp <= MUL_exp;
-            else
-               round_store  <= '1';
-               round_in_exp <= MUL_exp;
+            round_store  <= '1';
+            round_in_exp <= MUL_exp;
+         end if;
+         
+         ---------------------------------
+         --------------- DIV  ------------
+         ---------------------------------
+
+         -- stage 0         
+         if (bit64 = '1') then
+            DIV_exp_calc <= to_integer(expA) - to_integer(expB) + 1023;
+         else
+            DIV_exp_calc <= to_integer(expA) - to_integer(expB) + 127;
+         end if;
+         
+         -- stage 1
+         if (DIV_start = '1') then
+            signOut        <= signA_1 xor signB_1;
+            flag_invalid   <= outputInvalid_1;
+            flag_infinity  <= infA_1 or infB_1;
+         
+            if (zeroA_1 = '0' and zeroB_1 = '1') then
+               flag_divbyzero <= '1';
             end if;
+            
+            DIV_running <= not exception_inputInvalid;
+            
+            if (exception_inputInvalid = '0' and outputInvalid_1 = '0' and zeroA_1 = '1') then
+               shortcut_store <= '1';
+               shortcut_exp   <= (others => '0');
+               shortcut_mant  <= (others => '0');
+               DIV_running    <= '0';
+            end if;
+            
+            if (DIV_exp_calc <= 0) then
+               DIV_exp        <= (others => '0');
+               flag_underflow <= '1';
+               flag_inexact   <= '1';
+            elsif ((bit64Out = '1' and DIV_exp_calc > 16#7FF#) or (bit64Out = '0' and DIV_exp_calc > 16#FF#)) then
+               DIV_exp <= (others => '1');
+            else
+               DIV_exp <= to_unsigned(DIV_exp_calc, 11); 
+            end if;
+            
+            if (infA_1 = '1') then
+               DIV_exp <= (others => '1');
+            elsif (infB_1 = '1') then
+               DIV_exp <= (others => '0');
+            end if;
+         end if;
+         
+         -- stage n- 1
+         DIV_done <= '0';
+         if (DIV_running = '1' and DIV_complete = '1') then
+            DIV_running    <= '0';
+            DIV_done       <= '1';
+            shifter_input  <= '0' & quotient;
+            shifter_right  <= '0';
+            shifter_amount <= 0;
+            if ((bit64Out = '1' and quotient(55) = '0') or (bit64Out = '0' and quotient(26) = '0')) then
+               if (DIV_exp > 1) then
+                  shifter_amount <= 1;
+                  DIV_exp        <= DIV_exp - 1;
+               else
+                  DIV_exp        <= (others => '0');
+                  flag_underflow <= '1';
+                  flag_inexact   <= '1';
+                  shifter_input  <= (others => '0');
+               end if;
+            end if;
+            if (divremain > 0) then
+               flag_inexact <= '1';
+            end if;
+            if (DIV_exp = 0) then
+               shifter_input  <= (others => '0');
+            end if;
+            if (flag_infinity = '1') then
+               flag_underflow <= '0';
+               flag_inexact   <= '0';
+            end if;
+         end if;
+         
+         -- stage n
+         if (DIV_done = '1') then
+            round_store  <= '1';
+            round_in_exp <= DIV_exp;
          end if;
          
          ---------------------------------
@@ -1332,6 +1495,7 @@ begin
             signOut        <= signA_1;
             flag_invalid   <= nanA_1;
             flag_infinity  <= infA_1;
+            write_infinity <= infA_1;
             shifter_right  <= '1';
             shifter_amount <= 26;
             shifter_input  <= 5x"1" & mantA_1;
