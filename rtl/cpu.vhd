@@ -2086,6 +2086,9 @@ begin
                else
                   EXEMemWriteEnable            <= '1';
                   EXEMemWriteData(31 downto 0) <= byteswap32(decodeFPUValue2(31 downto 0));
+                  if (fpuRegMode = '0' and decodeSource2(0) = '1') then
+                     EXEMemWriteData(31 downto 0) <= byteswap32(decodeFPUValue2(63 downto 32));
+                  end if;
                end if;
                
             when 16#3A# => -- SWC2 -> nop
