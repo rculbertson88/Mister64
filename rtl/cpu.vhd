@@ -314,6 +314,7 @@ architecture arch of cpu is
    signal calcResult_lesserUnSigned    : std_logic;
    signal calcResult_lesserIMMSigned   : std_logic;
    signal calcResult_lesserIMMUnsigned : std_logic;
+   signal calcResult_equal             : std_logic;
    signal calcResult_bit               : unsigned(63 downto 0);
    
    signal executeShamt                 : unsigned(5 downto 0);
@@ -1175,17 +1176,21 @@ begin
                            when others => null;
                         end case;
   
-                     when 16#01# => -- B: BLTZ, BGEZ, BLTZAL, BGEZAL
-                        if (decSource2(4) = '1') then
-                           decodeResultMux      <= RESULTMUX_PC;
-                           decodeTarget         <= to_unsigned(31, 5);
+                     when 16#01# => 
+                        if (decSource2(3) = '1') then -- Traps
+                           null;
+                        else -- B: BLTZ, BGEZ, BLTZAL, BGEZAL
+                           if (decSource2(4) = '1') then
+                              decodeResultMux      <= RESULTMUX_PC;
+                              decodeTarget         <= to_unsigned(31, 5);
+                           end if;
+                           if (decSource2(0) = '1') then
+                              decodeBranchType     <= BRANCH_BRANCH_BGEZ;
+                           else
+                              decodeBranchType     <= BRANCH_BRANCH_BLTZ;
+                           end if;
+                           decodeBranchLikely      <= decSource2(1);
                         end if;
-                        if (decSource2(0) = '1') then
-                           decodeBranchType     <= BRANCH_BRANCH_BGEZ;
-                        else
-                           decodeBranchType     <= BRANCH_BRANCH_BLTZ;
-                        end if;
-                        decodeBranchLikely      <= decSource2(1);
                         
                      when 16#02# => -- J
                         decodeBranchType        <= BRANCH_JUMPIMM;
@@ -1366,6 +1371,7 @@ begin
    calcResult_lesserUnsigned    <= '1' when (value1 < value2) else '0';    
    calcResult_lesserIMMSigned   <= '1' when (signed(value1) < resize(signed(decodeImmData), 64)) else '0'; 
    calcResult_lesserIMMUnsigned <= '1' when (value1 < unsigned(resize(signed(decodeImmData), 64))) else '0'; 
+   calcResult_equal             <= '1' when (signed(value1) = resize(signed(decodeImmData), 64)) else '0'; 
    
    calcResult_bit(63 downto 1) <= (others => '0');
    calcResult_bit(0) <= calcResult_lesserSigned       when (decodeBitFuncType = BITFUNC_SIGNED) else
@@ -1449,7 +1455,8 @@ begin
 
    process (decodeImmData, decodeJumpTarget, decodeSource1, decodeSource2, decodeValue1, decodeValue2, decodeOP, decodeFunct, decodeShamt, decodeRD, 
             exception, stall3, stall, value1, value2, pcOld0, resultData, eretPC, decodeFPUValue2, decodeFPUCommandEnable, decodeFPUTransferEnable, decodeFPUTransferWrite,
-            hi, lo, executeIgnoreNext, decodeNew, llBit, calcResult_add, calcResult_sub, calcMemAddr, COP1_enable, COP2_enable, cmpEqual)
+            hi, lo, executeIgnoreNext, decodeNew, llBit, calcResult_add, calcResult_sub, calcMemAddr, COP1_enable, COP2_enable, cmpEqual, fpuRegMode,
+            calcResult_lesserSigned, calcResult_lesserUnsigned, calcResult_lesserIMMSigned, calcResult_lesserIMMUnsigned, calcResult_equal)
       variable calcResult           : unsigned(63 downto 0);
       variable rotatedData          : unsigned(63 downto 0) := (others => '0');
    begin
@@ -1647,20 +1654,28 @@ begin
                      EXEresultWriteEnable <= '1';
                      
                   when 16#30# => -- TGE
-                     report "TGE not implemented" severity failure; 
-                     EXEerror_instr     <= '1';  
+                     if (calcResult_lesserSigned = '0') then
+                        exceptionNew3   <= '1';
+                        exceptionCode_3 <= x"D";
+                     end if;
                      
                   when 16#31# => -- TGEU
-                     report "TGEU not implemented" severity failure; 
-                     EXEerror_instr     <= '1'; 
+                     if (calcResult_lesserUnsigned = '0') then
+                        exceptionNew3   <= '1';
+                        exceptionCode_3 <= x"D";
+                     end if;
                      
                   when 16#32# => -- TLT
-                     report "TLT not implemented" severity failure; 
-                     EXEerror_instr     <= '1'; 
+                     if (calcResult_lesserSigned = '1') then
+                        exceptionNew3   <= '1';
+                        exceptionCode_3 <= x"D";
+                     end if;
                      
                   when 16#33# => -- TLTU
-                     report "TLTU not implemented" severity failure; 
-                     EXEerror_instr     <= '1'; 
+                     if (calcResult_lesserUnsigned = '1') then
+                        exceptionNew3   <= '1';
+                        exceptionCode_3 <= x"D";
+                     end if;
                      
                   when 16#34# => -- TEQ
                      if (cmpEqual = '1') then
@@ -1669,8 +1684,10 @@ begin
                      end if;
                      
                   when 16#36# => -- TNE
-                     report "TNE not implemented" severity failure; 
-                     EXEerror_instr     <= '1'; 
+                     if (cmpEqual = '0') then
+                        exceptionNew3   <= '1';
+                        exceptionCode_3 <= x"D";
+                     end if;
                      
                   -- 16#38# | 16#3C# | 16#3A# | 16#3B# | 16#3E# | 16#3F# => covered at 16#14#
                      
@@ -1687,8 +1704,52 @@ begin
                
             when 16#01# => 
                if (decodeSource2(3) = '1') then -- Traps
-                  report "Extended Traps not implemented" severity failure; 
-                  EXEerror_instr     <= '1'; 
+                  case (decodeSource2(2 downto 0)) is
+                     when 3x"0" => -- TGEI
+                        if (calcResult_lesserIMMSigned = '0') then
+                           exceptionNew3   <= '1';
+                           exceptionCode_3 <= x"D";
+                        end if;
+                        
+                     when 3x"1" => -- TGEIU
+                        if (calcResult_lesserIMMUnsigned = '0') then
+                           exceptionNew3   <= '1';
+                           exceptionCode_3 <= x"D";
+                        end if;
+                        
+                     when 3x"2" => -- TLTI
+                        if (calcResult_lesserIMMSigned = '1') then
+                           exceptionNew3   <= '1';
+                           exceptionCode_3 <= x"D";
+                        end if;
+                        
+                     when 3x"3" => -- TLTIU
+                        if (calcResult_lesserIMMUnsigned = '1') then
+                           exceptionNew3   <= '1';
+                           exceptionCode_3 <= x"D";
+                        end if;
+                        
+                     when 3x"4" => -- TEQI
+                        if (calcResult_equal = '1') then
+                           exceptionNew3   <= '1';
+                           exceptionCode_3 <= x"D";
+                        end if;
+                        
+                     when 3x"6" => -- TNEI
+                        if (calcResult_equal = '0') then
+                           exceptionNew3   <= '1';
+                           exceptionCode_3 <= x"D";
+                        end if;
+                     
+                     when others =>
+                     -- synthesis translate_off
+                        report to_hstring(decodeFunct);
+                     -- synthesis translate_on
+                        --report "Unknown traps opcode" severity failure; 
+                        exceptionNew3   <= '1';
+                        exceptionCode_3 <= x"A";
+                        EXEerror_instr  <= '1';
+                  end case;
                else -- B: BLTZ, BGEZ, BLTZAL, BGEZAL
                   if (decodeSource2(4) = '1') then
                      EXEresultWriteEnable <= '1';

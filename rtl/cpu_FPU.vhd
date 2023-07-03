@@ -113,7 +113,6 @@ architecture arch of cpu_FPU is
    signal checkInputs2_dn     : std_logic;
    signal checkInputs2_nan    : std_logic;
    signal outputInvalid       : std_logic;
-   signal InvalidWidth        : std_logic;
    
    signal signA      : std_logic;
    signal signB      : std_logic;   
@@ -143,9 +142,6 @@ architecture arch of cpu_FPU is
    signal flag_overflow    : std_logic := '0';
    signal flag_underflow   : std_logic := '0';
    signal flag_divbyzero   : std_logic := '0';
-   signal flag_invalid     : std_logic := '0';
-   signal flag_infinity    : std_logic := '0';
-   signal write_infinity   : std_logic := '0';
    
    signal signOut          : std_logic := '0';
    signal bit64Out         : std_logic := '0';
@@ -159,7 +155,6 @@ architecture arch of cpu_FPU is
    signal mantA_1                         : unsigned(51 downto 0) := (others => '0');
    signal infA_1                          : std_logic := '0';
    signal infB_1                          : std_logic := '0';
-   signal nanA_1                          : std_logic := '0';
    signal exp0A_1                         : std_logic := '0';
    signal zeroA_1                         : std_logic := '0';
    signal zeroB_1                         : std_logic := '0';
@@ -352,8 +347,6 @@ begin
       checkInputs2_dn   <= '0';
       checkInputs2_nan  <= '0';
       outputInvalid     <= '0';
-      
-      InvalidWidth   <= bit64;
 
       if (command_ena = '1') then
          if (OPgroup = 16 or OPgroup = 17) then
@@ -390,7 +383,7 @@ begin
                   outputInvalid     <= nanA or ((not zeroA) and signA);
             
                when OP_ABS | OP_NEG =>
-                  command_done      <= '1';
+                  command_done      <= not nanA;
                   causeReset        <= '1';
                   checkInputs_dn    <= '1';
                   checkInputs_nan   <= '1';
@@ -405,7 +398,6 @@ begin
                
                when OP_CVT_S    =>            
                   outputInvalid <= nanA;
-                  InvalidWidth  <= '0';
                   if (bit64 = '1') then
                      causeReset      <= '1';
                      checkInputs_dn  <= '1';
@@ -416,9 +408,8 @@ begin
                   end if;
                
                when OP_CVT_D    =>
-                  command_done  <= '1';
+                  command_done  <= not (nanA);
                   outputInvalid <= nanA;
-                  InvalidWidth  <= '1';
                   if (bit64 = '0') then
                      causeReset     <= '1';
                      checkInputs_dn <= '1';
@@ -541,40 +532,41 @@ begin
          command_done <= '1';
       end if;
       
-      if (toInt_store = '1') then
-         command_done <= '1';
-      end if;
-      
       if (toInt_unimpl = '1') then
          exceptionFPU <= '1';
          command_done <= '1';
       end if;
       
-      if (round_store = '1' or shortcut_store = '1') then
+      if (shortcut_store = '1') then
          command_done <= '1';
+         
+         if (flag_divbyzero = '1' and csr_ena_divisionByZero = '1') then
+            exceptionFPU <= '1';
+         end if;     
+      end if;
+         
+      if (outputInvalid_1 = '1') then
+         command_done <= '1';
+         if (csr_ena_invalidOperation = '1') then
+            exceptionFPU <= '1';
+         end if;    
       end if;
          
       if (toInt_store = '1' or round_store = '1') then
       
+         command_done <= '1';
+      
          if (flag_underflow = '1' and (csr_flushSubnormals = '0' or csr_ena_underflow = '1' or csr_ena_inexact = '1')) then
             exceptionFPU <= '1';
          end if;
-        
-         if (flag_divbyzero = '1' and csr_ena_divisionByZero = '1') then
-            exceptionFPU <= '1';
-         end if;         
          
-         if (flag_invalid = '0' and (round_inexact = '1' or flag_inexact = '1') and csr_ena_inexact = '1') then
+         if ((round_inexact = '1' or flag_inexact = '1') and csr_ena_inexact = '1') then
             exceptionFPU <= '1';
          end if;
          
-         if (flag_invalid = '0' and (round_overflow = '1' or flag_overflow = '1') and csr_ena_overflow = '1') then
+         if ((round_overflow = '1' or flag_overflow = '1') and csr_ena_overflow = '1') then
             exceptionFPU <= '1';
          end if;
-         
-         if (flag_invalid = '1' and csr_ena_invalidOperation = '1') then
-            exceptionFPU <= '1';
-         end if;    
          
       end if;
   
@@ -596,11 +588,10 @@ begin
          mantA_1         <= mantA;
          infA_1          <= infA;
          infB_1          <= infB;
-         nanA_1          <= nanA;
          exp0A_1         <= exp0A;
          zeroA_1         <= zeroA;
          zeroB_1         <= zeroB;
-         outputInvalid_1 <= outputInvalid;
+         outputInvalid_1 <= outputInvalid and (not exceptionFPU);
       
          FPUWriteEnable                <= '0';
          error_FPU                     <= '0';           
@@ -717,6 +708,7 @@ begin
                      
                      when OP_CVT_D    =>
                         FPUWriteEnable <= '1';
+                        bit64Out       <= '1'; 
                         if (bit64 = '0') then
                            if (infA = '1') then
                               FPUWriteData <= signA & 11x"7FF" & mantA;
@@ -825,14 +817,6 @@ begin
                FPUWriteEnable <= '0';
             end if;
             
-            if (outputInvalid = '1') then
-               if (InvalidWidth = '1') then
-                  FPUWriteData <= x"7FF7FFFFFFFFFFFF";
-               else
-                  FPUWriteData <= 32x"0" & x"7FBFFFFF";
-               end if;
-            end if;
-            
             if (transfer_ena = '1') then
             
                FPUWriteTarget <= transfer_RD;
@@ -908,6 +892,37 @@ begin
             else
                FPUWriteData <= 32x"0" & signOut & shortcut_exp(7 downto 0) & shortcut_mant(22 downto 0);
             end if;
+            
+            if (flag_divbyzero = '1') then
+               csr_cause_divisionByZero <= '1';
+               if (csr_ena_divisionByZero = '1') then
+                  FPUWriteEnable    <= '0';
+               else
+                  csr_flag_divisionByZero <= '1';
+               end if;
+            end if;  
+         end if;
+         
+         -- writeback invalid
+         if (outputInvalid = '1') then
+            FPUWriteEnable <= '0';
+         end if;
+         if (outputInvalid_1 = '1') then
+            
+            if (bit64Out = '1') then
+               FPUWriteData <= x"7FF7FFFFFFFFFFFF";
+            else
+               FPUWriteData <= 32x"0" & x"7FBFFFFF";
+            end if;
+            
+            csr_cause_invalidOperation <= '1';
+            if (csr_ena_invalidOperation = '1') then
+               FPUWriteEnable    <= '0';
+            else
+               csr_flag_invalidOperation <= '1';
+               FPUWriteEnable    <= '1';
+            end if;
+            
          end if;
          
          -- writeback after rounding
@@ -915,55 +930,44 @@ begin
             FPUWriteEnable <= '1';
             
             -- result data
-            if (flag_invalid = '0') then
+            if (bit64Out = '1') then
+               FPUWriteData <= signOut & round_out64_exp & round_out64_mant;
+            else
+               FPUWriteData <= 32x"0" & signOut & round_out32_exp & round_out32_mant;
+            end if;
             
-               if (bit64Out = '1') then
-                  FPUWriteData <= signOut & round_out64_exp & round_out64_mant;
+            if (round_overflow = '1' or flag_overflow = '1') then
+               if (overflow_overwrite = '1' ) then
+                  if (bit64Out = '1') then
+                     FPUWriteData <= signOut & 11x"7FE" & x"FFFFFFFFFFFFF";
+                  else
+                     FPUWriteData <= 32x"0" & signOut & x"FE" & 23x"7FFFFF";
+                  end if;
                else
-                  FPUWriteData <= 32x"0" & signOut & round_out32_exp & round_out32_mant;
-               end if;
-               
-               if (write_infinity = '1') then
                   if (bit64Out = '1') then
                      FPUWriteData <= signOut & 11x"7FF" & 52x"0";
                   else
                      FPUWriteData <= 32x"0" & signOut & x"FF" & 23x"0";
                   end if;
                end if;
-               
-               if (round_overflow = '1' or flag_overflow = '1') then
-                  if (overflow_overwrite = '1' ) then
-                     if (bit64Out = '1') then
-                        FPUWriteData <= signOut & 11x"7FE" & x"FFFFFFFFFFFFF";
-                     else
-                        FPUWriteData <= 32x"0" & signOut & x"FE" & 23x"7FFFFF";
-                     end if;
+            end if;            
+            
+            if (flag_underflow = '1') then
+               if (underflow_overwrite = '1') then
+                  if (bit64Out = '1') then
+                     FPUWriteData <= signOut & 11x"001" & 52x"0";
                   else
-                     if (bit64Out = '1') then
-                        FPUWriteData <= signOut & 11x"7FF" & 52x"0";
-                     else
-                        FPUWriteData <= 32x"0" & signOut & x"FF" & 23x"0";
-                     end if;
+                     FPUWriteData <= 32x"0" & signOut & x"01" & 23x"0";
                   end if;
-               end if;            
-               
-               if (flag_underflow = '1') then
-                  if (underflow_overwrite = '1') then
-                     if (bit64Out = '1') then
-                        FPUWriteData <= signOut & 11x"001" & 52x"0";
-                     else
-                        FPUWriteData <= 32x"0" & signOut & x"01" & 23x"0";
-                     end if;
+               else
+                  if (bit64Out = '1') then
+                     FPUWriteData <= signOut & 11x"000" & 52x"0";
                   else
-                     if (bit64Out = '1') then
-                        FPUWriteData <= signOut & 11x"000" & 52x"0";
-                     else
-                        FPUWriteData <= 32x"0" & signOut & x"00" & 23x"0";
-                     end if;
+                     FPUWriteData <= 32x"0" & signOut & x"00" & 23x"0";
                   end if;
                end if;
-               
             end if;
+
          end if;
             
          if (toInt_store = '1' or round_store = '1') then
@@ -975,16 +979,7 @@ begin
             
             else
             
-               if (flag_divbyzero = '1') then
-                  csr_cause_divisionByZero <= '1';
-                  if (csr_ena_divisionByZero = '1') then
-                     FPUWriteEnable    <= '0';
-                  else
-                     csr_flag_divisionByZero <= '1';
-                  end if;
-               end if;  
-            
-               if (flag_invalid = '0' and (round_inexact = '1' or flag_inexact = '1')) then
+               if (round_inexact = '1' or flag_inexact = '1') then
                   csr_cause_inexact <= '1';
                   if (csr_ena_inexact = '1') then
                      FPUWriteEnable    <= '0';
@@ -993,7 +988,7 @@ begin
                   end if;
                end if;
                
-               if (flag_invalid = '0' and flag_underflow = '1') then
+               if (flag_underflow = '1') then
                   csr_cause_underflow <= '1';
                   if (csr_ena_underflow = '1') then
                      FPUWriteEnable    <= '0';
@@ -1002,23 +997,14 @@ begin
                   end if;
                end if;                       
                
-               if (flag_invalid = '0' and (round_overflow = '1' or flag_overflow = '1')) then
+               if (round_overflow = '1' or flag_overflow = '1') then
                   csr_cause_overflow <= '1';
                   if (csr_ena_overflow = '1') then
                      FPUWriteEnable    <= '0';
                   else
                      csr_flag_overflow <= '1';
                   end if;
-               end if;
-               
-                if (flag_invalid = '1') then
-                  csr_cause_invalidOperation <= '1';
-                  if (csr_ena_invalidOperation = '1') then
-                     FPUWriteEnable    <= '0';
-                  else
-                     csr_flag_invalidOperation <= '1';
-                  end if;
-               end if;    
+               end if;  
                
             end if;
             
@@ -1122,11 +1108,6 @@ begin
       if ((bit64Out = '0' and round_out32_exp = x"FF") or (bit64Out = '1' and round_out64_exp = 11x"7FF")) then 
          round_overflow <= '1'; 
          round_inexact  <= '1'; 
-      end if;
-      
-      if (flag_infinity = '1' or flag_divbyzero = '1') then
-         round_overflow <= '0'; 
-         round_inexact  <= '0'; 
       end if;
       
       if (round_store = '0') then
@@ -1255,9 +1236,6 @@ begin
             flag_overflow       <= '0';
             flag_underflow      <= '0';
             flag_divbyzero      <= '0';
-            flag_invalid        <= '0';
-            flag_infinity       <= '0';
-            write_infinity      <= '0';
             shifter_lostbits_in <= '0';
          end if;
          
@@ -1273,7 +1251,7 @@ begin
          ---------------------------------
          --------------- ADD/SUB ---------
          ---------------------------------
-         ADD_stage1 <= (ADD_start or SUB_start) and (not exception_inputInvalid);
+         ADD_stage1 <= (ADD_start or SUB_start) and (not exception_inputInvalid) and (not outputInvalid_1);
          ADD_stage2 <= ADD_stage1;
          
          -- stage 0
@@ -1320,7 +1298,6 @@ begin
 
          -- stage 1
          if (ADD_start = '1' or SUB_start = '1') then
-            flag_invalid <= outputInvalid_1;
             signOut      <= ((not signA_1) and (not ADD_AGrB) and (SUB_start xor signB_1)) or ((signA_1) and (ADD_AGrB or (SUB_start xor signB_1)));
             flag_inexact <= ADD_shift_lostbits;
             ADD_exp      <= ADD_exp_initial;
@@ -1369,7 +1346,7 @@ begin
          ---------------------------------
          --------------- MUL  ------------
          ---------------------------------
-         MUL_stage1 <= MUL_start and (not exception_inputInvalid);
+         MUL_stage1 <= MUL_start and (not exception_inputInvalid) and (not outputInvalid_1);
          MUL_stage2 <= MUL_stage1;
          MUL_stage3 <= MUL_stage2;
          
@@ -1383,15 +1360,16 @@ begin
          -- stage 1 - DSP delay
          if (MUL_start = '1') then
             signOut        <= signA_1 xor signB_1;
-            flag_invalid   <= outputInvalid_1;
-            flag_infinity  <= infA_1 or infB_1;
-            write_infinity <= infA_1 or infB_1;
             
-            if (exception_inputInvalid = '0' and outputInvalid_1 = '0' and (zeroA_1 = '1' or zeroB_1 = '1')) then
+            if (exception_inputInvalid = '0' and outputInvalid_1 = '0' and (zeroA_1 = '1' or zeroB_1 = '1' or infA_1 = '1' or infB_1 = '1')) then
                shortcut_store <= '1';
-               shortcut_exp   <= (others => '0');
                shortcut_mant  <= (others => '0');
                MUL_stage1     <= '0';
+               if (zeroA_1 = '1' or zeroB_1 = '1') then
+                  shortcut_exp   <= (others => '0');
+               else
+                  shortcut_exp   <= (others => '1');
+               end if;
             end if;
             
             if (MUL_exp_calc < 0) then
@@ -1466,22 +1444,22 @@ begin
          -- stage 1
          if (DIV_start = '1') then
             signOut        <= signA_1 xor signB_1;
-            flag_invalid   <= outputInvalid_1;
-            flag_infinity  <= infA_1 or infB_1;
-         
-            if (zeroA_1 = '0' and zeroB_1 = '1') then
-               flag_divbyzero <= '1';
-            end if;
             
-            DIV_running <= not exception_inputInvalid;
+            DIV_running <= (not exception_inputInvalid) and (not outputInvalid_1);
             
-            if (exception_inputInvalid = '0' and outputInvalid_1 = '0' and zeroA_1 = '1') then
+            if (exception_inputInvalid = '0' and outputInvalid_1 = '0' and (zeroA_1 = '1' or zeroB_1 = '1' or infA_1 = '1' or infB_1 = '1')) then
                shortcut_store <= '1';
                shortcut_exp   <= (others => '0');
                shortcut_mant  <= (others => '0');
                DIV_running    <= '0';
+               if (infA_1 = '1' or zeroB_1 = '1') then
+                  shortcut_exp <= (others => '1');
+               end if;
+               if (zeroB_1 = '1') then
+                  flag_divbyzero <= '1';
+               end if;
             end if;
-            
+
             if (DIV_exp_calc <= 0) then
                DIV_exp        <= (others => '0');
                flag_underflow <= '1';
@@ -1493,11 +1471,6 @@ begin
                DIV_exp <= to_unsigned(DIV_exp_calc, 11); 
             end if;
             
-            if (infA_1 = '1') then
-               DIV_exp <= (others => '1');
-            elsif (infB_1 = '1') then
-               DIV_exp <= (others => '0');
-            end if;
          end if;
          
          -- stage n- 1
@@ -1516,19 +1489,11 @@ begin
                   DIV_exp        <= (others => '0');
                   flag_underflow <= '1';
                   flag_inexact   <= '1';
-                  shifter_input  <= (others => '0');
                end if;
             end if;
             if (divremain > 0) then
                flag_inexact        <= '1';
                shifter_lostbits_in <= '1';
-            end if;
-            if (DIV_exp = 0) then
-               shifter_input  <= (others => '0');
-            end if;
-            if (flag_infinity = '1') then
-               flag_underflow <= '0';
-               flag_inexact   <= '0';
             end if;
          end if;
          
@@ -1545,17 +1510,16 @@ begin
          -- stage 1
          if (SQRT_start = '1') then
             signOut        <= signA_1;
-            flag_invalid   <= outputInvalid_1;
-            flag_infinity  <= infA_1;
-            write_infinity <= infA_1;
+            SQRT_running <= (not exception_inputInvalid) and (not outputInvalid_1);
             
-            SQRT_running <= not exception_inputInvalid;
-            
-            if (exception_inputInvalid = '0' and outputInvalid_1 = '0' and zeroA_1 = '1') then
+            if (exception_inputInvalid = '0' and outputInvalid_1 = '0' and (zeroA_1 = '1' or infA_1 = '1')) then
                shortcut_store <= '1';
                shortcut_exp   <= (others => '0');
                shortcut_mant  <= (others => '0');
                SQRT_running    <= '0';
+               if (infA_1 = '1') then
+                  shortcut_exp <= (others => '1');
+               end if;
             end if;
             
             if (exp0A_1 = '1') then
@@ -1590,17 +1554,22 @@ begin
          ---------------------------------
          --------------- CDS  ------------
          ---------------------------------
-         CDS_stage1 <= CDS_start and (not exception_inputInvalid);
+         CDS_stage1 <= CDS_start and (not exception_inputInvalid) and (not outputInvalid_1);
          
          -- stage 0
          CDS_exp <= to_integer(expA) + 127 - 1023;
          
          -- stage 1
          if (CDS_start = '1') then
+         
+            if (exception_inputInvalid = '0' and outputInvalid_1 = '0' and infA_1 = '1') then
+               shortcut_store <= '1';
+               shortcut_exp   <= (others => '1');
+               shortcut_mant  <= (others => '0');
+               CDS_stage1     <= '0';
+            end if;
+         
             signOut        <= signA_1;
-            flag_invalid   <= nanA_1;
-            flag_infinity  <= infA_1;
-            write_infinity <= infA_1;
             shifter_right  <= '1';
             shifter_amount <= 26;
             shifter_input  <= 5x"1" & mantA_1;

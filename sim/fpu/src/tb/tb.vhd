@@ -38,6 +38,7 @@ architecture arch of etb is
    signal FPUWriteTarget    : unsigned(4 downto 0) := (others => '0');
    signal FPUWriteData      : unsigned(63 downto 0) := (others => '0');
    signal FPUWriteEnable    : std_logic := '0';  
+   signal FPUWriteEnable_1  : std_logic := '0';  
    
    -- mul
    signal mul_1             : std_logic_vector(63 downto 0);
@@ -53,6 +54,7 @@ architecture arch of etb is
    signal errorsCSRA        : integer := 0;
    signal errorsE           : integer := 0;
    signal errorsCFA         : integer := 0;
+   signal errorsDoubleWrite : integer := 0;
 
    signal RS                : unsigned(63 downto 0);  
    signal CSRB              : unsigned(31 downto 0);  
@@ -104,6 +106,19 @@ begin
 
          mul_delay  <= std_logic_vector(unsigned(mul_1) * unsigned(mul_2));
          mul_result <= mul_delay;
+
+      end if;
+   end process;
+   
+   -- double write check
+   process (clk93) is
+   begin
+      if rising_edge(clk93) then
+
+         FPUWriteEnable_1 <= FPUWriteEnable;
+         if (FPUWriteEnable_1 = '1' and FPUWriteEnable = '1') then
+            errorsDoubleWrite <= errorsDoubleWrite + 1;
+         end if;
 
       end if;
    end process;
