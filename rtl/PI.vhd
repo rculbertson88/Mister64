@@ -298,7 +298,7 @@ begin
                               blocklength_new := blocklength_new - to_integer(PI_DRAM_ADDR(2 downto 0));
                               if (count_new >= 128) then
                                  maxram <= blocklength_new - to_integer(PI_DRAM_ADDR(2 downto 0));
-                                 count_new := count_new - to_integer(PI_DRAM_ADDR(2 downto 0));
+                                 count_new := count_new + to_integer(PI_DRAM_ADDR(2 downto 0));
                               end if;
                            end if;
                            
