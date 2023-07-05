@@ -133,7 +133,11 @@ begin
    begin
    
       address      := mem_address(28 downto 0);
-      data_rotated := byteswap32(mem_dataWrite(31 downto 0));
+      if (mem_req64 = '1') then
+         data_rotated := byteswap32(mem_dataWrite(63 downto 32));
+      else
+         data_rotated := byteswap32(mem_dataWrite(31 downto 0));
+      end if;
       
       -- rsp
       bus_RSP_read       <= '0';
@@ -233,7 +237,7 @@ begin
       bus_PIF_read       <= '0';
       bus_PIF_write      <= '0';
       bus_PIF_addr       <= mem_address(10 downto 2) & "00";
-      bus_PIF_dataWrite  <= mem_dataWrite(31 downto 0);
+      bus_PIF_dataWrite  <= byteswap32(data_rotated);
       if (mem_request = '1' and address >= 16#1FC00000# and address < 16#1FC00800#) then
          bus_PIF_read    <= mem_rnw;
          bus_PIF_write   <= not mem_rnw;

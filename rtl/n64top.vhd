@@ -426,6 +426,8 @@ begin
       clk1x                => clk1x,        
       ce                   => ce_1x,           
       reset                => reset_intern_1x, 
+      
+      fastDecay            => '0',
 
       irq_out              => irqVector(4),
                            

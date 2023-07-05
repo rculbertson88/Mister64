@@ -11,6 +11,8 @@ entity PI is
       ce                   : in  std_logic;
       reset                : in  std_logic;
       
+      fastDecay            : in  std_logic;
+      
       irq_out              : out std_logic := '0';
       
       sdram_ena            : out std_logic;
@@ -242,7 +244,11 @@ begin
                            state     <= READROM;
                            sdram_ena <= '1';
                            sdram_rnw <= '1';
-                           sdram_Adr <= std_logic_vector((bus_cart_addr(25 downto 1) & '0') + to_unsigned(16#100000#, 27));
+                           if (bus_cart_addr(1) = '1') then
+                              sdram_Adr <= std_logic_vector((bus_cart_addr(25 downto 2) & "10") + to_unsigned(16#100004#, 27));
+                           else
+                              sdram_Adr <= std_logic_vector((bus_cart_addr(25 downto 2) & "00") + to_unsigned(16#100000#, 27));
+                           end if;
                         end if;
                      else
                         bus_cart_done <= '1';
@@ -255,7 +261,11 @@ begin
                      if (PI_STATUS_IObusy = '0') then 
                         PI_STATUS_IObusy  <= '1';
                         writtenData       <= bus_cart_dataWrite;
-                        writtenTime       <= 1; -- todo: correct time!
+                        if (fastDecay = '1') then
+                           writtenTime       <= 1;
+                        else
+                           writtenTime       <= 100;
+                        end if;
                      end if;
 
                      if (bus_cart_addr(28 downto 0) < 16#08000000#) then -- DD
