@@ -313,7 +313,12 @@ begin
 
          elsif (ce = '1') then
          
-            if (stall = 0 and executeNew = '1') then
+            if (exception = '1') then
+         
+               COP0_14_EPC               <= nextEPC_1;
+               COP0_13_CAUSE_branchDelay <= isDelaySlot_1;
+         
+            elsif (stall = 0 and executeNew = '1') then
                if (writeEnable = '1') then
                
                   COP0_LATCH <= writeValue;
@@ -448,14 +453,6 @@ begin
                      COP0_13_CAUSE_coprocessorError <= exception_COP;
                   else
                      COP0_13_CAUSE_exceptionCode <= '0' & exceptionCode_1;
-                  end if;
-                  
-                  if (stall = 0) then
-                     COP0_14_EPC               <= nextEPC;
-                     COP0_13_CAUSE_branchDelay <= isDelaySlot;
-                  else
-                     COP0_14_EPC               <= nextEPC_1;
-                     COP0_13_CAUSE_branchDelay <= isDelaySlot_1;
                   end if;
                
                end if;
