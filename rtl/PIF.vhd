@@ -73,7 +73,7 @@ begin
       wren      => pifrom_wren     
    );
    
-   pifram_wren <= '1' when (bus_write = '1' and bus_addr > 16#7C0#) else '0';
+   pifram_wren <= '1' when (bus_write = '1' and bus_addr >= 16#7C0#) else '0';
    
    iPIFRAM: entity work.dpram_dif
    generic map 
@@ -136,7 +136,7 @@ begin
 
             -- bus read
             if (bus_read = '1') then
-               if (bus_addr <= 16#7C0#) then
+               if (bus_addr < 16#7C0#) then
                   bus_read_rom <= '1';
                else
                   bus_read_ram <= '1';
