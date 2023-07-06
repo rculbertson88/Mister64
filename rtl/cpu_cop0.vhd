@@ -12,6 +12,7 @@ entity cpu_cop0 is
       clk93             : in  std_logic;
       ce                : in  std_logic;
       stall             : in  unsigned(4 downto 0);
+      executeNew        : in  std_logic;
       reset             : in  std_logic;
 
 -- synthesis translate_off
@@ -312,7 +313,7 @@ begin
 
          elsif (ce = '1') then
          
-            if (stall = 0) then
+            if (stall = 0 and executeNew = '1') then
                if (writeEnable = '1') then
                
                   COP0_LATCH <= writeValue;

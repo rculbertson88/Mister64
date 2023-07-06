@@ -86,8 +86,7 @@ architecture arch of PI is
       IDLE, 
       READROM,
       COPYDMABLOCK,
-      DMA_READCART,
-      DMA_WRITERDRAM
+      DMA_READCART
    ); 
    signal state                  : tState := IDLE;
    
@@ -95,7 +94,10 @@ architecture arch of PI is
    signal writtenTime            : integer range 0 to 100 := 0; 
 
    signal bus_cart_read_latched  : std_logic := '0';  
-   signal bus_cart_write_latched : std_logic := '0';   
+   signal bus_cart_write_latched : std_logic := '0';  
+   
+   signal sdram_pending          : std_logic := '0';   
+   signal rdram_pending          : std_logic := '0';   
 
    -- savestates
    type t_ssarray is array(0 to 7) of std_logic_vector(63 downto 0);
@@ -107,13 +109,19 @@ begin
    irq_out <= PI_STATUS_irq;
    
    rdram_burstcount <= 10x"01";
-
+   
+   sdram_be         <= (others => '1');
+   sdram_dataWrite  <= (others => '0');
+   
    process (clk1x)
       variable blocklength_new : integer range 0 to 128;
       variable count_new       : unsigned(24 downto 0);
       variable writemask_new   : std_logic_vector(1 downto 0);
    begin
       if rising_edge(clk1x) then
+      
+         if (sdram_done = '1') then sdram_pending <= '0'; end if;
+         if (rdram_done = '1') then rdram_pending <= '0'; end if;
       
          if (reset = '1') then
             
@@ -139,6 +147,9 @@ begin
                
             bus_cart_read_latched   <= '0';
             bus_cart_write_latched  <= '0';
+            
+            sdram_pending           <= '0';
+            rdram_pending           <= '0';
  
          elsif (ce = '1') then
          
@@ -328,9 +339,10 @@ begin
                when COPYDMABLOCK =>
                   first128 <= '0';
                   if (copycnt < blocklength) then
-                     state     <= DMA_READCART;
-                     sdram_ena <= '1';
-                     sdram_rnw <= '1';
+                     state         <= DMA_READCART;
+                     sdram_ena     <= '1';
+                     sdram_rnw     <= '1';
+                     sdram_pending <= '1';
                      
                      if (PI_CART_ADDR(28 downto 0) < 16#08000000#) then -- DD
                         report "DD DMA read not implemented" severity failure;
@@ -341,7 +353,7 @@ begin
                      else
                         report "Openbus DMA read not implemented" severity failure;
                      end if;
-                  else
+                  elsif (rdram_done = '1' or rdram_pending = '0') then
                      state <= IDLE;
                      PI_DRAM_ADDR <= PI_DRAM_ADDR + 7;
                      PI_DRAM_ADDR(2 downto 0) <= "000";
@@ -350,38 +362,54 @@ begin
                   end if;
                   
                when DMA_READCART =>
-                  if (sdram_done = '1') then
+                  if ((sdram_done = '1' or sdram_pending = '0') and (rdram_done = '1' or rdram_pending = '0')) then
                   
-                     state <= DMA_WRITERDRAM;
-                  
-                     writemask_new := "00";
-                     if (copycnt < maxram) then
-                        writemask_new(0) := '1';
-                     end if;
-                     if ((copycnt + 1) < maxram) then
-                        writemask_new(1) := '1';
-                     end if;
+                     state        <= COPYDMABLOCK;
                      
                      rdram_request   <= '1';
                      rdram_rnw       <= '0';
                      rdram_dataWrite <= (others => '0');
                      rdram_address   <= "0000" & PI_DRAM_ADDR(23 downto 3) & "000";
-                     case (PI_DRAM_ADDR(2 downto 1)) is
-                        when "00" => rdram_dataWrite(15 downto  0) <= sdram_dataRead(15 downto 0); rdram_writeMask <= "000000" & writemask_new;
-                        when "01" => rdram_dataWrite(31 downto 16) <= sdram_dataRead(15 downto 0); rdram_writeMask <= "0000" & writemask_new & "00";
-                        when "10" => rdram_dataWrite(47 downto 32) <= sdram_dataRead(15 downto 0); rdram_writeMask <= "00" & writemask_new & "0000";
-                        when "11" => rdram_dataWrite(63 downto 48) <= sdram_dataRead(15 downto 0); rdram_writeMask <= writemask_new & "000000";
-                        when others => null;
-                     end case;
-                     
-                  end if;
+                     rdram_pending   <= '1';
                   
-               when DMA_WRITERDRAM =>
-                  if (rdram_done = '1') then
-                     state        <= COPYDMABLOCK;
-                     copycnt      <= copycnt + 2;
-                     PI_DRAM_ADDR <= PI_DRAM_ADDR + 2;
-                     PI_CART_ADDR <= PI_CART_ADDR + 2;
+                     if ((copycnt + 3) < maxram and PI_CART_ADDR(1) = '0' and PI_DRAM_ADDR(1) = '0') then
+                     
+                        copycnt      <= copycnt + 4;
+                        PI_DRAM_ADDR <= PI_DRAM_ADDR + 4;
+                        PI_CART_ADDR <= PI_CART_ADDR + 4;
+                     
+                        if (PI_DRAM_ADDR(2) = '1') then
+                           rdram_dataWrite(63 downto 32) <= sdram_dataRead(31 downto 0); 
+                           rdram_writeMask <= "11110000";
+                        else
+                           rdram_dataWrite(31 downto 0) <= sdram_dataRead(31 downto 0); 
+                           rdram_writeMask <= "00001111";
+                        end if;
+                  
+                     else
+                     
+                        copycnt      <= copycnt + 2;
+                        PI_DRAM_ADDR <= PI_DRAM_ADDR + 2;
+                        PI_CART_ADDR <= PI_CART_ADDR + 2;
+                     
+                        writemask_new := "00";
+                        if (copycnt < maxram) then
+                           writemask_new(0) := '1';
+                        end if;
+                        if ((copycnt + 1) < maxram) then
+                           writemask_new(1) := '1';
+                        end if;
+                        
+                        case (PI_DRAM_ADDR(2 downto 1)) is
+                           when "00" => rdram_dataWrite(15 downto  0) <= sdram_dataRead(15 downto 0); rdram_writeMask <= "000000" & writemask_new;
+                           when "01" => rdram_dataWrite(31 downto 16) <= sdram_dataRead(15 downto 0); rdram_writeMask <= "0000" & writemask_new & "00";
+                           when "10" => rdram_dataWrite(47 downto 32) <= sdram_dataRead(15 downto 0); rdram_writeMask <= "00" & writemask_new & "0000";
+                           when "11" => rdram_dataWrite(63 downto 48) <= sdram_dataRead(15 downto 0); rdram_writeMask <= writemask_new & "000000";
+                           when others => null;
+                        end case;
+                        
+                     end if;
+                     
                   end if;
                   
             end case;

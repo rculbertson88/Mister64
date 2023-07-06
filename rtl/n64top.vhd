@@ -427,7 +427,7 @@ begin
       ce                   => ce_1x,           
       reset                => reset_intern_1x, 
       
-      fastDecay            => '0',
+      fastDecay            => is_simu,
 
       irq_out              => irqVector(4),
                            

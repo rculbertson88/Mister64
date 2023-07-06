@@ -127,7 +127,7 @@ architecture arch of memorymux is
 
 begin 
 
-   process (mem_address, mem_request, mem_rnw, mem_dataWrite)
+   process (mem_address, mem_request, mem_rnw, mem_dataWrite, mem_req64)
       variable address      : unsigned(28 downto 0);
       variable data_rotated : std_logic_vector(31 downto 0);
    begin

@@ -366,6 +366,9 @@ architecture arch of cpu is
    signal executeCOP0Read64            : std_logic := '0';
    signal executeCOP0Register          : unsigned(4 downto 0) := (others => '0');
    signal executeCOP0WriteValue        : unsigned(63 downto 0) := (others => '0');
+   signal executeCOP2WriteEnable       : std_logic := '0';
+   signal executeCOP2ReadEnable        : std_logic := '0';
+   signal executeCOP2Read64            : std_logic := '0';
    signal executeLoadType              : CPU_LOADTYPE;
    signal executeCacheEnable           : std_logic := '0';
    signal executeCacheCommand          : unsigned(4 downto 0) := (others => '0');
@@ -392,6 +395,9 @@ architecture arch of cpu is
    signal EXECOP0Read64                : std_logic := '0';
    signal EXECOP0Register              : unsigned(4 downto 0) := (others => '0');
    signal EXECOP0WriteValue            : unsigned(63 downto 0) := (others => '0');
+   signal EXECOP2WriteEnable           : std_logic := '0';
+   signal EXECOP2ReadEnable            : std_logic := '0';
+   signal EXECOP2Read64                : std_logic := '0';
    signal EXELoadType                  : CPU_LOADTYPE;
    signal EXEReadEnable                : std_logic := '0';
    signal EXEReadException             : std_logic := '0';
@@ -459,6 +465,9 @@ architecture arch of cpu is
    signal FPU_command_done             : std_logic := '0';
    signal FPU_TransferEna              : std_logic := '0';
    signal FPU_TransferData             : unsigned(63 downto 0);
+
+   -- COP2
+   signal COP2Latch                    : unsigned(63 downto 0) := (others => '0');
 
    -- stage 4 
    -- reg      
@@ -1253,14 +1262,14 @@ begin
                      when 16#11# => -- COP1
                         decodeResultMux         <= RESULTMUX_FPU;
                         if (decSource1(4) = '1') then -- FPU execute
-                           decodeFPUCommandEnable  <= '1';
+                           decodeFPUCommandEnable  <= COP1_enable;
                            if (decFunct = 2) then
                               if (decSource1 = 16) then decodeFPUMULS <= '1'; end if;
                               if (decSource1 = 17) then decodeFPUMULD <= '1'; end if;
                            end if;
                         else
                            decodeFPUTarget         <= decRD;
-                           decodeFPUTransferEnable <= '1';
+                           decodeFPUTransferEnable <= COP1_enable;
                            if (decSource1(3 downto 0) < 3) then
                               decodeFPUTransferWrite <= '1';
                            end if;
@@ -1489,6 +1498,10 @@ begin
       EXECOP0WriteValue       <= value2;
       
       ExeCOP1ReadEnable       <= '0';
+      
+      EXECOP2WriteEnable      <= '0';
+      EXECOP2ReadEnable       <= '0';
+      EXECOP2Read64           <= '0';
       
       EXEcalcMULT             <= '0';
       EXEcalcMULTU            <= '0';      
@@ -1872,13 +1885,29 @@ begin
                   exceptionCode_3  <= x"B";
                   exception_COP    <= "10";
                else  
-                  -- todo
+                  case (to_integer(decodeSource1)) is
+                  
+                     when 0 | 2 =>
+                        EXECOP2ReadEnable <= '1';
+                     
+                     when 1 =>
+                        EXECOP2ReadEnable <= '1';
+                        EXECOP2Read64 <= '1';
+                        
+                     when 4 | 5 | 6 =>
+                        EXECOP2WriteEnable <= '1';
+                  
+                     when others =>
+                        exceptionNew3    <= '1';
+                        exceptionCode_3  <= x"A";
+                        exception_COP    <= "10";
+                        
+                  end case;
                end if;
                
-            when 16#13# => -- COP3
+            when 16#13# => -- COP3 -> does not exist
                exceptionNew3    <= '1';
                exceptionCode_3  <= x"A";
-               exception_COP    <= "11";
                
             when 16#14# => -- BEQL
                null;
@@ -2197,7 +2226,7 @@ begin
                -- synthesis translate_off
                report to_hstring(decodeOP);
                -- synthesis translate_on
-               report "Unknown opcode" severity failure; 
+               --report "Unknown opcode" severity failure; 
                exceptionNew3   <= '1';
                exceptionCode_3 <= x"A";
                EXEerror_instr  <= '1';
@@ -2359,6 +2388,10 @@ begin
                      executeCOP0ReadEnable         <= EXECOP0ReadEnable;     
                      executeCOP0Read64             <= EXECOP0Read64;     
                      executeCOP0Register           <= EXECOP0Register;
+                     
+                     executeCOP2WriteEnable        <= EXECOP2WriteEnable;     
+                     executeCOP2ReadEnable         <= EXECOP2ReadEnable;     
+                     executeCOP2Read64             <= EXECOP2Read64;     
 
                      llBit                         <= EXEllBit;  
                      
@@ -2465,7 +2498,7 @@ begin
                      if (EXEhiUpdate = '1') then hi <= value1; end if;
                      if (EXEloUpdate = '1') then lo <= value1; end if;
                      
-                     if (EXEReadEnable = '1' or EXECOP0ReadEnable = '1') then
+                     if (EXEReadEnable = '1' or EXECOP0ReadEnable = '1' or EXECOP2ReadEnable = '1') then
                         stall3              <= '1';
                         executeStallFromMEM <= '1';
                      end if;
@@ -2577,6 +2610,7 @@ begin
             writebackStallFromMEM            <= '0';                  
             writebackWriteEnable             <= '0';
             cop1_stage4_writeEnable          <= '0';
+            COP2Latch                        <= (others => '0');
             
          elsif (ce_93 = '1') then
          
@@ -2633,6 +2667,22 @@ begin
                      else
                         writebackData <= unsigned(resize(signed(COP0ReadValue(31 downto 0)), 64));
                      end if;
+                  end if;
+                  
+                  if (executeCOP2ReadEnable = '1') then
+                     if (resultTarget > 0) then
+                        writebackWriteEnable <= '1';
+                     end if;
+                     
+                     if (executeCOP2Read64 = '1') then
+                        writebackData <= COP2Latch;
+                     else
+                        writebackData <= unsigned(resize(signed(COP2Latch(31 downto 0)), 64));
+                     end if;
+                  end if;
+                  
+                  if (executeCOP2WriteEnable = '1') then
+                     COP2Latch <= executeMemReadLastData;
                   end if;
 
                end if;
@@ -2798,7 +2848,7 @@ begin
                   cpu_export.FPUregs(i) <= FPUregs(i);
                end loop;
                cop0_export_1       <= cop0_export;
-               cpu_export.cop0regs <= cop0_export;
+               cpu_export.cop0regs <= cop0_export_1;
                
                csr_export_1        <= csr_export;
                csr_export_2        <= csr_export_1;
@@ -2845,7 +2895,8 @@ begin
    (
       clk93             => clk93,
       ce                => ce_93,   
-      stall             => stall,
+      stall             => stall4Masked,
+      executeNew        => executeNew,
       reset             => reset_93,
 
 -- synthesis translate_off

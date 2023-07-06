@@ -33,10 +33,8 @@ architecture arch of sdram_model is
    type bit_vector_file is file of bit_vector;
    
    signal waitrfs    : integer range 0 to 8 := 0;
-   signal waitcnt    : integer range 0 to 8 := 0;
    
    signal req_buffer  : std_logic := '0';
-   signal addr_buffer : std_logic_vector(26 downto 0);
    
    signal refreshcnt  : integer range 0 to 260 := 0;
    
@@ -99,24 +97,7 @@ begin
          refreshcnt <= refreshcnt + 1;
       end if;
       
-      if (waitcnt > 0) then
-         waitcnt <= waitcnt - 1;
-         if (waitcnt = 1) then
-            if (rnw = '1') then
-               addr_rotate := addr_buffer;
-               for i in 0 to 1 loop
-                  do(7  + (i * 16) downto     (i * 16))  <= std_logic_vector(to_unsigned(data(to_integer(unsigned(addr_rotate(26 downto 1)) & '0') + 0), 8));
-                  do(15 + (i * 16) downto 8 + (i * 16))  <= std_logic_vector(to_unsigned(data(to_integer(unsigned(addr_rotate(26 downto 1)) & '0') + 1), 8));
-                  addr_rotate(1) := not addr_rotate(1); 
-               end loop;
-            end if;
-            done <= '1';
-            if (DOREFRESH = '1' and refreshcnt >= 260) then
-               refreshcnt <= 0;
-               waitrfs    <= 2;
-            end if;
-         end if;
-      elsif (waitrfs > 0) then
+      if (waitrfs > 0) then
          waitrfs  <= waitrfs - 1;
       elsif (DOREFRESH = '1' and refreshcnt >= 260) then
          refreshcnt <= 0;
@@ -126,13 +107,17 @@ begin
          if (be(2) = '1') then data(to_integer(unsigned(addr(26 downto 1)) & '0') + 2) := to_integer(unsigned(di(23 downto 16))); end if;
          if (be(1) = '1') then data(to_integer(unsigned(addr(26 downto 1)) & '0') + 1) := to_integer(unsigned(di(15 downto  8))); end if;
          if (be(0) = '1') then data(to_integer(unsigned(addr(26 downto 1)) & '0') + 0) := to_integer(unsigned(di( 7 downto  0))); end if;
-         waitcnt    <= 1;
+         done       <= '1';
          req_buffer <= '0';
       elsif ((req = '1' or req_buffer = '1') and rnw = '1') then
-         do           <= (others => 'X');
-         waitcnt      <= 1;
+         done       <= '1';
          req_buffer   <= '0';
-         addr_buffer  <= addr;
+         addr_rotate := addr;
+         for i in 0 to 1 loop
+            do(7  + (i * 16) downto     (i * 16))  <= std_logic_vector(to_unsigned(data(to_integer(unsigned(addr_rotate(26 downto 1)) & '0') + 0), 8));
+            do(15 + (i * 16) downto 8 + (i * 16))  <= std_logic_vector(to_unsigned(data(to_integer(unsigned(addr_rotate(26 downto 1)) & '0') + 1), 8));
+            addr_rotate(1) := not addr_rotate(1); 
+         end loop;
       end if;
 
       if (SCRIPTLOADING = '1') then

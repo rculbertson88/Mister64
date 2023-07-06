@@ -39,7 +39,7 @@ src/tb/cpu_mul.vhd ^
 ../../rtl/cpu_FPU.vhd ^
 ../../rtl/cpu.vhd ^
 ../../rtl/memorymux.vhd ^
-../../rtl/pifrom_ntsc.vhd ^
+../../rtl/pifrom_ntsc_fast.vhd ^
 ../../rtl/PIF.vhd ^
 ../../rtl/RSP.vhd ^
 ../../rtl/PI.vhd ^
