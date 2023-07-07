@@ -12,6 +12,7 @@ entity cpu_cop0 is
       clk93             : in  std_logic;
       ce                : in  std_logic;
       stall             : in  unsigned(4 downto 0);
+      stall4Masked      : in  unsigned(4 downto 0);
       executeNew        : in  std_logic;
       reset             : in  std_logic;
 
@@ -115,6 +116,9 @@ architecture arch of cpu_cop0 is
    
    signal nextEPC_1                       : unsigned(63 downto 0) := (others => '0');
    signal isDelaySlot_1                   : std_logic := '0';
+   
+   signal cop0Written6                    : integer range 0 to 2 := 0;
+   signal cop0Written9                    : integer range 0 to 3 := 0;
    
    -- savestates
    type t_ssarray is array(0 to 31) of unsigned(63 downto 0);
@@ -310,15 +314,45 @@ begin
             COP0_LATCH                      <= (others => '0'); 
             
             bit64mode                       <= '0';
+            
+            cop0Written6                    <= 0;
+            cop0Written9                    <= 0;
 
          elsif (ce = '1') then
          
+            -- count
+            if (cop0Written9 = 0) then
+               COP0_9_COUNT <= COP0_9_COUNT + 1;
+               if (COP0_9_COUNT(32 downto 1) = COP0_11_COMPARE) then
+                  COP0_13_CAUSE_interruptPending(7) <= '1';
+               end if;
+            else
+               cop0Written9 <= cop0Written9 - 1;
+            end if;
+            
+            -- random
+            if (stall = 0) then
+               if (COP0_6_WIRED(5) = '0' and COP0_1_RANDOM(4 downto 0) = COP0_6_WIRED(4 downto 0)) then
+                  COP0_1_RANDOM <= 6x"1F";
+               else
+                  COP0_1_RANDOM <= COP0_1_RANDOM - 1;
+               end if;
+            end if;
+            
+            if (cop0Written6 > 0) then
+               cop0Written6 <= cop0Written6 - 1;
+               if (cop0Written6 = 1) then
+                  COP0_1_RANDOM   <= to_unsigned(31, 6);
+               end if;
+            end if;
+            
+            -- CPU access
             if (exception = '1') then
          
                COP0_14_EPC               <= nextEPC_1;
                COP0_13_CAUSE_branchDelay <= isDelaySlot_1;
          
-            elsif (stall = 0 and executeNew = '1') then
+            elsif (stall4Masked = 0 and executeNew = '1') then
                if (writeEnable = '1') then
                
                   COP0_LATCH <= writeValue;
@@ -336,9 +370,11 @@ begin
                         
                         when 6 => 
                            COP0_6_WIRED    <= writeValue(5 downto 0);
-                           COP0_1_RANDOM   <= to_unsigned(31, 6); -- maybe delayed?
+                           cop0Written6    <= 2;
                         
-                        when 9 => COP0_9_COUNT <= writeValue(31 downto 0) & '0'; -- maybe delayed?
+                        when 9 => 
+                           COP0_9_COUNT <= writeValue(31 downto 0) & '0';
+                           cop0Written9 <= 3;
                         
                         when 10 =>
                            COP0_10_ENTRYHI_addressSpaceID <= writeValue(7 downto 0);

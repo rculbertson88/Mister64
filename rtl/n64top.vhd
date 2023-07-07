@@ -85,6 +85,7 @@ architecture arch of n64top is
    signal errorCPU_stall         : std_logic;
    signal errorDDR3              : std_logic;
    signal errorCPU_FPU           : std_logic;
+   signal error_PI               : std_logic;
    
    -- irq
    signal irqRequest             : std_logic;
@@ -237,8 +238,9 @@ begin
    process (reset_intern_1x, errorCPU_stall) begin if (errorCPU_stall = '1') then errorCode(2) <= '1'; elsif (reset_intern_1x = '1') then errorCode(2) <= '0'; end if; end process;
    process (reset_intern_1x, errorDDR3     ) begin if (errorDDR3      = '1') then errorCode(3) <= '1'; elsif (reset_intern_1x = '1') then errorCode(3) <= '0'; end if; end process;
    process (reset_intern_1x, errorCPU_FPU  ) begin if (errorCPU_FPU   = '1') then errorCode(4) <= '1'; elsif (reset_intern_1x = '1') then errorCode(4) <= '0'; end if; end process;
+   process (reset_intern_1x, error_PI      ) begin if (error_PI       = '1') then errorCode(5) <= '1'; elsif (reset_intern_1x = '1') then errorCode(5) <= '0'; end if; end process;
    
-   errorCode(7 downto 5) <= "000";
+   errorCode(7 downto 6) <= "00";
    
    process (clk1x)
    begin
@@ -430,6 +432,8 @@ begin
       fastDecay            => is_simu,
 
       irq_out              => irqVector(4),
+      
+      error_PI             => error_PI,
                            
       sdram_ena            => sdram_ena,      
       sdram_rnw            => sdram_rnw,     
@@ -528,6 +532,8 @@ begin
       clk1x                => clk1x,
       ce                   => ce_1x,   
       reset                => reset_intern_1x,
+      
+      FASTBUS              => '0', --is_simu,
       
       error                => errorMEMMUX,
       

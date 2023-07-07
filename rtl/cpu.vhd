@@ -521,7 +521,7 @@ architecture arch of cpu is
    signal stallcountDMA                : integer;
 -- synthesis translate_on
    
-   signal debugStallcounter            : unsigned(11 downto 0);
+   signal debugStallcounter            : unsigned(12 downto 0);
    
    -- export
 -- synthesis translate_off
@@ -2408,7 +2408,7 @@ begin
                         mulsign  <= '1';
                         mul1     <= std_logic_vector(resize(signed(value1(31 downto 0)), 64));
                         mul2     <= std_logic_vector(resize(signed(value2(31 downto 0)), 64));
-                        hiloWait <= 5;
+                        hiloWait <= 4;
                         stall3   <= '1';
                      end if;
                      
@@ -2417,7 +2417,7 @@ begin
                         mulsign  <= '0';
                         mul1     <= x"00000000" & std_logic_vector(value1(31 downto 0));
                         mul2     <= x"00000000" & std_logic_vector(value2(31 downto 0));
-                        hiloWait <= 5;
+                        hiloWait <= 4;
                         stall3   <= '1';
                      end if;
                      
@@ -2426,7 +2426,7 @@ begin
                         mulsign  <= '1';
                         mul1     <= std_logic_vector(value1);
                         mul2     <= std_logic_vector(value2);
-                        hiloWait <= 8;
+                        hiloWait <= 7;
                         stall3   <= '1';
                      end if;
                      
@@ -2435,7 +2435,7 @@ begin
                         mulsign  <= '0';
                         mul1     <= std_logic_vector(value1);
                         mul2     <= std_logic_vector(value2);
-                        hiloWait <= 8;
+                        hiloWait <= 7;
                         stall3   <= '1';
                      end if;
                      
@@ -2457,7 +2457,7 @@ begin
                      
                      if (EXEcalcDIV = '1') then
                         DIVis32     <= '1';
-                        hiloWait    <= 37;
+                        hiloWait    <= 36;
                         stall3      <= '1';
                         DIVdividend <= resize(signed(value1(31 downto 0)), 65);
                         DIVdivisor  <= resize(signed(value2(31 downto 0)), 65);
@@ -2467,7 +2467,7 @@ begin
                      
                       if (EXEcalcDDIV = '1') then
                         DIVis32     <= '0';
-                        hiloWait    <= 69;
+                        hiloWait    <= 68;
                         stall3      <= '1';
                         DIVdividend <= resize(signed(value1), 65);
                         DIVdivisor  <= resize(signed(value2), 65);
@@ -2477,7 +2477,7 @@ begin
                      
                      if (EXEcalcDIVU = '1') then
                         DIVis32     <= '1';
-                        hiloWait    <= 37;
+                        hiloWait    <= 36;
                         stall3      <= '1';
                         DIVdividend <= '0' & x"00000000" & signed(value1(31 downto 0));
                         DIVdivisor  <= '0' & x"00000000" & signed(value2(31 downto 0));
@@ -2487,7 +2487,7 @@ begin
                      
                      if (EXEcalcDDIVU = '1') then
                         DIVis32     <= '0';
-                        hiloWait    <= 69;
+                        hiloWait    <= 68;
                         stall3      <= '1';
                         DIVdividend <= '0' & signed(value1);
                         DIVdivisor  <= '0' & signed(value2);
@@ -2895,7 +2895,8 @@ begin
    (
       clk93             => clk93,
       ce                => ce_93,   
-      stall             => stall4Masked,
+      stall             => stall,
+      stall4Masked      => stall4Masked,
       executeNew        => executeNew,
       reset             => reset_93,
 
@@ -3094,7 +3095,7 @@ begin
                debugStallcounter <= debugStallcounter + 1;
             end if;         
             
-            if (debugStallcounter(11) = '1') then
+            if (debugStallcounter(12) = '1') then
                error_stall       <= '1';
             end if;
             

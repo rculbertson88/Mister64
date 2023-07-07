@@ -12,6 +12,8 @@ entity memorymux is
       ce                   : in  std_logic;
       reset                : in  std_logic;
       
+      FASTBUS              : in  std_logic;
+      
       error                : out std_logic;
      
       mem_request          : in  std_logic;
@@ -228,7 +230,7 @@ begin
          bus_PIcart_read    <= mem_rnw;
          bus_PIcart_write   <= not mem_rnw;
       end if;
-      if (mem_request = '1' and mem_address >= 16#1FD00000# and mem_address <= 16#7FFFFFFF#) then
+      if (mem_request = '1' and address >= 16#1FD00000# and address <= 16#1FFFFFFF#) then
          bus_PIcart_read    <= mem_rnw;
          bus_PIcart_write   <= not mem_rnw;
       end if;
@@ -301,39 +303,106 @@ begin
                            report "Accessed behind main ram" severity failure; 
                         end if;
                          
-                     elsif (mem_address(28 downto 0) >= 16#04000000# and mem_address(28 downto 0) < 16#04100000#) then -- RSP
-                        state <= WAITBUS;     
+                     elsif (mem_address(28 downto 0) >= 16#04000000# and mem_address(28 downto 0) < 16#04040000#) then -- RSP RAMs
+                        state    <= WAITBUS; 
+                        if (mem_rnw = '1') then
+                           bus_slow <= 13;
+                        else
+                           bus_slow <= 3;
+                        end if;
+                        
+                     elsif (mem_address(28 downto 0) >= 16#04040000# and mem_address(28 downto 0) < 16#04100000#) then -- RSP Regs
+                        state    <= WAITBUS; 
+                        if (mem_rnw = '1') then
+                           bus_slow <= 9;
+                        else
+                           bus_slow <= 3;
+                        end if;
 
                      elsif (mem_address(28 downto 0) >= 16#04100000# and mem_address(28 downto 0) < 16#04200000#) then -- RDP
-                        state <= WAITBUS;                         
+                        state    <= WAITBUS;     
+                        if (mem_rnw = '1') then
+                           bus_slow <= 9;
+                        else
+                           bus_slow <= 3;
+                        end if;
                         
                      elsif (mem_address(28 downto 0) >= 16#04300000# and mem_address(28 downto 0) < 16#04400000#) then -- MI
-                        state <= WAITBUS;                                             
+                        state    <= WAITBUS;  
+                        if (mem_rnw = '1') then
+                           bus_slow <= 2;
+                        else
+                           bus_slow <= 0;
+                        end if;
                         
                      elsif (mem_address(28 downto 0) >= 16#04400000# and mem_address(28 downto 0) < 16#04500000#) then -- VI
-                        state <= WAITBUS;                        
+                        state    <= WAITBUS;    
+                        bus_slow <= 9;
                         
                      elsif (mem_address(28 downto 0) >= 16#04500000# and mem_address(28 downto 0) < 16#04600000#) then -- AI
-                        state <= WAITBUS;                     
+                        state    <= WAITBUS;     
+                        if (mem_rnw = '1') then
+                           bus_slow <= 9;
+                        else
+                           bus_slow <= 3;
+                        end if;                        
                         
                      elsif (mem_address(28 downto 0) >= 16#04600000# and mem_address(28 downto 0) < 16#04700000#) then -- PI registers
-                        state <= WAITBUS;
-                        bus_slow <= 127;
+                        state    <= WAITBUS;
+                        if (mem_rnw = '1') then
+                           bus_slow <= 9;
+                        else
+                           bus_slow <= 3;
+                        end if;
                         
                      elsif (mem_address(28 downto 0) >= 16#04700000# and mem_address(28 downto 0) < 16#04800000#) then -- RI
-                        state <= WAITBUS;         
+                        state    <= WAITBUS;   
+                        if (mem_rnw = '1') then
+                           bus_slow <= 9;
+                        else
+                           bus_slow <= 3;
+                        end if;
                          
                      elsif (mem_address(28 downto 0) >= 16#04800000# and mem_address(28 downto 0) < 16#04900000#) then -- SI
-                        state <= WAITBUS;         
+                        state    <= WAITBUS;       
+                        if (mem_rnw = '1') then
+                           bus_slow <= 9;
+                        else
+                           bus_slow <= 3;
+                        end if;
 
                      elsif (mem_address(28 downto 0) >= 16#05000000# and mem_address(28 downto 0) < 16#1FC00000#) then -- PI cart
-                        state <= WAITBUS;                            
-                         
-                     elsif (mem_address(28 downto 0) >= 16#1FC00000# and mem_address(28 downto 0) < 16#1FC00800#) then -- PIF
-                        state <= WAITBUS;
+                        state    <= WAITBUS;   
+                        if (mem_rnw = '1') then
+                           bus_slow <= 137;
+                        else
+                           bus_slow <= 3;
+                        end if;
                         
-                     elsif (mem_address >= 16#1FD00000# and mem_address <= 16#7FFFFFFF#) then -- PI cart
-                        state <= WAITBUS;  
+                     elsif (mem_address(28 downto 0) >= 16#1FC00000# and mem_address(28 downto 0) < 16#1FC007C0#) then -- PIF ROM
+                        state    <= WAITBUS;
+                        bus_slow <= 230;
+                        if (mem_rnw = '1') then
+                           bus_slow <= 230;
+                        else
+                           bus_slow <= 3;
+                        end if;
+                         
+                     elsif (mem_address(28 downto 0) >= 16#1FC007C0# and mem_address(28 downto 0) < 16#1FC00800#) then -- PIF RAM
+                        state    <= WAITBUS;
+                        if (mem_rnw = '1') then
+                           bus_slow <= 1910;
+                        else
+                           bus_slow <= 3;
+                        end if;
+                        
+                     elsif (mem_address(28 downto 0) >= 16#1FD00000# and mem_address(28 downto 0) <= 16#1FFFFFFF#) then -- PI cart
+                        state    <= WAITBUS;
+                        if (mem_rnw = '1') then
+                           bus_slow <= 137;
+                        else
+                           bus_slow <= 3;
+                        end if;
                         
                      else
                         -- synthesis translate_off
@@ -353,7 +422,7 @@ begin
                   
                when WAITBUS =>
                   if (bus_done = '1') then
-                     if (bus_slow = 0) then
+                     if (bus_slow = 0 or FASTBUS = '1') then
                         mem_done <= '1';
                         state    <= IDLE;
                      else

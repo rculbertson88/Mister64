@@ -15,6 +15,8 @@ entity PI is
       
       irq_out              : out std_logic := '0';
       
+      error_PI             : out std_logic := '0';
+      
       sdram_ena            : out std_logic;
       sdram_rnw            : out std_logic;
       sdram_Adr            : out std_logic_vector(26 downto 0);
@@ -91,7 +93,7 @@ architecture arch of PI is
    signal state                  : tState := IDLE;
    
    signal writtenData            : std_logic_vector(31 downto 0) := (others => '0');   
-   signal writtenTime            : integer range 0 to 100 := 0; 
+   signal writtenTime            : integer range 0 to 200 := 0; 
 
    signal bus_cart_read_latched  : std_logic := '0';  
    signal bus_cart_write_latched : std_logic := '0';  
@@ -119,6 +121,8 @@ begin
       variable writemask_new   : std_logic_vector(1 downto 0);
    begin
       if rising_edge(clk1x) then
+      
+         error_PI <= '0';
       
          if (sdram_done = '1') then sdram_pending <= '0'; end if;
          if (rdram_done = '1') then rdram_pending <= '0'; end if;
@@ -245,7 +249,9 @@ begin
                      if (bus_cart_addr(28 downto 0) < 16#08000000#) then -- DD
                         bus_cart_done <= '1';
                      elsif (bus_cart_addr(28 downto 0) < 16#10000000#) then -- SRAM+FLASH  
-                        report "SRAM + FLASH read not implemented" severity failure;
+                        report "SRAM + FLASH read not implemented" severity warning;
+                        error_PI      <= '1';
+                        bus_cart_done <= '1';
                      elsif (bus_cart_addr(28 downto 0) < 16#13FF0000#) then -- game rom
                         if (PI_STATUS_IObusy = '1') then
                            PI_STATUS_IObusy  <= '0';
@@ -275,14 +281,16 @@ begin
                         if (fastDecay = '1') then
                            writtenTime       <= 1;
                         else
-                           writtenTime       <= 100;
+                           writtenTime       <= 200;
                         end if;
                      end if;
 
                      if (bus_cart_addr(28 downto 0) < 16#08000000#) then -- DD
                         bus_cart_done <= '1';
                      elsif (bus_cart_addr(28 downto 0) < 16#10000000#) then -- SRAM+FLASH  
-                        report "SRAM + FLASH write not implemented" severity failure;
+                        report "SRAM + FLASH write not implemented" severity warning;
+                        error_PI      <= '1';
+                        bus_cart_done <= '1';
                      else
                         bus_cart_done <= '1';
                      end if;
@@ -318,7 +326,7 @@ begin
                            copycnt     <= 0;
                            
                         else
-                           report "SRAM + FLASH DMA write not implemented" severity failure;
+                           report "SRAM + FLASH DMA write not implemented" severity warning;
                         end if;
                      
                      
@@ -346,12 +354,15 @@ begin
                      
                      if (PI_CART_ADDR(28 downto 0) < 16#08000000#) then -- DD
                         report "DD DMA read not implemented" severity failure;
+                        error_PI      <= '1';
                      elsif (PI_CART_ADDR(28 downto 0) < 16#10000000#) then -- SRAM+FLASH  
                         report "SRAM + FLASH DMA read not implemented" severity failure;
+                        error_PI      <= '1';
                      elsif (PI_CART_ADDR(28 downto 0) < 16#13FF0000#) then -- game rom
                         sdram_Adr <= std_logic_vector((PI_CART_ADDR(25 downto 1) & '0') + to_unsigned(16#100000#, 27));
                      else
                         report "Openbus DMA read not implemented" severity failure;
+                        error_PI      <= '1';
                      end if;
                   elsif (rdram_done = '1' or rdram_pending = '0') then
                      state <= IDLE;

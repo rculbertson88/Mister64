@@ -106,29 +106,31 @@ begin
 
          QPointer  <= QPointerNew;
          Akku      <= AkkuNew;
-         
-         if (sign_dividend = '1' and divisor = 0) then
-            quotient <= to_signed(1, quotient'length);
-         elsif ((sign_dividend xor sign_divisor) = '1') then
-            quotient <= -signed(quotient_u(quotient'left downto 0));
-         else
-            quotient <= signed(quotient_u(quotient'left downto 0));
-         end if;
-         
-         if (sign_dividend = '1') then
-            remainder <= -signed(AkkuNew(remainder'left + 1 downto remainder'right + 1));
-         else
-            remainder <= signed(AkkuNew(remainder'left + 1 downto remainder'right + 1));
-         end if;
-         
-         done <= done_buffer;
             
       end if;
       
-      
-      
    end process;
    
+   process (all)
+   begin
+   
+      if (sign_dividend = '1' and divisor = 0) then
+         quotient <= to_signed(1, quotient'length);
+      elsif ((sign_dividend xor sign_divisor) = '1') then
+         quotient <= -signed(quotient_u(quotient'left downto 0));
+      else
+         quotient <= signed(quotient_u(quotient'left downto 0));
+      end if;
+      
+      if (sign_dividend = '1') then
+         remainder <= -signed(Akku(remainder'left + 1 downto remainder'right + 1));
+      else
+         remainder <= signed(Akku(remainder'left + 1 downto remainder'right + 1));
+      end if;
+      
+      done <= done_buffer;
+   
+   end process;
 
 end architecture;
 
