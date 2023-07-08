@@ -184,6 +184,11 @@ architecture arch of n64top is
    signal bus_PIF_dataRead       : std_logic_vector(31 downto 0);  
    signal bus_PIF_done           : std_logic;
    
+   -- SI/PIF
+   signal SIPIF_write            : std_logic;
+   signal SIPIF_read             : std_logic;
+   signal SIPIF_done             : std_logic;
+   
    -- cpu
    signal ce_intern              : std_logic := '0';
    
@@ -420,6 +425,10 @@ begin
       reset                => reset_intern_1x, 
 
       irq_out              => irqVector(1),
+      
+      SIPIF_write          => SIPIF_write,
+      SIPIF_read           => SIPIF_read, 
+      SIPIF_done           => SIPIF_done, 
                            
       bus_addr             => bus_SI_addr,     
       bus_dataWrite        => bus_SI_dataWrite,
@@ -490,7 +499,11 @@ begin
       
       pifrom_wraddress     => pifrom_wraddress,
       pifrom_wrdata        => pifrom_wrdata,   
-      pifrom_wren          => pifrom_wren,     
+      pifrom_wren          => pifrom_wren,   
+      
+      SIPIF_write          => SIPIF_write,
+      SIPIF_read           => SIPIF_read, 
+      SIPIF_done           => SIPIF_done,     
                            
       bus_addr             => bus_PIF_addr,     
       bus_dataWrite        => bus_PIF_dataWrite,

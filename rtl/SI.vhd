@@ -13,6 +13,10 @@ entity SI is
       
       irq_out          : out std_logic := '0';
       
+      SIPIF_write      : out std_logic := '0';
+      SIPIF_read       : out std_logic := '0';
+      SIPIF_done       : in  std_logic;
+      
       bus_addr         : in  unsigned(19 downto 0); 
       bus_dataWrite    : in  std_logic_vector(31 downto 0);
       bus_read         : in  std_logic;
@@ -45,7 +49,7 @@ begin
    process (clk1x)
    begin
       if rising_edge(clk1x) then
-      
+         
          if (reset = '1') then
             
             bus_done             <= '0';
@@ -61,10 +65,16 @@ begin
             SI_STATUS_dmaState      <= (others => '0');
             SI_STATUS_IRQ           <= '0';
             
+            SIPIF_write             <= '0';
+            SIPIF_read              <= '0';
+            
          elsif (ce = '1') then
          
             bus_done     <= '0';
             bus_dataRead <= (others => '0');
+            
+            SIPIF_write  <= '0';
+            SIPIF_read   <= '0';
 
             -- bus read
             if (bus_read = '1') then
@@ -96,6 +106,7 @@ begin
                      SI_STATUS_DMA_busy <= '1';
                      nextDMAisRead      <= '1';
                      nextDMATime        <= 1152;
+                     SIPIF_read         <= '1';
                      
                   when x"00010" => 
                      SI_PIF_ADDR_WR64B  <= unsigned(bus_dataWrite(31 downto 1)) & '0';
@@ -113,7 +124,12 @@ begin
                if (nextDMAtime = 0) then
                   SI_STATUS_DMA_busy <= '0';
                   SI_STATUS_IRQ      <= '1';
+                  
                   -- todo: DMA + PIF trigger
+                  
+                  if (nextDMAisRead = '0') then
+                     SIPIF_write <= '1';
+                  end if;
                else
                   nextDMAtime <= nextDMAtime - 1;
                end if;

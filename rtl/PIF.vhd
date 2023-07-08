@@ -1,6 +1,7 @@
 library IEEE;
 use IEEE.std_logic_1164.all;  
 use IEEE.numeric_std.all; 
+use STD.textio.all;
 
 library mem;
 
@@ -11,9 +12,13 @@ entity pif is
       ce                   : in  std_logic;
       reset                : in  std_logic;
       
-      pifrom_wraddress     : in std_logic_vector(8 downto 0);
-      pifrom_wrdata        : in std_logic_vector(31 downto 0);
-      pifrom_wren          : in std_logic;
+      pifrom_wraddress     : in  std_logic_vector(8 downto 0);
+      pifrom_wrdata        : in  std_logic_vector(31 downto 0);
+      pifrom_wren          : in  std_logic;
+      
+      SIPIF_write          : in  std_logic;
+      SIPIF_read           : in  std_logic;
+      SIPIF_done           : out std_logic := '0';
       
       bus_addr             : in  unsigned(10 downto 0); 
       bus_dataWrite        : in  std_logic_vector(31 downto 0);
@@ -28,6 +33,7 @@ architecture arch of pif is
 
    signal bus_read_rom     : std_logic := '0';
    signal bus_read_ram     : std_logic := '0';
+   signal bus_write_ram    : std_logic := '0';
    
    signal pifrom_data      : std_logic_vector(31 downto 0) := (others => '0');
    signal pifrom_locked    : std_logic := '0';
@@ -39,25 +45,31 @@ architecture arch of pif is
       WRITESTARTUP1,
       WRITESTARTUP2,
       WRITESTARTUP3,
+      WRITECOMMAND,
       READCOMMAND,
       EVALWRITE,
+      EVALREAD,
       WRITEBACKCOMMAND,
       
       CLEARRAM,
       CLEARREADCOMMAND,
       CLEARCOMPLETE
    );
-   signal state                  : tState := IDLE;
-   signal startup_complete       : std_logic := '0';
+   signal state                     : tState := IDLE;
+   signal startup_complete          : std_logic := '0';
+   
+   signal SIPIF_write_latched       : std_logic := '0';
+   signal SIPIF_read_latched        : std_logic := '0';
+   signal pifreadmode               : std_logic := '0';
    
    -- PIFRAM
-   signal pifram_wren      : std_logic;
-   signal pifram_busdata   : std_logic_vector(31 downto 0) := (others => '0');
-   
-   signal ram_address_b            : std_logic_vector(5 downto 0) := (others => '0');
-   signal ram_data_b               : std_logic_vector(7 downto 0) := (others => '0');
-   signal ram_wren_b               : std_logic := '0';   
-   signal ram_q_b                  : std_logic_vector(7 downto 0); 
+   signal pifram_wren               : std_logic := '0';
+   signal pifram_busdata            : std_logic_vector(31 downto 0) := (others => '0');
+      
+   signal ram_address_b             : std_logic_vector(5 downto 0) := (others => '0');
+   signal ram_data_b                : std_logic_vector(7 downto 0) := (others => '0');
+   signal ram_wren_b                : std_logic := '0';   
+   signal ram_q_b                   : std_logic_vector(7 downto 0); 
    
 begin 
 
@@ -72,8 +84,6 @@ begin
       wrdata    => pifrom_wrdata,   
       wren      => pifrom_wren     
    );
-   
-   pifram_wren <= '1' when (bus_write = '1' and bus_addr >= 16#7C0#) else '0';
    
    iPIFRAM: entity work.dpram_dif
    generic map 
@@ -103,25 +113,33 @@ begin
    begin
       if rising_edge(clk1x) then
       
+         pifram_wren <= '0';
+      
          if (reset = '1') then
             
-            bus_done          <= '0';
-            bus_read_rom      <= '0';
-            bus_read_ram      <= '0';
-                 
-            pifrom_locked     <= '0';
+            bus_done             <= '0';
+            bus_read_rom         <= '0';
+            bus_read_ram         <= '0';
+            bus_write_ram        <= '0';
+                  
+            pifrom_locked        <= '0';
+               
+            state                <= CLEARRAM;
+            startup_complete     <= '0';
+            ram_address_b        <= (others => '0');
+            ram_data_b           <= (others => '0');
+            ram_wren_b           <= '1';
             
-            state             <= CLEARRAM;
-            startup_complete  <= '0';
-            ram_address_b     <= (others => '0');
-            ram_data_b        <= (others => '0');
-            ram_wren_b        <= '1';
+            SIPIF_write_latched  <= '0';
+            SIPIF_read_latched   <= '0';
             
          elsif (ce = '1') then
          
+            SIPIF_done   <= '0';
+            ram_wren_b   <= '0';
+         
             bus_done     <= '0';
             bus_read_rom <= '0';
-            bus_read_ram <= '0';
             bus_dataRead <= (others => '0');
 
             if (bus_read_rom = '1') then
@@ -129,9 +147,6 @@ begin
                if (pifrom_locked = '0') then
                   bus_dataRead <= pifrom_data;
                end if;
-            elsif (bus_read_ram = '1') then
-               bus_done     <= '1';
-               bus_dataRead <= pifram_busdata(7 downto 0) & pifram_busdata(15 downto 8) & pifram_busdata(23 downto 16) & pifram_busdata(31 downto 24);
             end if;
 
             -- bus read
@@ -145,19 +160,36 @@ begin
 
             -- bus write
             if (bus_write = '1') then
-               bus_done <= '1';
+               if (bus_addr < 16#7C0#) then
+                  bus_done <= '1';
+               else
+                  bus_write_ram <= '1';
+               end if;
             end if;
             
-            
             -- pif state machine
-            ram_wren_b <= '0';
+            if (SIPIF_write = '1') then SIPIF_write_latched <= '1'; end if;
+            if (SIPIF_read  = '1') then SIPIF_read_latched  <= '1'; end if;
             
             case (state) is
             
                when IDLE =>
-                  if (bus_write = '1') then
+                  if (bus_write_ram = '1') then
+                     bus_write_ram <= '0';
+                     bus_done      <= '1';
+                     pifram_wren   <= '1';
+                     if (bus_addr(5 downto 2) = x"F") then
+                        state         <= WRITECOMMAND;
+                        ram_address_b <= 6x"3F";
+                     end if;
+                  elsif (bus_read_ram = '1') then
+                     bus_read_ram <= '0';
+                     bus_done     <= '1';
+                     bus_dataRead <= pifram_busdata(7 downto 0) & pifram_busdata(15 downto 8) & pifram_busdata(23 downto 16) & pifram_busdata(31 downto 24);
+                  elsif (SIPIF_write_latched = '1' or SIPIF_read_latched = '1') then
                      state         <= READCOMMAND;
                      ram_address_b <= 6x"3F";
+                     pifreadmode   <= SIPIF_read_latched;
                   end if;
             
                when WRITESTARTUP1 =>
@@ -179,17 +211,34 @@ begin
                   ram_wren_b       <= '1';   
                   startup_complete <= '1';
             
-               when READCOMMAND =>
-                  state <= EVALWRITE;
+               when WRITECOMMAND =>
+                  state <= READCOMMAND;
             
+               when READCOMMAND =>
+                  if (pifreadmode = '1') then
+                     state            <= EVALREAD;
+                  else
+                     state            <= EVALWRITE;
+                  end if;
+                  SIPIF_write_latched <= '0';
+                  SIPIF_read_latched  <= '0';
+                  
                when EVALWRITE =>
                   state <= IDLE;
                   
                   if (ram_q_b(1) = '1') then -- CIC-NUS-6105 challenge/response
-                     report "unimplemented PIF CIC challenge" severity failure;
+                     report "unimplemented PIF CIC challenge" severity warning;
+                     state         <= WRITEBACKCOMMAND;
+                     ram_wren_b    <= '1';
+                     ram_data_b    <= ram_q_b;
+                     ram_data_b(1) <= '0';
                      
                   elsif (ram_q_b(2) = '1') then -- unknown
-                     report "unimplemented PIF unknown command 2" severity failure;
+                     report "unimplemented PIF unknown command 2" severity warning;
+                     state         <= WRITEBACKCOMMAND;
+                     ram_wren_b    <= '1';
+                     ram_data_b    <= ram_q_b;
+                     ram_data_b(2) <= '0';
                      
                   elsif (ram_q_b(3) = '1') then -- will lock up if not done
                      state         <= WRITEBACKCOMMAND;
@@ -218,6 +267,9 @@ begin
                      ram_wren_b    <= '1';
                   end if;
                   
+               when EVALREAD =>
+                  state <= IDLE;
+                  
                when WRITEBACKCOMMAND =>
                   state         <= READCOMMAND;
             
@@ -240,9 +292,7 @@ begin
                   state <= WRITEBACKCOMMAND;
                   ram_wren_b    <= '1';
                   ram_data_b    <= ram_q_b;
-                  ram_data_b(6) <= '0';
-                  
-                  
+                  ram_data_b(6) <= '0'; 
             
             end case;
             
@@ -250,6 +300,85 @@ begin
          end if;
       end if;
    end process;
+
+--##############################################################
+--############################### export
+--##############################################################
+   
+   -- synthesis translate_off
+   goutput : if 1 = 1 generate
+      type tpifRamExport is array(0 to 63) of std_logic_vector(7 downto 0);
+      signal pifRamExport : tpifRamExport;
+      signal state_last   : tState := IDLE;
+   begin
+   
+      process
+         file outfile          : text;
+         variable f_status     : FILE_OPEN_STATUS;
+         variable line_out     : line;
+      begin
+         
+         for i in 0 to 63 loop
+            pifRamExport(i) <= (others => '0');
+         end loop;
+         
+         file_open(f_status, outfile, "R:\\pif_n64_sim.txt", write_mode);
+         file_close(outfile);
+         file_open(f_status, outfile, "R:\\pif_n64_sim.txt", append_mode);
+         
+         while (true) loop
+         
+            if (reset = '1') then
+               file_close(outfile);
+               file_open(f_status, outfile, "R:\\pif_n64_sim.txt", write_mode);
+               file_close(outfile);
+               file_open(f_status, outfile, "R:\\pif_n64_sim.txt", append_mode);
+            end if;
+            
+            wait until rising_edge(clk1x);
+            
+            -- write from bus
+            if (pifram_wren = '1') then
+               pifRamExport((to_integer(bus_addr(5 downto 2)) * 4) + 0) <= bus_dataWrite( 7 downto  0);
+               pifRamExport((to_integer(bus_addr(5 downto 2)) * 4) + 1) <= bus_dataWrite(15 downto  8);
+               pifRamExport((to_integer(bus_addr(5 downto 2)) * 4) + 2) <= bus_dataWrite(23 downto 16);
+               pifRamExport((to_integer(bus_addr(5 downto 2)) * 4) + 3) <= bus_dataWrite(31 downto 24);
+            end if;
+            
+            -- start transfer
+            if (state = READCOMMAND) then    
+               if (pifreadmode = '1') then
+                  write(line_out, string'("ReadIN: "));
+               else
+                  write(line_out, string'("WriteIN: "));
+               end if;
+               for i in 0 to 63 loop
+                  write(line_out, to_hstring(pifRamExport(i)));
+               end loop;
+               writeline(outfile, line_out);
+            end if;
+            
+            -- end transfer
+            state_last <= state;
+            if (state = IDLE and state_last /= IDLE and state_last /= WRITESTARTUP3) then
+               if (pifreadmode = '1') then
+                  write(line_out, string'("ReadOUT: "));
+               else
+                  write(line_out, string'("WriteOUT: "));
+               end if;
+               for i in 0 to 63 loop
+                  write(line_out, to_hstring(pifRamExport(i)));
+               end loop;
+               writeline(outfile, line_out);
+            end if;  
+            
+         end loop;
+         
+      end process;
+   
+   end generate goutput;
+
+   -- synthesis translate_on 
 
 end architecture;
 

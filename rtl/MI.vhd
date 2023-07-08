@@ -137,6 +137,8 @@ begin
 
    SS_idle <= '1';
 
+   ss_out <= (others => '0');
+
    process (clk1x)
    begin
       if (rising_edge(clk1x)) then
