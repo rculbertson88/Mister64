@@ -26,7 +26,7 @@ end entity;
 
 architecture arch of statemanager is
 
-   constant SAVESTATESIZE : integer := 16#400000#; -- 4194304 Dwords = 16384 kbyte
+   constant SAVESTATESIZE : integer := 16#1000000#; -- 4194304 Dwords = 16384 kbyte
 
    signal save_1         : std_logic := '0';
    signal load_1         : std_logic := '0';

@@ -109,7 +109,7 @@ begin
       increaseSSHeaderCount => '1',
       save_state            => n64_SaveState(0),
       load_state            => n64_LoadState(0),
-      savestate_number      => 0,
+      savestate_number      => 2,
       state_loaded          => open,
       
       -- PIFROM download port
