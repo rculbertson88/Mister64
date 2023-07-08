@@ -194,6 +194,7 @@ architecture arch of n64top is
    signal SS_wren                : std_logic_vector(13 downto 0);
    signal SS_rden                : std_logic_vector(13 downto 0);
    signal SS_DataRead_RDP        : std_logic_vector(63 downto 0);
+   signal SS_DataRead_MI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_PI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_VI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_CPU        : std_logic_vector(63 downto 0);
@@ -322,7 +323,13 @@ begin
       bus_read             => bus_MI_read,     
       bus_write            => bus_MI_write,    
       bus_dataRead         => bus_MI_dataRead, 
-      bus_done             => bus_MI_done
+      bus_done             => bus_MI_done,
+      
+      SS_reset             => SS_reset,
+      SS_DataWrite         => SS_DataWrite,
+      SS_wren              => SS_wren(1),
+      SS_rden              => SS_rden(1),
+      SS_DataRead          => SS_DataRead_MI
    );    
    
    iVI : entity work.VI
@@ -730,7 +737,7 @@ begin
    istatemanager : entity work.statemanager
    generic map
    (
-      Softmap_SaveState_ADDR   => 16#E000000#
+      Softmap_SaveState_ADDR   => 16#C000000#
    )
    port map
    (

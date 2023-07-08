@@ -19,7 +19,14 @@ entity MI is
       bus_read         : in  std_logic;
       bus_write        : in  std_logic;
       bus_dataRead     : out std_logic_vector(31 downto 0) := (others => '0');
-      bus_done         : out std_logic := '0'
+      bus_done         : out std_logic := '0';
+      
+      SS_reset         : in  std_logic;
+      SS_DataWrite     : in  std_logic_vector(63 downto 0);
+      SS_wren          : in  std_logic;
+      SS_rden          : in  std_logic;
+      SS_DataRead      : out std_logic_vector(63 downto 0);
+      SS_idle          : out std_logic
    );
 end entity;
 
@@ -31,6 +38,10 @@ architecture arch of MI is
    signal MI_MODE_RDRAMreqMode : std_logic;
    signal MI_INTR_DP           : std_logic; -- special handling of DP irq, because it is cleared here in MI
    signal MI_INTR_MASK         : std_logic_vector(5 downto 0); -- 0x0430000C
+   
+   -- savestates
+   signal ss_in  : std_logic_vector(63 downto 0) := (others => '0');  
+   signal ss_out : std_logic_vector(63 downto 0) := (others => '0');    
 
 begin 
 
@@ -46,12 +57,12 @@ begin
             
             bus_done             <= '0';
 
-            MI_MODE_initLength   <= (others => '0');
-            MI_MODE_initMode     <= '0';
-            MI_MODE_ebusTestMode <= '0';
-            MI_MODE_RDRAMreqMode <= '0';
-            MI_INTR_DP           <= '0';
-            MI_INTR_MASK         <= (others => '0');
+            MI_MODE_initLength   <= ss_in(6 downto 0);
+            MI_MODE_initMode     <= ss_in(7);
+            MI_MODE_ebusTestMode <= ss_in(8);
+            MI_MODE_RDRAMreqMode <= ss_in(9);
+            MI_INTR_DP           <= ss_in(15);
+            MI_INTR_MASK         <= ss_in(21 downto 16);
             
          elsif (ce = '1') then
          
@@ -117,6 +128,29 @@ begin
             end if;
 
          end if;
+      end if;
+   end process;
+   
+   --##############################################################
+--############################### savestates
+--##############################################################
+
+   SS_idle <= '1';
+
+   process (clk1x)
+   begin
+      if (rising_edge(clk1x)) then
+      
+         if (SS_reset = '1') then
+            ss_in <= (others => '0');
+         elsif (SS_wren = '1') then
+            ss_in <= SS_DataWrite;
+         end if;
+         
+         if (SS_rden = '1') then
+            SS_DataRead <= ss_out;
+         end if;
+      
       end if;
    end process;
 

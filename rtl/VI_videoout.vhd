@@ -25,6 +25,7 @@ entity VI_videoout is
       VI_Y_SCALE_FACTOR    : in unsigned(11 downto 0);
       VI_Y_SCALE_OFFSET    : in unsigned(11 downto 0);
       
+      newLine              : out std_logic;
       VI_CURRENT           : out unsigned(9 downto 0);
       
       rdram_request        : out std_logic := '0';
@@ -41,10 +42,13 @@ entity VI_videoout is
       video_hblank         : out std_logic := '0';
       video_vblank         : out std_logic := '0';
       video_ce             : out std_logic;
-      video_interlace       : out std_logic;
+      video_interlace      : out std_logic;
       video_r              : out std_logic_vector(7 downto 0);
       video_g              : out std_logic_vector(7 downto 0);
-      video_b              : out std_logic_vector(7 downto 0)
+      video_b              : out std_logic_vector(7 downto 0);
+      
+      SS_VI_CURRENT        : in unsigned(9 downto 0);
+      SS_nextHCount        : in unsigned(11 downto 0)
    );
 end entity;
 
@@ -127,6 +131,7 @@ begin
    videoout_settings.VI_WIDTH       <= VI_WIDTH;
    videoout_settings.isPAL          <= '0';
    
+   newLine    <= videoout_reports.newLine;
    VI_CURRENT <= videoout_reports.VI_CURRENT & '0'; -- todo: need to find when interlace sets bit 0, can't be instant, otherwise Kroms CPU tests would hang in infinite loop 
    
    igpu_videoout_sync : entity work.gpu_videoout_sync
@@ -146,7 +151,10 @@ begin
       overlay_data            => overlay_data,
       overlay_ena             => overlay_ena,                     
                    
-      videoout_out            => videoout_out    
+      videoout_out            => videoout_out,
+
+      SS_VI_CURRENT           => SS_VI_CURRENT,
+      SS_nextHCount           => SS_nextHCount
    );   
    
    rdram_rnw <= '1';

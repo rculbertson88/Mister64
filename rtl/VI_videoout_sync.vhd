@@ -23,7 +23,10 @@ entity gpu_videoout_sync is
       overlay_data            : in  std_logic_vector(23 downto 0);
       overlay_ena             : in  std_logic;
          
-      videoout_out            : buffer tvideoout_out
+      videoout_out            : buffer tvideoout_out;
+      
+      SS_VI_CURRENT           : in unsigned(9 downto 0);
+      SS_nextHCount           : in unsigned(11 downto 0)
    );
 end entity;
 
@@ -74,6 +77,8 @@ begin
    begin
       if rising_edge(clk1x) then
              
+         videoout_reports.newLine <= '0';
+             
          videoout_reports.vsync    <= '0';
          --videoout_reports.dotclock <= '0';
          --if (videoout_settings.GPUSTAT_VerRes = '1') then
@@ -87,8 +92,8 @@ begin
             --videoout_reports.irq_VBLANK  <= '0';
                
             --videoout_reports.interlacedDisplayField   <= videoout_ss_in.interlacedDisplayField;
-            nextHCount                                  <= 0;
-            vpos                                        <= 0;
+            nextHCount                                  <= to_integer(SS_nextHCount(11 downto 0));
+            vpos                                        <= to_integer(SS_VI_CURRENT(9 downto 1));
             --videoout_reports.inVsync                  <= videoout_ss_in.inVsync;
             --videoout_reports.activeLineLSB            <= videoout_ss_in.activeLineLSB;
             --videoout_reports.GPUSTAT_InterlaceField   <= videoout_ss_in.GPUSTAT_InterlaceField;
@@ -118,6 +123,9 @@ begin
             -- gpu timing count
             if (nextHCount > 1) then
                nextHCount <= nextHCount - 1;
+               if (nextHCount = 3) then 
+                  videoout_reports.newLine <= '1';
+               end if;
             else
                
                nextHCount <= htotal;

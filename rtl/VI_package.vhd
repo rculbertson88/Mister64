@@ -16,6 +16,7 @@ package pVI is
       vsync                   : std_logic;
       inVsync                 : std_logic;
       interlacedDisplayField  : std_logic;
+      newLine                 : std_logic;
       VI_CURRENT              : unsigned(8 downto 0);
    end record;
    

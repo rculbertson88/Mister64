@@ -211,14 +211,16 @@ begin
             end loop; 
             
             for i in 0 to 31 loop
-               if (export_cpu.cop0regs(i) /= export_cpu_last.cop0regs(i)) then
-                  write(line_out, string'("C"));
-                  if (i < 10) then 
-                     write(line_out, string'("0"));
+               if (i /= 1 and i /= 9) then
+                  if (export_cpu.cop0regs(i) /= export_cpu_last.cop0regs(i)) then
+                     write(line_out, string'("C"));
+                     if (i < 10) then 
+                        write(line_out, string'("0"));
+                     end if;
+                     write(line_out, to_lower(to_string(i)));
+                     write(line_out, string'(" "));
+                     write(line_out, to_lower(to_hstring(export_cpu.cop0regs(i))) & " ");
                   end if;
-                  write(line_out, to_lower(to_string(i)));
-                  write(line_out, string'(" "));
-                  write(line_out, to_lower(to_hstring(export_cpu.cop0regs(i))) & " ");
                end if;
             end loop;             
             

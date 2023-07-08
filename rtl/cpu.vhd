@@ -190,8 +190,6 @@ architecture arch of cpu is
    signal cacheHitLast                 : std_logic := '0';
    
    -- regs           
-   signal blockIRQ                     : std_logic := '0';
-   signal blockIRQCnt                  : integer range 0 to 10;
    signal fetchReady                   : std_logic := '0';
    
    -- wires   
@@ -205,6 +203,7 @@ architecture arch of cpu is
    -- stage 2           
    --regs      
    signal decodeNew                    : std_logic := '0';
+   signal decode_irq                   : std_logic := '0';
    signal decodeImmData                : unsigned(15 downto 0) := (others => '0');
    signal decodeSource1                : unsigned(4 downto 0) := (others => '0');
    signal decodeSource2                : unsigned(4 downto 0) := (others => '0');
@@ -375,6 +374,7 @@ architecture arch of cpu is
    signal execute_COP1_Target          : unsigned(4 downto 0) := (others => '0');
    signal executeCOP1ReadEnable        : std_logic := '0';
    signal execute_unstallFPUForward    : std_logic := '0';
+   signal execute_ERET                 : std_logic := '0';
 
    signal hiloWait                     : integer range 0 to 69;
    
@@ -448,11 +448,10 @@ architecture arch of cpu is
    signal exceptionPC                  : unsigned(63 downto 0) := (others => '0');
    signal COP0ReadValue                : unsigned(63 downto 0) := (others => '0');
    
-   signal COP0_enable                  : std_logic;
    signal COP1_enable                  : std_logic;
    signal COP2_enable                  : std_logic;
-   signal COP3_enable                  : std_logic;
    signal fpuRegMode                   : std_logic;
+   signal irqTrigger                   : std_logic;
 
    -- COP1
    signal cop1_stage4_writeEnable      : std_logic := '0';
@@ -859,8 +858,6 @@ begin
             useCached_data <= '0';
             
             PC             <= unsigned(ss_in(0)); -- x"FFFFFFFFBFC00000";          
-            blockIRQ       <= '0';
-            blockirqCnt    <= 0;
 
             opcode0        <= (others => '0'); --unsigned(ss_in(14));
          
@@ -959,6 +956,7 @@ begin
                        '0';
 
    process (clk93)
+      variable dec_irq : std_logic;
    begin
       if (rising_edge(clk93)) then
       
@@ -966,6 +964,7 @@ begin
          
             stall2           <= '0';
             decodeNew        <= '0';
+            decode_irq       <= '0';
             decodeBranchType <= BRANCH_OFF;
             
          elsif (ce_93 = '1') then
@@ -1037,6 +1036,8 @@ begin
                   decodeFPUTransferWrite  <= '0';
                   decodeFPUMULS           <= '0';
                   decodeFPUMULD           <= '0';
+                  
+                  dec_irq                 := irqTrigger;
 
                   -- decoding opcode specific
                   case (to_integer(decOP)) is
@@ -1199,6 +1200,7 @@ begin
                               decodeBranchType     <= BRANCH_BRANCH_BLTZ;
                            end if;
                            decodeBranchLikely      <= decSource2(1);
+                           if (decSource2(1) = '1') then dec_irq := '0'; end if;
                         end if;
                         
                      when 16#02# => -- J
@@ -1255,6 +1257,7 @@ begin
                         decodeResultMux         <= RESULTMUX_LUI;
                         
                      when 16#10# => -- COP0
+                        dec_irq              := '0';
                         if (decSource1(4) = '1' and decImmData(6 downto 0) = 16#18#) then -- ERET
                            decodeBranchType     <= BRANCH_ERET;
                         end if;                     
@@ -1274,25 +1277,31 @@ begin
                               decodeFPUTransferWrite <= '1';
                            end if;
                            if (decSource1(3 downto 0) = x"8") then
-                              decodeBranchType  <= BRANCH_BC1;
+                              decodeBranchType   <= BRANCH_BC1;
+                              decodeBranchLikely <= decSource2(1);
+                              if (decSource2(1) = '1') then dec_irq := '0'; end if;
                            end if;
                         end if;
                         
                      when 16#14# => -- BEQL
                         decodeBranchType        <= BRANCH_BRANCH_BEQ;
                         decodeBranchLikely      <= '1';
+                        dec_irq                 := '0';
                            
                      when 16#15# => -- BNEL
                         decodeBranchType        <= BRANCH_BRANCH_BNE;
                         decodeBranchLikely      <= '1';
+                        dec_irq                 := '0';
                         
                      when 16#16# => -- BLEZL
                         decodeBranchType        <= BRANCH_BRANCH_BLEZ;
                         decodeBranchLikely      <= '1';
+                        dec_irq                 := '0';
                         
                      when 16#17# => -- BGTZL
                         decodeBranchType        <= BRANCH_BRANCH_BGTZ;
                         decodeBranchLikely      <= '1';
+                        dec_irq                 := '0';
                         
                      when 16#18# => -- DADDI   
                         decodeResultMux         <= RESULTMUX_ADD;
@@ -1313,6 +1322,11 @@ begin
                      when others => null;   
                      
                   end case;
+                  
+                  decode_irq <= dec_irq;
+                  if (dec_irq = '1') then
+                     decodeNew <= '0';
+                  end if;
                   
                end if; -- fetchReady
       
@@ -1429,7 +1443,7 @@ begin
                          '1' when (decodeBranchType = BRANCH_BRANCH_BNE  and (decodeBranchLikely = '0' or cmpEqual = '0')                      )  else
                          '1' when (decodeBranchType = BRANCH_BRANCH_BLEZ and (decodeBranchLikely = '0' or (cmpZero = '1' or cmpNegative = '1')))  else
                          '1' when (decodeBranchType = BRANCH_BRANCH_BGTZ and (decodeBranchLikely = '0' or (cmpZero = '0' and cmpNegative = '0'))) else
-                         '1' when (decodeBranchType = BRANCH_BC1 and (decodeSource2(1) = '0' or decodeSource2(0) = FPU_CF)) else
+                         '1' when (decodeBranchType = BRANCH_BC1         and (decodeBranchLikely = '0' or decodeSource2(0) = FPU_CF))             else
                          '0';
                          
    EXEIgnoreNext      <= '0' when (executeIgnoreNext = '1') else
@@ -1440,7 +1454,7 @@ begin
                          '1' when (decodeBranchType = BRANCH_BRANCH_BNE  and decodeBranchLikely = '1' and cmpEqual = '1')                       else
                          '1' when (decodeBranchType = BRANCH_BRANCH_BLEZ and decodeBranchLikely = '1' and cmpZero = '0' and cmpNegative = '0')  else
                          '1' when (decodeBranchType = BRANCH_BRANCH_BGTZ and decodeBranchLikely = '1' and (cmpZero = '1' or cmpNegative = '1')) else
-                         '1' when (decodeBranchType = BRANCH_BC1 and decodeSource2(1) = '1' and decodeSource2(0) /= FPU_CF) else
+                         '1' when (decodeBranchType = BRANCH_BC1         and decodeBranchLikely = '1' and decodeSource2(0) /= FPU_CF)           else
                          '0';
 
    ---------------------- result muxing ------------------
@@ -2384,6 +2398,7 @@ begin
                      executeLoadType               <= EXELoadType;   
                      executeMemReadEnable          <= EXEReadEnable; 
    
+                     execute_ERET                  <= EXEERET;
                      executeCOP0WriteEnable        <= EXECOP0WriteEnable;     
                      executeCOP0ReadEnable         <= EXECOP0ReadEnable;     
                      executeCOP0Read64             <= EXECOP0Read64;     
@@ -2900,11 +2915,15 @@ begin
       executeNew        => executeNew,
       reset             => reset_93,
 
+      irqRequest        => irqRequest,
+      irqTrigger        => irqTrigger,
+      decode_irq        => decode_irq,
+
 -- synthesis translate_off
       cop0_export       => cop0_export,
 -- synthesis translate_on
 
-      eret              => EXEERET,
+      eret              => execute_ERET,
       exception3        => exceptionNew3,
       exception1        => exceptionNew1,
       exceptionFPU      => exceptionFPU,
@@ -2918,10 +2937,8 @@ begin
       exceptionPC       => exceptionPC,
       exception         => exception,   
       
-      COP0_enable       => COP0_enable,
       COP1_enable       => COP1_enable,
       COP2_enable       => COP2_enable,
-      COP3_enable       => COP3_enable,
       fpuRegMode        => fpuRegMode,
 
       writeEnable       => executeCOP0WriteEnable,

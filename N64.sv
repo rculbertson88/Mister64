@@ -231,8 +231,8 @@ wire reset_or = RESET | buttons[1] | status[0] | cart_download;
 
 `include "build_id.v"
 parameter CONF_STR = {
-	"N64;SS3E000000:1000000;",
-   "F1,N64z64,Load;",
+	"N64;SS3C000000:1000000;",
+   "FS1,N64z64,Load;",
    "-;",
 	"O[36],Savestates to SDCard,On,Off;",
 	"O[68],Autoincrement Slot,Off,On;",

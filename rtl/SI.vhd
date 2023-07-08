@@ -35,6 +35,9 @@ architecture arch of SI is
    signal SI_STATUS_dmaState     : unsigned(3 downto 0);  -- 0x04800018 (W): [] any write clears interrupt (R) : [11:8] dmaState
    signal SI_STATUS_IRQ          : std_logic;             -- 0x04800018 (W): [] any write clears interrupt (R) : [12] interrupt
 
+   signal nextDMAisRead          : std_logic := '0';
+   signal nextDMATime            : integer range 0 to 1152 := 0;
+
 begin 
 
    irq_out <= SI_STATUS_IRQ;
@@ -91,10 +94,14 @@ begin
                   when x"00004" => 
                      SI_PIF_ADDR_RD64B  <= unsigned(bus_dataWrite(31 downto 1)) & '0';
                      SI_STATUS_DMA_busy <= '1';
+                     nextDMAisRead      <= '1';
+                     nextDMATime        <= 1152;
                      
                   when x"00010" => 
                      SI_PIF_ADDR_WR64B  <= unsigned(bus_dataWrite(31 downto 1)) & '0';
                      SI_STATUS_DMA_busy <= '1';
+                     nextDMAisRead      <= '0';
+                     nextDMATime        <= 1152;
                      
                   when x"00018" => SI_STATUS_IRQ     <= '0';
                   when others   => null;                  
@@ -103,7 +110,13 @@ begin
             end if;
             
             if (SI_STATUS_DMA_busy = '1') then
-               report "SI DMA not implemented" severity failure;
+               if (nextDMAtime = 0) then
+                  SI_STATUS_DMA_busy <= '0';
+                  SI_STATUS_IRQ      <= '1';
+                  -- todo: DMA + PIF trigger
+               else
+                  nextDMAtime <= nextDMAtime - 1;
+               end if;
             end if;
 
          end if;

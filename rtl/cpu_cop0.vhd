@@ -15,6 +15,10 @@ entity cpu_cop0 is
       stall4Masked      : in  unsigned(4 downto 0);
       executeNew        : in  std_logic;
       reset             : in  std_logic;
+      
+      irqRequest        : in  std_logic;
+      irqTrigger        : out std_logic;
+      decode_irq        : in  std_logic;
 
 -- synthesis translate_off
       cop0_export       : out tExportRegs := (others => (others => '0'));
@@ -34,10 +38,8 @@ entity cpu_cop0 is
       exceptionPC       : out unsigned(63 downto 0) := (others => '0');
       exception         : out std_logic := '0';
       
-      COP0_enable       : out std_logic;
       COP1_enable       : out std_logic;
       COP2_enable       : out std_logic;
-      COP3_enable       : out std_logic;
       fpuRegMode        : out std_logic;
                         
       writeEnable       : in  std_logic;
@@ -126,10 +128,8 @@ architecture arch of cpu_cop0 is
 
 begin 
 
-   COP0_enable <= COP0_12_SR_enable_cop0;
    COP1_enable <= COP0_12_SR_enable_cop1;
    COP2_enable <= COP0_12_SR_enable_cop2;
-   COP3_enable <= COP0_12_SR_enable_cop3;
    fpuRegMode  <= COP0_12_SR_floatingPointMode;
    
    process (all)
@@ -265,11 +265,11 @@ begin
             COP0_5_PAGEMASK                 <= (others => '0');
             COP0_6_WIRED                    <= (others => '0');
             COP0_8_BADVIRTUALADDRESS        <= (others => '0');
-            COP0_9_COUNT                    <= (others => '0');
+            COP0_9_COUNT                    <= ss_in(9)(31 downto 0) & '0'; -- (others => '0');
             COP0_10_ENTRYHI_addressSpaceID  <= (others => '0'); 
             COP0_10_ENTRYHI_virtualAddress  <= (others => '0'); 
             COP0_10_ENTRYHI_region          <= (others => '0'); 
-            COP0_11_COMPARE                 <= (others => '0');  
+            COP0_11_COMPARE                 <= ss_in(11)(31 downto 0); -- (others => '0');
             COP0_12_SR_interruptEnable      <= ss_in(12)(0);           -- '0';
             COP0_12_SR_exceptionLevel       <= ss_in(12)(1);           -- '0';
             COP0_12_SR_errorLevel           <= ss_in(12)(2);           -- '1';
@@ -317,8 +317,20 @@ begin
             
             cop0Written6                    <= 0;
             cop0Written9                    <= 0;
+            
+            irqTrigger                      <= '0';
 
          elsif (ce = '1') then
+         
+            -- interrupt
+            COP0_13_CAUSE_interruptPending(2) <= irqRequest;
+            
+            irqTrigger <= '0';
+            if (COP0_12_SR_interruptEnable = '1' and COP0_12_SR_exceptionLevel = '0' and COP0_12_SR_errorLevel = '0') then
+               if ((COP0_12_SR_interruptMask and COP0_13_CAUSE_interruptPending) > 0) then
+                  irqTrigger <= '1';
+               end if;
+            end if;
          
             -- count
             if (cop0Written9 = 0) then
@@ -474,23 +486,27 @@ begin
                isDelaySlot_1 <= isDelaySlot;
             end if;
             
-            if (stall = 0 or exceptionFPU = '1') then
-               if (exceptionFPU = '1' or exception3 = '1' or exception1 = '1') then
-               
-                  exception <= '1';
+            if (exception = '0') then
+               if (stall = 0 or exceptionFPU = '1') then
+                  if (decode_irq = '1' or exceptionFPU = '1' or exception3 = '1' or exception1 = '1') then
                   
-                  COP0_12_SR_exceptionLevel   <= '1';
+                     exception <= '1';
+                     
+                     COP0_12_SR_exceptionLevel   <= '1';
+                     
+                     COP0_13_CAUSE_coprocessorError <= "00";
+                     if (decode_irq = '1') then
+                        COP0_13_CAUSE_exceptionCode    <= (others => '0');
+                     elsif (exceptionFPU = '1') then
+                        COP0_13_CAUSE_exceptionCode    <= '0' & x"F";
+                     elsif (exception3 = '1') then
+                        COP0_13_CAUSE_exceptionCode    <= '0' & exceptionCode_3;
+                        COP0_13_CAUSE_coprocessorError <= exception_COP;
+                     else
+                        COP0_13_CAUSE_exceptionCode <= '0' & exceptionCode_1;
+                     end if;
                   
-                  COP0_13_CAUSE_coprocessorError <= "00";
-                  if (exceptionFPU = '1') then
-                     COP0_13_CAUSE_exceptionCode    <= '0' & x"F";
-                  elsif (exception3 = '1') then
-                     COP0_13_CAUSE_exceptionCode    <= '0' & exceptionCode_3;
-                     COP0_13_CAUSE_coprocessorError <= exception_COP;
-                  else
-                     COP0_13_CAUSE_exceptionCode <= '0' & exceptionCode_1;
                   end if;
-               
                end if;
             end if;
 

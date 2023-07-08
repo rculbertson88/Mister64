@@ -66,7 +66,7 @@ architecture arch of savestates is
    constant savetypes : t_savetypes := 
    (
       (  2048,       8),    -- AI           0 
-      (  3072,       8),    -- MI           1 
+      (  3072,       1),    -- MI           1 
       (  4096,       8),    -- PI           2 
       (  5120,       8),    -- PIF          3 
       (  6144,       2),    -- RDP          4 

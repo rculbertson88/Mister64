@@ -95,6 +95,8 @@ architecture arch of VI is
    signal VI_TEST_ADDR                    : unsigned( 6 downto 0) := (others => '0');  -- 0x04400038 (RW): [6:0] TEST_ADDR<6:0>: Diagnostics only, usage unknown 
    signal VI_STAGED_DATA                  : unsigned(31 downto 0) := (others => '0');  -- 0x0440003C (RW): [31:0] STAGED_DATA<31:0>: Diagnostics only, usage unknown 
 
+   signal newLine                         : std_logic;
+
    -- savestates
    type t_ssarray is array(0 to 7) of std_logic_vector(63 downto 0);
    signal ss_in  : t_ssarray := (others => (others => '0'));  
@@ -154,6 +156,10 @@ begin
          
             bus_done     <= '0';
             bus_dataRead <= (others => '0');
+            
+            if (newLine = '1' and VI_CURRENT = VI_INTR) then
+               irq_out <= '1';
+            end if;
 
             -- bus read
             if (bus_read = '1') then
@@ -275,6 +281,7 @@ begin
       VI_Y_SCALE_FACTOR    => VI_Y_SCALE_FACTOR,
       VI_Y_SCALE_OFFSET    => VI_Y_SCALE_OFFSET,
       
+      newLine              => newLine,
       VI_CURRENT           => VI_CURRENT,
       
       rdram_request        => rdram_request,   
@@ -294,7 +301,10 @@ begin
       video_interlace      => video_interlace,     
       video_r              => video_r,      
       video_g              => video_g,      
-      video_b              => video_b     
+      video_b              => video_b,
+      
+      SS_VI_CURRENT        => unsigned(ss_in(1)(9 downto 0)),
+      SS_nextHCount        => unsigned(ss_in(6)(43 downto 32))
    );
    
 --##############################################################
