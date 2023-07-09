@@ -16,6 +16,8 @@ entity cpu_cop0 is
       executeNew        : in  std_logic;
       reset             : in  std_logic;
       
+      error_exception   : out std_logic := '0';
+      
       irqRequest        : in  std_logic;
       irqTrigger        : out std_logic;
       decode_irq        : in  std_logic;
@@ -121,6 +123,8 @@ architecture arch of cpu_cop0 is
    
    signal cop0Written6                    : integer range 0 to 2 := 0;
    signal cop0Written9                    : integer range 0 to 3 := 0;
+   
+   --signal irq_offCount                    : unsigned(13 downto 0);
    
    -- savestates
    type t_ssarray is array(0 to 31) of unsigned(63 downto 0);
@@ -229,6 +233,8 @@ begin
    begin
       if (rising_edge(clk93)) then
       
+         error_exception <= '0';
+      
          if (COP0_12_SR_errorLevel = '1') then
             eretPC <= COP0_30_EPCERROR;
          else
@@ -253,6 +259,13 @@ begin
          else
             exceptionPC(63 downto 32) <= (others => '0');
          end if;
+         
+         --if (COP0_12_SR_interruptEnable = '1' or COP0_12_SR_exceptionLevel = '1') then    
+         --   irq_offCount <= (others => '0');
+         --else
+         --   irq_offCount <= irq_offCount + 1;
+         --end if;
+         --error_exception <= irq_offCount(13);
       
          if (reset = '1') then
          
@@ -363,6 +376,11 @@ begin
          
                COP0_14_EPC               <= nextEPC_1;
                COP0_13_CAUSE_branchDelay <= isDelaySlot_1;
+               
+               case (COP0_13_CAUSE_exceptionCode(3 downto 0)) is
+                  when x"4" | x"5" | x"9" | x"A" | x"C"  => error_exception <= '1';
+                  when others => null;
+               end case;
          
             elsif (stall4Masked = 0 and executeNew = '1') then
                if (writeEnable = '1') then

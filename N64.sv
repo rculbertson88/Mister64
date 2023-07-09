@@ -242,8 +242,8 @@ parameter CONF_STR = {
 	"-;",
    "O[1],Swap Interlaced,Off,On;",
 	"R0,Reset;",
-   "J1,A,B,Start,L,R,Z,DPad Up,DPad Right,DPad Down,DPad Left,C Up,C Right,C Down,C Left,Savestates;",
-	"jn,A,B,Start,L,R,Z,DPad Up,DPad Right,DPad Down,DPad Left,C Up,C Right,C Down,C Left;",
+   "J1,A,B,Start,L,R,Z,C Up,C Right,C Down,C Left,Savestates;",
+	"jn,A,B,Start,L,R,Z,C Up,C Right,C Down,C Left;",
 	"I,",
 	"Load=DPAD Up|Save=Down|Slot=L+R,",
 	"Active Slot 1,",
@@ -270,6 +270,11 @@ wire [19:0] joy_unmod;
 wire [19:0] joy2;
 wire [19:0] joy3;
 wire [19:0] joy4;
+
+wire [15:0] joystick_analog_l0;
+wire [15:0] joystick_analog_l1;
+wire [15:0] joystick_analog_l2;
+wire [15:0] joystick_analog_l3;
 
 wire [10:0] ps2_key;
 
@@ -319,10 +324,15 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 	.info_req(info_req),
 	.info(info_index),
    
+   .joystick_l_analog_0(joystick_analog_l0), 
+   .joystick_l_analog_1(joystick_analog_l1),
+   .joystick_l_analog_2(joystick_analog_l2),
+   .joystick_l_analog_3(joystick_analog_l3),
+   
    .direct_video(DIRECT_VIDEO)
 );
 
-assign joy = joy_unmod[16] ? 20'b0 : joy_unmod;
+assign joy = joy_unmod[14] ? 20'b0 : joy_unmod;
 
 ////////////////////////////  PIFROM download  ///////////////////////////////////
 
@@ -437,10 +447,10 @@ savestate_ui savestate_ui
 	.ps2_key        (ps2_key[10:0] ),
 	.allow_ss       (cart_loaded   ),
 	.joySS          (joy_unmod[14] ),
-	.joyRight       (joy_unmod[7]  ),
-	.joyLeft        (joy_unmod[9]  ),
-	.joyDown        (joy_unmod[8]  ),
-	.joyUp          (joy_unmod[6]  ),
+	.joyRight       (joy_unmod[0]  ),
+	.joyLeft        (joy_unmod[1]  ),
+	.joyDown        (joy_unmod[2]  ),
+	.joyUp          (joy_unmod[3]  ),
 	.joyRewind      (0             ),
 	.rewindEnable   (0             ), 
 	.status_slot    (status[38:37] ),
@@ -504,6 +514,24 @@ n64top n64top
    .sdram_dataWrite  (sdram_dataWrite),
    .sdram_done       (sdram_done     ),
    .sdram_dataRead   (sdram_dataRead ),
+      
+   // pad
+   .pad_0_A          (joy[4]),
+   .pad_0_B          (joy[5]),
+   .pad_0_Z          (joy[9]),
+   .pad_0_START      (joy[6]),
+   .pad_0_DPAD_UP    (joy[3]),
+   .pad_0_DPAD_DOWN  (joy[2]),
+   .pad_0_DPAD_LEFT  (joy[1]),
+   .pad_0_DPAD_RIGHT (joy[0]),
+   .pad_0_L          (joy[7]),
+   .pad_0_R          (joy[8]),
+   .pad_0_C_UP       (joy[10]),
+   .pad_0_C_DOWN     (joy[12]),
+   .pad_0_C_LEFT     (joy[13]),
+   .pad_0_C_RIGHT    (joy[11]),
+   .pad_0_analog_h   (joystick_analog_l0[7:0]),
+   .pad_0_analog_v   (joystick_analog_l0[15:8]),
       
    // video out   
    .video_hsync      (VGA_HS),

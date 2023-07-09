@@ -51,6 +51,24 @@ entity n64top is
       sdram_dataWrite         : out std_logic_vector(31 downto 0);
       sdram_done              : in  std_logic;  
       sdram_dataRead          : in  std_logic_vector(31 downto 0);
+      
+      -- PAD
+      pad_0_A                 : in  std_logic;
+      pad_0_B                 : in  std_logic;
+      pad_0_Z                 : in  std_logic;
+      pad_0_START             : in  std_logic;
+      pad_0_DPAD_UP           : in  std_logic;
+      pad_0_DPAD_DOWN         : in  std_logic;
+      pad_0_DPAD_LEFT         : in  std_logic;
+      pad_0_DPAD_RIGHT        : in  std_logic;
+      pad_0_L                 : in  std_logic;
+      pad_0_R                 : in  std_logic;
+      pad_0_C_UP              : in  std_logic;
+      pad_0_C_DOWN            : in  std_logic;
+      pad_0_C_LEFT            : in  std_logic;
+      pad_0_C_RIGHT           : in  std_logic;
+      pad_0_analog_h          : in  std_logic_vector(7 downto 0);
+      pad_0_analog_v          : in  std_logic_vector(7 downto 0);
    
       -- video out   
       video_hsync             : out std_logic := '0';
@@ -86,6 +104,7 @@ architecture arch of n64top is
    signal errorDDR3              : std_logic;
    signal errorCPU_FPU           : std_logic;
    signal error_PI               : std_logic;
+   signal errorCPU_exception     : std_logic;
    
    -- irq
    signal irqRequest             : std_logic;
@@ -185,9 +204,16 @@ architecture arch of n64top is
    signal bus_PIF_done           : std_logic;
    
    -- SI/PIF
-   signal SIPIF_write            : std_logic;
-   signal SIPIF_read             : std_logic;
-   signal SIPIF_done             : std_logic;
+   signal SIPIF_ramreq           : std_logic;
+   signal SIPIF_addr             : unsigned(5 downto 0);
+   signal SIPIF_writeEna         : std_logic; 
+   signal SIPIF_writeData        : std_logic_vector(7 downto 0);
+   signal SIPIF_ramgrant         : std_logic;
+   signal SIPIF_readData         : std_logic_vector(7 downto 0);
+                                 
+   signal SIPIF_writeProc        : std_logic;
+   signal SIPIF_readProc         : std_logic;
+   signal SIPIF_ProcDone         : std_logic;
    
    -- cpu
    signal ce_intern              : std_logic := '0';
@@ -239,14 +265,15 @@ begin
    end process;
    
    -- error codes
-   process (reset_intern_1x, errorMEMMUX   ) begin if (errorMEMMUX    = '1') then errorCode(0) <= '1'; elsif (reset_intern_1x = '1') then errorCode(0) <= '0'; end if; end process;
-   process (reset_intern_1x, errorCPU_instr) begin if (errorCPU_instr = '1') then errorCode(1) <= '1'; elsif (reset_intern_1x = '1') then errorCode(1) <= '0'; end if; end process;
-   process (reset_intern_1x, errorCPU_stall) begin if (errorCPU_stall = '1') then errorCode(2) <= '1'; elsif (reset_intern_1x = '1') then errorCode(2) <= '0'; end if; end process;
-   process (reset_intern_1x, errorDDR3     ) begin if (errorDDR3      = '1') then errorCode(3) <= '1'; elsif (reset_intern_1x = '1') then errorCode(3) <= '0'; end if; end process;
-   process (reset_intern_1x, errorCPU_FPU  ) begin if (errorCPU_FPU   = '1') then errorCode(4) <= '1'; elsif (reset_intern_1x = '1') then errorCode(4) <= '0'; end if; end process;
-   process (reset_intern_1x, error_PI      ) begin if (error_PI       = '1') then errorCode(5) <= '1'; elsif (reset_intern_1x = '1') then errorCode(5) <= '0'; end if; end process;
+   process (reset_intern_1x, errorMEMMUX       ) begin if (errorMEMMUX        = '1') then errorCode(0) <= '1'; elsif (reset_intern_1x = '1') then errorCode(0) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_instr    ) begin if (errorCPU_instr     = '1') then errorCode(1) <= '1'; elsif (reset_intern_1x = '1') then errorCode(1) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_stall    ) begin if (errorCPU_stall     = '1') then errorCode(2) <= '1'; elsif (reset_intern_1x = '1') then errorCode(2) <= '0'; end if; end process;
+   process (reset_intern_1x, errorDDR3         ) begin if (errorDDR3          = '1') then errorCode(3) <= '1'; elsif (reset_intern_1x = '1') then errorCode(3) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_FPU      ) begin if (errorCPU_FPU       = '1') then errorCode(4) <= '1'; elsif (reset_intern_1x = '1') then errorCode(4) <= '0'; end if; end process;
+   process (reset_intern_1x, error_PI          ) begin if (error_PI           = '1') then errorCode(5) <= '1'; elsif (reset_intern_1x = '1') then errorCode(5) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_exception) begin if (errorCPU_exception = '1') then errorCode(6) <= '1'; elsif (reset_intern_1x = '1') then errorCode(6) <= '0'; end if; end process;
    
-   errorCode(7 downto 6) <= "00";
+   errorCode(7) <= '0';
    
    process (clk1x)
    begin
@@ -426,16 +453,32 @@ begin
 
       irq_out              => irqVector(1),
       
-      SIPIF_write          => SIPIF_write,
-      SIPIF_read           => SIPIF_read, 
-      SIPIF_done           => SIPIF_done, 
+      SIPIF_ramreq         => SIPIF_ramreq,   
+      SIPIF_addr           => SIPIF_addr,     
+      SIPIF_writeEna       => SIPIF_writeEna, 
+      SIPIF_writeData      => SIPIF_writeData,
+      SIPIF_ramgrant       => SIPIF_ramgrant, 
+      SIPIF_readData       => SIPIF_readData, 
+                                          
+      SIPIF_writeProc      => SIPIF_writeProc,
+      SIPIF_readProc       => SIPIF_readProc, 
+      SIPIF_ProcDone       => SIPIF_ProcDone, 
                            
       bus_addr             => bus_SI_addr,     
       bus_dataWrite        => bus_SI_dataWrite,
       bus_read             => bus_SI_read,     
       bus_write            => bus_SI_write,    
       bus_dataRead         => bus_SI_dataRead, 
-      bus_done             => bus_SI_done
+      bus_done             => bus_SI_done,
+      
+      rdram_request        => rdram_request(DDR3MUX_SI),   
+      rdram_rnw            => rdram_rnw(DDR3MUX_SI),       
+      rdram_address        => rdram_address(DDR3MUX_SI),   
+      rdram_burstcount     => rdram_burstcount(DDR3MUX_SI),
+      rdram_writeMask      => rdram_writeMask(DDR3MUX_SI), 
+      rdram_dataWrite      => rdram_dataWrite(DDR3MUX_SI), 
+      rdram_done           => rdram_done(DDR3MUX_SI),      
+      rdram_dataRead       => rdram_dataRead 
    );
    
    iPI : entity work.PI
@@ -501,16 +544,40 @@ begin
       pifrom_wrdata        => pifrom_wrdata,   
       pifrom_wren          => pifrom_wren,   
       
-      SIPIF_write          => SIPIF_write,
-      SIPIF_read           => SIPIF_read, 
-      SIPIF_done           => SIPIF_done,     
+      SIPIF_ramreq         => SIPIF_ramreq,   
+      SIPIF_addr           => SIPIF_addr,     
+      SIPIF_writeEna       => SIPIF_writeEna, 
+      SIPIF_writeData      => SIPIF_writeData,
+      SIPIF_ramgrant       => SIPIF_ramgrant, 
+      SIPIF_readData       => SIPIF_readData, 
+                                          
+      SIPIF_writeProc      => SIPIF_writeProc,
+      SIPIF_readProc       => SIPIF_readProc, 
+      SIPIF_ProcDone       => SIPIF_ProcDone, 
                            
       bus_addr             => bus_PIF_addr,     
       bus_dataWrite        => bus_PIF_dataWrite,
       bus_read             => bus_PIF_read,     
       bus_write            => bus_PIF_write,    
       bus_dataRead         => bus_PIF_dataRead, 
-      bus_done             => bus_PIF_done
+      bus_done             => bus_PIF_done,
+      
+      pad_0_A              => pad_0_A,         
+      pad_0_B              => pad_0_B,         
+      pad_0_Z              => pad_0_Z,         
+      pad_0_START          => pad_0_START,     
+      pad_0_DPAD_UP        => pad_0_DPAD_UP,   
+      pad_0_DPAD_DOWN      => pad_0_DPAD_DOWN, 
+      pad_0_DPAD_LEFT      => pad_0_DPAD_LEFT, 
+      pad_0_DPAD_RIGHT     => pad_0_DPAD_RIGHT,
+      pad_0_L              => pad_0_L,         
+      pad_0_R              => pad_0_R,         
+      pad_0_C_UP           => pad_0_C_UP,      
+      pad_0_C_DOWN         => pad_0_C_DOWN,    
+      pad_0_C_LEFT         => pad_0_C_LEFT,    
+      pad_0_C_RIGHT        => pad_0_C_RIGHT,   
+      pad_0_analog_h       => pad_0_analog_h,  
+      pad_0_analog_v       => pad_0_analog_v 
    );
 
    rdram_writeMask(DDR3MUX_VI) <= (others => '-');
@@ -651,51 +718,52 @@ begin
    icpu : entity work.cpu
    port map
    (
-      clk1x             => clk1x,
-      clk93             => clk93,
-      clk2x             => clk2x,
-      ce_1x             => ce_1x,   
-      ce_93             => ce_93,   
-      reset_1x          => reset_intern_1x,
-      reset_93          => reset_intern_93,
+      clk1x                => clk1x,
+      clk93                => clk93,
+      clk2x                => clk2x,
+      ce_1x                => ce_1x,   
+      ce_93                => ce_93,   
+      reset_1x             => reset_intern_1x,
+      reset_93             => reset_intern_93,
+            
+      irqRequest           => irqRequest,
+      cpuPaused            => '0',
          
-      irqRequest        => irqRequest,
-      cpuPaused         => '0',
-      
-      error_instr       => errorCPU_instr,
-      error_stall       => errorCPU_stall,
-      error_FPU         => errorCPU_FPU,
+      error_instr          => errorCPU_instr,
+      error_stall          => errorCPU_stall,
+      error_FPU            => errorCPU_FPU,
+      error_exception      => errorCPU_exception,
          
-      mem_request       => mem_request,  
-      mem_rnw           => mem_rnw,         
-      mem_address       => mem_address,  
-      mem_req64         => mem_req64,  
-      mem_size          => mem_size,  
-      mem_writeMask     => mem_writeMask,
-      mem_dataWrite     => mem_dataWrite,
-      mem_dataRead      => mem_dataRead, 
-      mem_done          => mem_done,
-      rdram_granted2x   => rdram_granted2x(DDR3MUX_MEMMUX),     
-      rdram_done        => rdram_done(DDR3MUX_MEMMUX),     
-      ddr3_DOUT         => ddr3_DOUT,       
-      ddr3_DOUT_READY   => ddr3_DOUT_READY,   
-      
-      ram_dataRead      => x"00000000",
-      ram_rnw           => '0',
-      ram_done          => '0',
+      mem_request          => mem_request,  
+      mem_rnw              => mem_rnw,         
+      mem_address          => mem_address,  
+      mem_req64            => mem_req64,  
+      mem_size             => mem_size,  
+      mem_writeMask        => mem_writeMask,
+      mem_dataWrite        => mem_dataWrite,
+      mem_dataRead         => mem_dataRead, 
+      mem_done             => mem_done,
+      rdram_granted2x      => rdram_granted2x(DDR3MUX_MEMMUX),     
+      rdram_done           => rdram_done(DDR3MUX_MEMMUX),     
+      ddr3_DOUT            => ddr3_DOUT,       
+      ddr3_DOUT_READY      => ddr3_DOUT_READY,   
+         
+      ram_dataRead         => x"00000000",
+      ram_rnw              => '0',
+      ram_done             => '0',
 
 -- synthesis translate_off
-      cpu_done          => cpu_done,  
-      cpu_export        => cpu_export,
+      cpu_done             => cpu_done,  
+      cpu_export           => cpu_export,
 -- synthesis translate_on
 
-      SS_reset          => SS_reset,
-      SS_DataWrite      => SS_DataWrite,
-      SS_Adr            => SS_Adr(11 downto 0),   
-      SS_wren_CPU       => SS_wren(10),     
-      SS_rden_CPU       => SS_rden(10),            
-      SS_DataRead_CPU   => SS_DataRead_CPU,
-      SS_idle           => SS_idle_cpu
+      SS_reset             => SS_reset,
+      SS_DataWrite         => SS_DataWrite,
+      SS_Adr               => SS_Adr(11 downto 0),   
+      SS_wren_CPU          => SS_wren(10),     
+      SS_rden_CPU          => SS_rden(10),            
+      SS_DataRead_CPU      => SS_DataRead_CPU,
+      SS_idle              => SS_idle_cpu
    );
    
    SS_idle <= '1';

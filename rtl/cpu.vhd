@@ -23,6 +23,7 @@ entity cpu is
       error_instr           : out std_logic := '0';
       error_stall           : out std_logic := '0';
       error_FPU             : out std_logic := '0';
+      error_exception       : out std_logic := '0';
       
       mem_request           : out std_logic := '0';
       mem_rnw               : out std_logic := '0'; 
@@ -204,6 +205,7 @@ architecture arch of cpu is
    --regs      
    signal decodeNew                    : std_logic := '0';
    signal decode_irq                   : std_logic := '0';
+   signal blockIRQ                     : std_logic := '0';
    signal decodeImmData                : unsigned(15 downto 0) := (others => '0');
    signal decodeSource1                : unsigned(4 downto 0) := (others => '0');
    signal decodeSource2                : unsigned(4 downto 0) := (others => '0');
@@ -956,7 +958,6 @@ begin
                        '0';
 
    process (clk93)
-      variable dec_irq : std_logic;
    begin
       if (rising_edge(clk93)) then
       
@@ -975,7 +976,7 @@ begin
             
                if (exception = '1') then
                
-                  --decode_irq <= '0';
+                  decode_irq <= '0';
                
                elsif (fetchReady = '1') then
                
@@ -1036,8 +1037,7 @@ begin
                   decodeFPUTransferWrite  <= '0';
                   decodeFPUMULS           <= '0';
                   decodeFPUMULD           <= '0';
-                  
-                  dec_irq                 := irqTrigger;
+                  blockIRQ                <= '0';
 
                   -- decoding opcode specific
                   case (to_integer(decOP)) is
@@ -1200,7 +1200,7 @@ begin
                               decodeBranchType     <= BRANCH_BRANCH_BLTZ;
                            end if;
                            decodeBranchLikely      <= decSource2(1);
-                           if (decSource2(1) = '1') then dec_irq := '0'; end if;
+                           if (decSource2(1) = '1') then blockIRQ <= '1'; end if;
                         end if;
                         
                      when 16#02# => -- J
@@ -1257,7 +1257,7 @@ begin
                         decodeResultMux         <= RESULTMUX_LUI;
                         
                      when 16#10# => -- COP0
-                        dec_irq              := '0';
+                        blockIRQ <= '1';
                         if (decSource1(4) = '1' and decImmData(6 downto 0) = 16#18#) then -- ERET
                            decodeBranchType     <= BRANCH_ERET;
                         end if;                     
@@ -1279,29 +1279,29 @@ begin
                            if (decSource1(3 downto 0) = x"8") then
                               decodeBranchType   <= BRANCH_BC1;
                               decodeBranchLikely <= decSource2(1);
-                              if (decSource2(1) = '1') then dec_irq := '0'; end if;
+                              if (decSource2(1) = '1') then blockIRQ <= '1'; end if;
                            end if;
                         end if;
                         
                      when 16#14# => -- BEQL
                         decodeBranchType        <= BRANCH_BRANCH_BEQ;
                         decodeBranchLikely      <= '1';
-                        dec_irq                 := '0';
+                        blockIRQ                <= '1';
                            
                      when 16#15# => -- BNEL
                         decodeBranchType        <= BRANCH_BRANCH_BNE;
                         decodeBranchLikely      <= '1';
-                        dec_irq                 := '0';
+                        blockIRQ                <= '1';
                         
                      when 16#16# => -- BLEZL
                         decodeBranchType        <= BRANCH_BRANCH_BLEZ;
                         decodeBranchLikely      <= '1';
-                        dec_irq                 := '0';
+                        blockIRQ                <= '1';
                         
                      when 16#17# => -- BGTZL
                         decodeBranchType        <= BRANCH_BRANCH_BGTZ;
                         decodeBranchLikely      <= '1';
-                        dec_irq                 := '0';
+                        blockIRQ                <= '1';
                         
                      when 16#18# => -- DADDI   
                         decodeResultMux         <= RESULTMUX_ADD;
@@ -1323,8 +1323,12 @@ begin
                      
                   end case;
                   
-                  decode_irq <= dec_irq;
-                  if (dec_irq = '1') then
+                  if (irqTrigger = '1' and blockIRQ = '0') then
+                     decode_irq <= '1';
+                     decodeNew  <= '0';
+                  end if;
+                  
+                  if (decode_irq = '1') then
                      decodeNew <= '0';
                   end if;
                   
@@ -1416,7 +1420,8 @@ begin
    
    -- use two nextaddress/branch paths with 2 tag rams, so different paths can be calculated in parallel to improve timing
    
-   FetchAddrSelect <= '1'  when (decodeBranchType = BRANCH_BRANCH_BGEZ and (cmpZero = '1' or cmpNegative = '0'))  else
+   FetchAddrSelect <= '0'  when (exception = '1' or executeIgnoreNext = '1' or decodeNew = '0') else
+                      '1'  when (decodeBranchType = BRANCH_BRANCH_BGEZ and (cmpZero = '1' or cmpNegative = '0'))  else
                       '1'  when (decodeBranchType = BRANCH_BRANCH_BLTZ and cmpNegative = '1')                     else
                       '1'  when (decodeBranchType = BRANCH_BRANCH_BEQ  and cmpEqual = '1')                        else
                       '1'  when (decodeBranchType = BRANCH_BRANCH_BNE  and cmpEqual = '0')                        else
@@ -1426,7 +1431,7 @@ begin
                       '0';
    
    FetchAddr1 <= exceptionPC                                    when (exception = '1') else
-                 PCnext                                         when (executeIgnoreNext = '1') else
+                 PCnext                                         when (executeIgnoreNext = '1' or decodeNew = '0') else
                  value1                                         when (decodeBranchType = BRANCH_ALWAYS_REG) else
                  pcOld0(63 downto 28) & decodeJumpTarget & "00" when (decodeBranchType = BRANCH_JUMPIMM) else
                  eretPC                                         when (decodeBranchType = BRANCH_ERET) else
@@ -2346,7 +2351,9 @@ begin
                executeMemAddress       <= calcMemAddr; 
                executeMemReadLastData  <= value2;              
                
-               executeCOP0WriteValue   <= EXECOP0WriteValue;  
+               executeCOP0WriteValue   <= EXECOP0WriteValue; 
+
+               executeBranchdelaySlot  <= EXEBranchdelaySlot;                
             
                if (exception = '1') then
                                                 
@@ -2362,7 +2369,7 @@ begin
                elsif (decodeNew = '1') then     
                
                   executeIgnoreNext             <= EXEIgnoreNext;
-                  executeBranchdelaySlot        <= EXEBranchdelaySlot;  
+                   
                   
                   if (executeIgnoreNext = '1') then
                   
@@ -2914,6 +2921,8 @@ begin
       stall4Masked      => stall4Masked,
       executeNew        => executeNew,
       reset             => reset_93,
+      
+      error_exception   => error_exception,
 
       irqRequest        => irqRequest,
       irqTrigger        => irqTrigger,

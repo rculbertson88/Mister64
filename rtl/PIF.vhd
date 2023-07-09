@@ -16,16 +16,40 @@ entity pif is
       pifrom_wrdata        : in  std_logic_vector(31 downto 0);
       pifrom_wren          : in  std_logic;
       
-      SIPIF_write          : in  std_logic;
-      SIPIF_read           : in  std_logic;
-      SIPIF_done           : out std_logic := '0';
+      SIPIF_ramreq         : in  std_logic := '0';
+      SIPIF_addr           : in  unsigned(5 downto 0) := (others => '0');
+      SIPIF_writeEna       : in  std_logic := '0'; 
+      SIPIF_writeData      : in  std_logic_vector(7 downto 0);
+      SIPIF_ramgrant       : out std_logic;
+      SIPIF_readData       : out std_logic_vector(7 downto 0);
+      
+      SIPIF_writeProc      : in  std_logic;
+      SIPIF_readProc       : in  std_logic;
+      SIPIF_ProcDone       : out std_logic := '0';
       
       bus_addr             : in  unsigned(10 downto 0); 
       bus_dataWrite        : in  std_logic_vector(31 downto 0);
       bus_read             : in  std_logic;
       bus_write            : in  std_logic;
       bus_dataRead         : out std_logic_vector(31 downto 0) := (others => '0');
-      bus_done             : out std_logic := '0'
+      bus_done             : out std_logic := '0';
+      
+      pad_0_A              : in  std_logic;
+      pad_0_B              : in  std_logic;
+      pad_0_Z              : in  std_logic;
+      pad_0_START          : in  std_logic;
+      pad_0_DPAD_UP        : in  std_logic;
+      pad_0_DPAD_DOWN      : in  std_logic;
+      pad_0_DPAD_LEFT      : in  std_logic;
+      pad_0_DPAD_RIGHT     : in  std_logic;
+      pad_0_L              : in  std_logic;
+      pad_0_R              : in  std_logic;
+      pad_0_C_UP           : in  std_logic;
+      pad_0_C_DOWN         : in  std_logic;
+      pad_0_C_LEFT         : in  std_logic;
+      pad_0_C_RIGHT        : in  std_logic;
+      pad_0_analog_h       : in  std_logic_vector(7 downto 0);
+      pad_0_analog_v       : in  std_logic_vector(7 downto 0)
    );
 end entity;
 
@@ -51,9 +75,33 @@ architecture arch of pif is
       EVALREAD,
       WRITEBACKCOMMAND,
       
+      CHECKDONE,
+      RAMACCESS,
+      
       CLEARRAM,
       CLEARREADCOMMAND,
-      CLEARCOMPLETE
+      CLEARCOMPLETE,
+      
+      EXTCOMM_FETCHNEXT,
+      EXTCOMM_EVALREAD,
+      EXTCOMM_EVALCOMMAND,
+      
+      EXTCOMM_RECEIVEREAD,
+      EXTCOMM_EVALRECEIVE,
+      EXTCOMM_RECEIVETYPE,
+      EXTCOMM_EVALTYPEGAMEPAD,
+      EXTCOMM_EVALTYPEEEPROMRTC,
+      
+      EXTCOMM_RESPONSETYPE1,
+      EXTCOMM_RESPONSETYPE2,
+      EXTCOMM_RESPONSETYPE3,
+      EXTCOMM_RESPONSETYPEDONE,
+      
+      EXTCOMM_RESPONSEPAD1,
+      EXTCOMM_RESPONSEPAD2,
+      EXTCOMM_RESPONSEPAD3,
+      EXTCOMM_RESPONSEPAD4,
+      EXTCOMM_RESPONSEPADDONE
    );
    signal state                     : tState := IDLE;
    signal startup_complete          : std_logic := '0';
@@ -61,6 +109,14 @@ architecture arch of pif is
    signal SIPIF_write_latched       : std_logic := '0';
    signal SIPIF_read_latched        : std_logic := '0';
    signal pifreadmode               : std_logic := '0';
+   signal pifProcMode               : std_logic := '0';
+   
+   signal EXT_first                 : std_logic := '0';
+   signal EXT_channel               : unsigned(5 downto 0);
+   signal EXT_index                 : unsigned(5 downto 0);
+   signal EXT_recindex              : unsigned(5 downto 0);
+   signal EXT_send                  : unsigned(5 downto 0);
+   signal EXT_receive               : unsigned(5 downto 0);
    
    -- PIFRAM
    signal pifram_wren               : std_logic := '0';
@@ -108,6 +164,7 @@ begin
       q_b         => ram_q_b
    );
    
+   SIPIF_readData <= ram_q_b;
 
    process (clk1x)
    begin
@@ -130,17 +187,18 @@ begin
             ram_data_b           <= (others => '0');
             ram_wren_b           <= '1';
             
+            SIPIF_ramgrant       <= '0';
             SIPIF_write_latched  <= '0';
             SIPIF_read_latched   <= '0';
             
          elsif (ce = '1') then
          
-            SIPIF_done   <= '0';
-            ram_wren_b   <= '0';
+            SIPIF_ProcDone <= '0';
+            ram_wren_b     <= '0';
          
-            bus_done     <= '0';
-            bus_read_rom <= '0';
-            bus_dataRead <= (others => '0');
+            bus_done       <= '0';
+            bus_read_rom   <= '0';
+            bus_dataRead   <= (others => '0');
 
             if (bus_read_rom = '1') then
                bus_done <= '1';
@@ -168,13 +226,24 @@ begin
             end if;
             
             -- pif state machine
-            if (SIPIF_write = '1') then SIPIF_write_latched <= '1'; end if;
-            if (SIPIF_read  = '1') then SIPIF_read_latched  <= '1'; end if;
+            if (SIPIF_writeProc = '1') then SIPIF_write_latched <= '1'; end if;
+            if (SIPIF_readProc  = '1') then SIPIF_read_latched  <= '1'; end if;
             
             case (state) is
             
                when IDLE =>
-                  if (bus_write_ram = '1') then
+                  pifreadmode <= '0';
+                  pifProcMode <= '0';
+                  EXT_first   <= '1';
+                  if (SIPIF_ramreq = '1') then
+                     state          <= RAMACCESS;
+                     SIPIF_ramgrant <= '1';
+                  elsif (SIPIF_write_latched = '1' or SIPIF_read_latched = '1') then
+                     state         <= WRITECOMMAND;
+                     ram_address_b <= 6x"3F";
+                     pifreadmode   <= SIPIF_read_latched;
+                     pifProcMode   <= '1';
+                  elsif (bus_write_ram = '1') then
                      bus_write_ram <= '0';
                      bus_done      <= '1';
                      pifram_wren   <= '1';
@@ -186,12 +255,9 @@ begin
                      bus_read_ram <= '0';
                      bus_done     <= '1';
                      bus_dataRead <= pifram_busdata(7 downto 0) & pifram_busdata(15 downto 8) & pifram_busdata(23 downto 16) & pifram_busdata(31 downto 24);
-                  elsif (SIPIF_write_latched = '1' or SIPIF_read_latched = '1') then
-                     state         <= READCOMMAND;
-                     ram_address_b <= 6x"3F";
-                     pifreadmode   <= SIPIF_read_latched;
                   end if;
             
+               -- startup values
                when WRITESTARTUP1 =>
                   state          <= WRITESTARTUP2;
                   ram_address_b  <= 6x"27";
@@ -211,6 +277,7 @@ begin
                   ram_wren_b       <= '1';   
                   startup_complete <= '1';
             
+               -- command evaluation
                when WRITECOMMAND =>
                   state <= READCOMMAND;
             
@@ -224,55 +291,85 @@ begin
                   SIPIF_read_latched  <= '0';
                   
                when EVALWRITE =>
-                  state <= IDLE;
+                  state     <= CHECKDONE;
+                  EXT_first <= '0';
                   
-                  if (ram_q_b(1) = '1') then -- CIC-NUS-6105 challenge/response
-                     report "unimplemented PIF CIC challenge" severity warning;
-                     state         <= WRITEBACKCOMMAND;
-                     ram_wren_b    <= '1';
-                     ram_data_b    <= ram_q_b;
-                     ram_data_b(1) <= '0';
-                     
-                  elsif (ram_q_b(2) = '1') then -- unknown
-                     report "unimplemented PIF unknown command 2" severity warning;
-                     state         <= WRITEBACKCOMMAND;
-                     ram_wren_b    <= '1';
-                     ram_data_b    <= ram_q_b;
-                     ram_data_b(2) <= '0';
-                     
-                  elsif (ram_q_b(3) = '1') then -- will lock up if not done
-                     state         <= WRITEBACKCOMMAND;
-                     ram_wren_b    <= '1';
-                     ram_data_b    <= ram_q_b;
-                     ram_data_b(3) <= '0';
-                     
-                  elsif (ram_q_b(4) = '1') then -- PIFROM locked
-                     state         <= WRITEBACKCOMMAND;
-                     ram_wren_b    <= '1';
-                     ram_data_b    <= ram_q_b;
-                     ram_data_b(4) <= '0';
-                     pifrom_locked <= '1';
-                     
-                  elsif (ram_q_b(5) = '1') then -- init
-                     state         <= WRITEBACKCOMMAND;
-                     ram_wren_b    <= '1';
-                     ram_data_b    <= ram_q_b;
-                     ram_data_b(5) <= '0';
-                     ram_data_b(7) <= '1';
-                     
-                  elsif (ram_q_b(6) = '1') then -- clear pif ram
-                     state         <= CLEARRAM;
+                  if (unsigned(ram_q_b) > 1) then
+                     if (ram_q_b(1) = '1') then -- CIC-NUS-6105 challenge/response
+                        report "unimplemented PIF CIC challenge" severity warning;
+                        state         <= WRITEBACKCOMMAND;
+                        ram_wren_b    <= '1';
+                        ram_data_b    <= ram_q_b;
+                        ram_data_b(1) <= '0';
+                        
+                     elsif (ram_q_b(2) = '1') then -- unknown
+                        report "unimplemented PIF unknown command 2" severity warning;
+                        state         <= WRITEBACKCOMMAND;
+                        ram_wren_b    <= '1';
+                        ram_data_b    <= ram_q_b;
+                        ram_data_b(2) <= '0';
+                        
+                     elsif (ram_q_b(3) = '1') then -- will lock up if not done
+                        state         <= WRITEBACKCOMMAND;
+                        ram_wren_b    <= '1';
+                        ram_data_b    <= ram_q_b;
+                        ram_data_b(3) <= '0';
+                        
+                     elsif (ram_q_b(4) = '1') then -- PIFROM locked
+                        state         <= WRITEBACKCOMMAND;
+                        ram_wren_b    <= '1';
+                        ram_data_b    <= ram_q_b;
+                        ram_data_b(4) <= '0';
+                        pifrom_locked <= '1';
+                        
+                     elsif (ram_q_b(5) = '1') then -- init
+                        state         <= WRITEBACKCOMMAND;
+                        ram_wren_b    <= '1';
+                        ram_data_b    <= ram_q_b;
+                        ram_data_b(5) <= '0';
+                        ram_data_b(7) <= '1';
+                        
+                     elsif (ram_q_b(6) = '1') then -- clear pif ram
+                        state         <= CLEARRAM;
+                        ram_address_b <= (others => '0');
+                        ram_data_b    <= (others => '0');
+                        ram_wren_b    <= '1';
+                     end if;
+                  elsif (EXT_first = '1') then
+                     state         <= EXTCOMM_FETCHNEXT;
                      ram_address_b <= (others => '0');
-                     ram_data_b    <= (others => '0');
-                     ram_wren_b    <= '1';
+                     EXT_channel   <= (others => '0');
+                     EXT_index     <= (others => '0');
                   end if;
                   
                when EVALREAD =>
-                  state <= IDLE;
+                  state <= CHECKDONE;
+                  if (ram_q_b(1) = '1') then -- CIC-NUS-6105 challenge/response
+                     null;
+                  else
+                     state         <= EXTCOMM_FETCHNEXT;
+                     EXT_channel   <= (others => '0');
+                     EXT_index     <= (others => '0');
+                  end if;
                   
                when WRITEBACKCOMMAND =>
                   state         <= READCOMMAND;
             
+               -- SI/PIF communication
+               when CHECKDONE =>
+                  state          <= IDLE;
+                  SIPIF_ProcDone <= pifProcMode;
+                  
+               when RAMACCESS =>
+                  if (SIPIF_ramreq = '0') then
+                     state          <= IDLE;
+                     SIPIF_ramgrant <= '0';
+                  end if;
+                  ram_address_b <= std_logic_vector(SIPIF_addr);
+                  ram_data_b    <= SIPIF_writeData;
+                  ram_wren_b    <= SIPIF_writeEna;
+            
+               -- clear
                when CLEARRAM =>
                   ram_address_b <= std_logic_vector(unsigned(ram_address_b) + 1);
                   ram_wren_b    <= '1';
@@ -294,6 +391,176 @@ begin
                   ram_data_b    <= ram_q_b;
                   ram_data_b(6) <= '0'; 
             
+               -- extern communication
+               when EXTCOMM_FETCHNEXT =>
+                  state         <= EXTCOMM_EVALREAD;
+                  ram_address_b <= std_logic_vector(EXT_index);
+               
+               when EXTCOMM_EVALREAD =>
+                  state <= EXTCOMM_EVALCOMMAND;
+                
+               when EXTCOMM_EVALCOMMAND =>
+                  if (EXT_index = 63 or ram_q_b = x"FE") then
+                     state <= CHECKDONE;
+                     if (pifreadmode = '0') then
+                        ram_wren_b    <= '1';
+                        ram_address_b <= 6x"3F";
+                        ram_data_b    <= (others => '0');
+                     end if;
+                  elsif (ram_q_b = x"00") then
+                     state         <= EXTCOMM_FETCHNEXT;
+                     EXT_channel   <= EXT_channel + 1;
+                     EXT_index     <= EXT_index + 1;
+                  elsif (ram_q_b = x"FD" or ram_q_b = x"FF") then
+                     state         <= EXTCOMM_FETCHNEXT;
+                     EXT_index     <= EXT_index + 1;
+                  else
+                     state         <= EXTCOMM_RECEIVEREAD;
+                     EXT_index     <= EXT_index + 1;
+                     ram_address_b <= std_logic_vector(EXT_index + 1);
+                     EXT_send      <= unsigned(ram_q_b(5 downto 0));
+                  end if;
+               
+               when EXTCOMM_RECEIVEREAD =>
+                  state        <= EXTCOMM_EVALRECEIVE;
+                  EXT_recindex <= EXT_index;
+                  
+               when EXTCOMM_EVALRECEIVE =>
+                  if (ram_q_b = x"FE") then
+                     state <= CHECKDONE;
+                     if (pifreadmode = '0') then
+                        ram_wren_b    <= '1';
+                        ram_address_b <= 6x"3F";
+                        ram_data_b    <= (others => '0');
+                     end if;
+                  else
+                     EXT_receive   <= unsigned(ram_q_b(5 downto 0));
+                     state         <= EXTCOMM_RECEIVETYPE;
+                     EXT_index     <= EXT_index + 1;
+                     ram_address_b <= std_logic_vector(EXT_index + 1);
+                  end if;
+                  
+               when EXTCOMM_RECEIVETYPE =>
+                  if (EXT_channel < 4) then
+                     state <= EXTCOMM_EVALTYPEGAMEPAD;
+                  else
+                     state <= EXTCOMM_EVALTYPEEEPROMRTC;
+                  end if;
+                  
+               when EXTCOMM_EVALTYPEGAMEPAD =>
+                  if (ram_q_b = x"00" or ram_q_b = x"FF") then -- type check
+                     state         <= EXTCOMM_RESPONSETYPE1;
+                  elsif (ram_q_b = x"01") then -- pad response
+                     if (EXT_receive > 4) then
+                        ram_wren_b    <= '1';
+                        ram_address_b <= std_logic_vector(EXT_recindex);
+                        ram_data_b    <= "01" & std_logic_vector(EXT_receive); -- over flag
+                     end if;
+                     state <= EXTCOMM_RESPONSEPAD1;
+                  else -- rumble and controller pak
+                     state         <= EXTCOMM_FETCHNEXT;
+                     EXT_index     <= EXT_index + 1;
+                     ram_wren_b    <= '1';
+                     ram_address_b <= std_logic_vector(EXT_recindex);
+                     ram_data_b    <= "10" & std_logic_vector(EXT_receive); -- invalid flag
+                     EXT_channel   <= EXT_channel + 1;
+                  end if;
+               
+               when EXTCOMM_EVALTYPEEEPROMRTC =>            
+                  -- todo!
+                  state         <= EXTCOMM_FETCHNEXT;
+                  EXT_index     <= EXT_index + 1;
+                  ram_wren_b    <= '1';
+                  ram_address_b <= std_logic_vector(EXT_recindex);
+                  ram_data_b    <= "10" & std_logic_vector(EXT_receive); -- invalid flag
+                  EXT_channel   <= EXT_channel + 1;
+               
+               -- response for type
+               when EXTCOMM_RESPONSETYPE1 =>
+                  state         <= EXTCOMM_RESPONSETYPE2;
+                  ram_wren_b    <= '1';
+                  EXT_index     <= EXT_index + 1;
+                  ram_address_b <= std_logic_vector(EXT_index + 1);
+                  ram_data_b    <= x"05"; -- gamepad    
+                  
+               when EXTCOMM_RESPONSETYPE2 =>
+                  state         <= EXTCOMM_RESPONSETYPE3;
+                  ram_wren_b    <= '1';
+                  EXT_index     <= EXT_index + 1;
+                  ram_address_b <= std_logic_vector(EXT_index + 1);
+                  ram_data_b    <= x"00";
+                  
+               when EXTCOMM_RESPONSETYPE3 =>
+                  state         <= EXTCOMM_RESPONSETYPEDONE;
+                  ram_wren_b    <= '1';
+                  EXT_index     <= EXT_index + 1;
+                  ram_address_b <= std_logic_vector(EXT_index + 1);
+                  ram_data_b    <= x"02"; -- nothing in controller slot   
+            
+               when EXTCOMM_RESPONSETYPEDONE =>
+                  state         <= EXTCOMM_FETCHNEXT;
+                  EXT_channel   <= EXT_channel + 1;
+                  EXT_index     <= EXT_index + 1;
+            
+               -- response for gamepad
+               when EXTCOMM_RESPONSEPAD1 =>
+                  state         <= EXTCOMM_RESPONSEPAD2;
+                  ram_wren_b    <= '1';
+                  EXT_index     <= EXT_index + 1;
+                  ram_address_b <= std_logic_vector(EXT_index + 1);
+                  ram_data_b    <= x"00";
+                  if (EXT_channel = 0) then
+                     ram_data_b(7) <= pad_0_A;         
+                     ram_data_b(6) <= pad_0_B;         
+                     ram_data_b(5) <= pad_0_Z;         
+                     ram_data_b(4) <= pad_0_START;     
+                     ram_data_b(3) <= pad_0_DPAD_UP;   
+                     ram_data_b(2) <= pad_0_DPAD_DOWN; 
+                     ram_data_b(1) <= pad_0_DPAD_LEFT; 
+                     ram_data_b(0) <= pad_0_DPAD_RIGHT;
+                  end if;
+            
+               when EXTCOMM_RESPONSEPAD2 =>
+                  state         <= EXTCOMM_RESPONSEPAD3;
+                  ram_wren_b    <= '1';
+                  EXT_index     <= EXT_index + 1;
+                  ram_address_b <= std_logic_vector(EXT_index + 1);
+                  ram_data_b    <= x"00";
+                  if (EXT_channel = 0) then        
+                     ram_data_b(5) <= pad_0_L;      
+                     ram_data_b(4) <= pad_0_R;      
+                     ram_data_b(3) <= pad_0_C_UP;   
+                     ram_data_b(2) <= pad_0_C_DOWN; 
+                     ram_data_b(1) <= pad_0_C_LEFT; 
+                     ram_data_b(0) <= pad_0_C_RIGHT;
+                  end if;
+                  
+               when EXTCOMM_RESPONSEPAD3 =>
+                  state         <= EXTCOMM_RESPONSEPAD4;
+                  ram_wren_b    <= '1';
+                  EXT_index     <= EXT_index + 1;
+                  ram_address_b <= std_logic_vector(EXT_index + 1);
+                  ram_data_b    <= x"00";
+                  if (EXT_channel = 0) then 
+                     ram_data_b <= pad_0_analog_h;
+                  end if;
+                  
+               when EXTCOMM_RESPONSEPAD4 =>
+                  state         <= EXTCOMM_RESPONSEPADDONE;
+                  ram_wren_b    <= '1';
+                  EXT_index     <= EXT_index + 1;
+                  ram_address_b <= std_logic_vector(EXT_index + 1);
+                  ram_data_b    <= x"00";
+                  if (EXT_channel = 0) then 
+                     ram_data_b <= std_logic_vector(-signed(pad_0_analog_v));
+                  end if;
+            
+               when EXTCOMM_RESPONSEPADDONE =>
+                  state         <= EXTCOMM_FETCHNEXT;
+                  EXT_channel   <= EXT_channel + 1;
+                  EXT_index     <= EXT_index + 1;
+
+            
             end case;
             
 
@@ -310,6 +577,7 @@ begin
       type tpifRamExport is array(0 to 63) of std_logic_vector(7 downto 0);
       signal pifRamExport : tpifRamExport;
       signal state_last   : tState := IDLE;
+      signal exportCount  : integer;
    begin
    
       process
@@ -325,6 +593,7 @@ begin
          file_open(f_status, outfile, "R:\\pif_n64_sim.txt", write_mode);
          file_close(outfile);
          file_open(f_status, outfile, "R:\\pif_n64_sim.txt", append_mode);
+         exportCount <= 0;
          
          while (true) loop
          
@@ -333,6 +602,7 @@ begin
                file_open(f_status, outfile, "R:\\pif_n64_sim.txt", write_mode);
                file_close(outfile);
                file_open(f_status, outfile, "R:\\pif_n64_sim.txt", append_mode);
+               exportCount <= 0;
             end if;
             
             wait until rising_edge(clk1x);
@@ -345,24 +615,31 @@ begin
                pifRamExport((to_integer(bus_addr(5 downto 2)) * 4) + 3) <= bus_dataWrite(31 downto 24);
             end if;
             
+            -- write from pif
+            if (ram_wren_b = '1') then
+               pifRamExport(to_integer(unsigned(ram_address_b))) <= ram_data_b(7 downto 0);
+            end if;
+            
             -- start transfer
-            if (state = READCOMMAND) then    
+            if (state = WRITECOMMAND) then 
+               wait until rising_edge(clk1x);
                if (pifreadmode = '1') then
-                  write(line_out, string'("ReadIN: "));
+                  write(line_out, string'("ReadIN  : "));
                else
-                  write(line_out, string'("WriteIN: "));
+                  write(line_out, string'("WriteIN : "));
                end if;
                for i in 0 to 63 loop
                   write(line_out, to_hstring(pifRamExport(i)));
                end loop;
                writeline(outfile, line_out);
+               exportCount <= exportCount + 1;
             end if;
             
             -- end transfer
             state_last <= state;
-            if (state = IDLE and state_last /= IDLE and state_last /= WRITESTARTUP3) then
+            if (state_last = CHECKDONE) then
                if (pifreadmode = '1') then
-                  write(line_out, string'("ReadOUT: "));
+                  write(line_out, string'("ReadOUT : "));
                else
                   write(line_out, string'("WriteOUT: "));
                end if;
@@ -370,6 +647,7 @@ begin
                   write(line_out, to_hstring(pifRamExport(i)));
                end loop;
                writeline(outfile, line_out);
+               exportCount <= exportCount + 1;
             end if;  
             
          end loop;
