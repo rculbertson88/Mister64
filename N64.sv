@@ -174,10 +174,8 @@ module emu
 
 assign HDMI_FREEZE = 1'b0;
 
-assign AUDIO_S = 0;
-assign AUDIO_L = 0;
-assign AUDIO_R = 0;
-assign AUDIO_MIX = 0;
+assign AUDIO_S   = 1;
+assign AUDIO_MIX = status[8:7];
 
 assign LED_USER  = 0;
 assign LED_DISK  = 0;
@@ -241,6 +239,7 @@ parameter CONF_STR = {
 	"RI,Restore state (F1);",
 	"-;",
    "O[1],Swap Interlaced,Off,On;",
+   "O[8:7],Stereo Mix,None,25%,50%,100%;",
 	"R0,Reset;",
    "J1,A,B,Start,L,R,Z,C Up,C Right,C Down,C Left,Savestates;",
 	"jn,A,B,Start,L,R,Z,C Up,C Right,C Down,C Left;",
@@ -533,6 +532,10 @@ n64top n64top
    .pad_0_analog_h   (joystick_analog_l0[7:0]),
    .pad_0_analog_v   (joystick_analog_l0[15:8]),
       
+   // audio
+   .sound_out_left   (AUDIO_L),
+   .sound_out_right  (AUDIO_R),  
+   
    // video out   
    .video_hsync      (VGA_HS),
    .video_vsync      (VGA_VS),

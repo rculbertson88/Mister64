@@ -265,7 +265,7 @@ begin
             end if;
             
             if (SP_DMA_STATUS_dmafull = '1') then
-               report "RSP DMA not implemented" severity failure;
+               --report "RSP DMA not implemented" severity warning;
             end if;
 
          end if;

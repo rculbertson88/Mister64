@@ -19,6 +19,9 @@ List of Errors:
 - Bit 1 - CPU Instruction not implemented
 - Bit 2 - CPU stall timeout
 - Bit 3 - DDR3 timeout    
+- Bit 4 - FPU error    
+- Bit 5 - PI error
+- Bit 6 - critical Exception occured (heuristic, typically games crash when that happens, but can be false positive)
   
 ## Status
 

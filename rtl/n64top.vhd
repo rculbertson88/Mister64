@@ -69,6 +69,10 @@ entity n64top is
       pad_0_C_RIGHT           : in  std_logic;
       pad_0_analog_h          : in  std_logic_vector(7 downto 0);
       pad_0_analog_v          : in  std_logic_vector(7 downto 0);
+      
+      -- audio
+      sound_out_left          : out std_logic_vector(15 downto 0);
+      sound_out_right         : out std_logic_vector(15 downto 0);
    
       -- video out   
       video_hsync             : out std_logic := '0';
@@ -224,9 +228,11 @@ architecture arch of n64top is
    signal SS_Adr                 : unsigned(11 downto 0);
    signal SS_wren                : std_logic_vector(13 downto 0);
    signal SS_rden                : std_logic_vector(13 downto 0);
+   signal SS_DataRead_AI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_RDP        : std_logic_vector(63 downto 0);
    signal SS_DataRead_MI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_PI         : std_logic_vector(63 downto 0);
+   signal SS_DataRead_PIF        : std_logic_vector(63 downto 0);
    signal SS_DataRead_VI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_CPU        : std_logic_vector(63 downto 0);
    
@@ -234,6 +240,7 @@ architecture arch of n64top is
    signal SS_idle_cpu            : std_logic;
    
    signal savestate_pause        : std_logic;
+   signal loading_savestate      : std_logic;
    
    signal savestate_savestate    : std_logic; 
    signal savestate_loadstate    : std_logic; 
@@ -420,13 +427,32 @@ begin
       reset                => reset_intern_1x, 
 
       irq_out              => irqVector(2),
+      
+      sound_out_left       => sound_out_left, 
+      sound_out_right      => sound_out_right,
                            
       bus_addr             => bus_AI_addr,     
       bus_dataWrite        => bus_AI_dataWrite,
       bus_read             => bus_AI_read,     
       bus_write            => bus_AI_write,    
       bus_dataRead         => bus_AI_dataRead, 
-      bus_done             => bus_AI_done
+      bus_done             => bus_AI_done,
+      
+      rdram_request        => rdram_request(DDR3MUX_AI),   
+      rdram_rnw            => rdram_rnw(DDR3MUX_AI),       
+      rdram_address        => rdram_address(DDR3MUX_AI),   
+      rdram_burstcount     => rdram_burstcount(DDR3MUX_AI),
+      rdram_writeMask      => rdram_writeMask(DDR3MUX_AI), 
+      rdram_dataWrite      => rdram_dataWrite(DDR3MUX_AI), 
+      rdram_done           => rdram_done(DDR3MUX_AI),      
+      rdram_dataRead       => rdram_dataRead,
+
+      SS_reset             => SS_reset,
+      SS_DataWrite         => SS_DataWrite,
+      SS_Adr               => SS_Adr(1 downto 0),   
+      SS_wren              => SS_wren(0),     
+      SS_rden              => SS_rden(0),            
+      SS_DataRead          => SS_DataRead_AI      
    );   
    
    iRI : entity work.RI
@@ -577,7 +603,15 @@ begin
       pad_0_C_LEFT         => pad_0_C_LEFT,    
       pad_0_C_RIGHT        => pad_0_C_RIGHT,   
       pad_0_analog_h       => pad_0_analog_h,  
-      pad_0_analog_v       => pad_0_analog_v 
+      pad_0_analog_v       => pad_0_analog_v,
+      
+      SS_reset             => SS_reset,
+      loading_savestate    => loading_savestate,
+      SS_DataWrite         => SS_DataWrite,
+      SS_Adr               => SS_Adr(6 downto 0),   
+      SS_wren              => SS_wren(3),     
+      SS_rden              => SS_rden(3),            
+      SS_DataRead          => SS_DataRead_PIF
    );
 
    rdram_writeMask(DDR3MUX_VI) <= (others => '-');
@@ -802,7 +836,7 @@ begin
       SS_rden                 => SS_rden,       
       SS_DataRead_CPU         => (63 downto 0 => '0'),
 
-      loading_savestate       => open,
+      loading_savestate       => loading_savestate,
       saving_savestate        => open,
             
       rdram_request           => rdram_request(DDR3MUX_SS),   

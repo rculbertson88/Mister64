@@ -74,7 +74,7 @@ architecture arch of SI is
       
       WAITDONE
    );
-   signal state                     : tState := IDLE;
+   signal state                  : tState := IDLE;
    
    signal nextDMAisRead          : std_logic := '0';
    signal nextDMATime            : integer range 0 to 1152 := 0;
@@ -97,7 +97,7 @@ begin
          
          if (reset = '1') then
             
-            bus_done             <= '0';
+            bus_done                <= '0';
             
             SI_DRAM_ADDR            <= (others => '0');
             SI_PIF_ADDR_RD64B       <= (others => '0');
@@ -110,6 +110,7 @@ begin
             SI_STATUS_dmaState      <= (others => '0');
             SI_STATUS_IRQ           <= '0';
             
+            state                   <= IDLE;
             SIPIF_ramreq            <= '0';
             SIPIF_writeEna          <= '0';
             SIPIF_writeProc         <= '0';

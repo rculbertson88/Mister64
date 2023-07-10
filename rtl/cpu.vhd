@@ -1841,17 +1841,19 @@ begin
                --   exceptionCode_3 <= x"B";
                --else
                   if (decodeSource1(4) = '1') then
-                     case (to_integer(decodeImmData(6 downto 0))) is
+                     case (to_integer(decodeImmData(5 downto 0))) is
                         when 1 =>
-                           report "TLBR command not implemented" severity failure;
+                           report "TLBR command not implemented" severity warning;
                            EXEerror_instr     <= '1';                           
                            
                         when 2 | 6 =>
-                           report "TLBWI and TLBWR command not implemented" severity failure; 
-                           EXEerror_instr     <= '1';
+                           report "TLBWI and TLBWR command not implemented" severity warning; 
+                           if (to_integer(decodeImmData(5 downto 0)) = 6) then --TLBWR
+                              EXEerror_instr     <= '1';
+                           end if;
 
                         when 8 =>
-                           report "TLBP command not implemented" severity failure;     
+                           report "TLBP command not implemented" severity warning;     
                            EXEerror_instr     <= '1';
 
                         when 16#18# => -- ERET

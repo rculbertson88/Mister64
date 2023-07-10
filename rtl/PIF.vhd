@@ -49,7 +49,16 @@ entity pif is
       pad_0_C_LEFT         : in  std_logic;
       pad_0_C_RIGHT        : in  std_logic;
       pad_0_analog_h       : in  std_logic_vector(7 downto 0);
-      pad_0_analog_v       : in  std_logic_vector(7 downto 0)
+      pad_0_analog_v       : in  std_logic_vector(7 downto 0);
+      
+      SS_reset             : in  std_logic;
+      loading_savestate    : in  std_logic;
+      SS_DataWrite         : in  std_logic_vector(63 downto 0);
+      SS_Adr               : in  unsigned(6 downto 0);
+      SS_wren              : in  std_logic;
+      SS_rden              : in  std_logic;
+      SS_DataRead          : out std_logic_vector(63 downto 0);
+      SS_idle              : out std_logic
    );
 end entity;
 
@@ -165,6 +174,9 @@ begin
    );
    
    SIPIF_readData <= ram_q_b;
+   
+   SS_DataRead <= (others => '0');
+   SS_idle     <= '1';
 
    process (clk1x)
    begin
@@ -180,16 +192,23 @@ begin
             bus_write_ram        <= '0';
                   
             pifrom_locked        <= '0';
-               
-            state                <= CLEARRAM;
+            
             startup_complete     <= '0';
             ram_address_b        <= (others => '0');
             ram_data_b           <= (others => '0');
-            ram_wren_b           <= '1';
+            
             
             SIPIF_ramgrant       <= '0';
             SIPIF_write_latched  <= '0';
             SIPIF_read_latched   <= '0';
+            
+            if (loading_savestate = '1') then
+               state      <= IDLE;
+               ram_wren_b <= '0';
+            else
+               state      <= CLEARRAM;
+               ram_wren_b <= '1';
+            end if;
             
          elsif (ce = '1') then
          
@@ -563,9 +582,15 @@ begin
             
             end case;
             
-
+         end if; -- ce
+         
+         if (SS_wren = '1') then
+            ram_wren_b    <= '1';
+            ram_address_b <= std_logic_vector(SS_Adr(5 downto 0));
+            ram_data_b    <= SS_DataWrite(7 downto 0);
          end if;
-      end if;
+         
+      end if; -- clock
    end process;
 
 --##############################################################

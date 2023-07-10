@@ -139,7 +139,7 @@ begin
       
       -- pad
       pad_0_A              => '0',
-      pad_0_B              => '1',
+      pad_0_B              => '0',
       pad_0_Z              => '0',
       pad_0_START          => '0',
       pad_0_DPAD_UP        => '0',

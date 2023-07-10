@@ -363,9 +363,9 @@ begin
                when READ16 =>
                   readstate                  <= IDLE;
                   videoout_readAddr          <= videoout_readAddr + 1;
-                  pixelData_B                <= videoout_pixelRead( 4 downto  0) & videoout_pixelRead( 4 downto 2);
-                  pixelData_G                <= videoout_pixelRead( 9 downto  5) & videoout_pixelRead( 9 downto 7);
-                  pixelData_R                <= videoout_pixelRead(14 downto 10) & videoout_pixelRead(14 downto 12);
+                  pixelData_B                <= videoout_pixelRead( 5 downto  1) & videoout_pixelRead( 5 downto 3);
+                  pixelData_G                <= videoout_pixelRead(10 downto  6) & videoout_pixelRead(10 downto 8);
+                  pixelData_R                <= videoout_pixelRead(15 downto 11) & videoout_pixelRead(15 downto 13);
                   
                when READ32_0 =>
                   readstate                  <= READ32_16;

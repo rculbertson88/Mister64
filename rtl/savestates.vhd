@@ -65,10 +65,10 @@ architecture arch of savestates is
    type t_savetypes is array(0 to SAVETYPESCOUNT - 1) of tsavetype;
    constant savetypes : t_savetypes := 
    (
-      (  2048,       8),    -- AI           0 
+      (  2048,       4),    -- AI           0 
       (  3072,       1),    -- MI           1 
       (  4096,       8),    -- PI           2 
-      (  5120,       8),    -- PIF          3 
+      (  5120,     128),    -- PIF          3 
       (  6144,       2),    -- RDP          4 
       (  7168,       8),    -- RDRAMREGS    5 
       (  8192,       8),    -- RI           6 
