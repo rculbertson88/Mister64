@@ -73,6 +73,9 @@ entity n64top is
       -- audio
       sound_out_left          : out std_logic_vector(15 downto 0);
       sound_out_right         : out std_logic_vector(15 downto 0);
+      
+      -- save
+      EEPROMTYPE              : in  std_logic_vector(1 downto 0); -- 00 -> off, 01 -> 4kbit, 10 -> 16kbit
    
       -- video out   
       video_hsync             : out std_logic := '0';
@@ -109,6 +112,7 @@ architecture arch of n64top is
    signal errorCPU_FPU           : std_logic;
    signal error_PI               : std_logic;
    signal errorCPU_exception     : std_logic;
+   signal error_pif              : std_logic;
    
    -- irq
    signal irqRequest             : std_logic;
@@ -279,8 +283,7 @@ begin
    process (reset_intern_1x, errorCPU_FPU      ) begin if (errorCPU_FPU       = '1') then errorCode(4) <= '1'; elsif (reset_intern_1x = '1') then errorCode(4) <= '0'; end if; end process;
    process (reset_intern_1x, error_PI          ) begin if (error_PI           = '1') then errorCode(5) <= '1'; elsif (reset_intern_1x = '1') then errorCode(5) <= '0'; end if; end process;
    process (reset_intern_1x, errorCPU_exception) begin if (errorCPU_exception = '1') then errorCode(6) <= '1'; elsif (reset_intern_1x = '1') then errorCode(6) <= '0'; end if; end process;
-   
-   errorCode(7) <= '0';
+   process (reset_intern_1x, error_pif         ) begin if (error_pif          = '1') then errorCode(7) <= '1'; elsif (reset_intern_1x = '1') then errorCode(7) <= '0'; end if; end process;
    
    process (clk1x)
    begin
@@ -564,7 +567,11 @@ begin
    (
       clk1x                => clk1x,        
       ce                   => ce_1x,           
-      reset                => reset_intern_1x,        
+      reset                => reset_intern_1x,   
+
+      EEPROMTYPE           => EEPROMTYPE,
+      
+      error                => error_pif,
       
       pifrom_wraddress     => pifrom_wraddress,
       pifrom_wrdata        => pifrom_wrdata,   

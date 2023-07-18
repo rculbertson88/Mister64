@@ -239,6 +239,7 @@ parameter CONF_STR = {
 	"RI,Restore state (F1);",
 	"-;",
    "O[1],Swap Interlaced,Off,On;",
+   "O[10:9],EEPROM type,None,4 KBit,16 KBit;",
    "O[8:7],Stereo Mix,None,25%,50%,100%;",
 	"R0,Reset;",
    "J1,A,B,Start,L,R,Z,C Up,C Right,C Down,C Left,Savestates;",
@@ -535,6 +536,9 @@ n64top n64top
    // audio
    .sound_out_left   (AUDIO_L),
    .sound_out_right  (AUDIO_R),  
+   
+   // Saves
+   .EEPROMTYPE       (status[10:9]),
    
    // video out   
    .video_hsync      (VGA_HS),

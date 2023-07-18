@@ -40,6 +40,8 @@ begin
       clk1x                => clk1x,
       ce                   => '1',
       reset                => reset,
+      
+      EEPROMTYPE           => "01",
                            
       pifrom_wraddress     => 9x"0",
       pifrom_wrdata        => 32x"0",
@@ -78,7 +80,16 @@ begin
       pad_0_C_LEFT         => '0',
       pad_0_C_RIGHT        => '0',
       pad_0_analog_h       => x"00",
-      pad_0_analog_v       => x"00"
+      pad_0_analog_v       => x"00",
+      
+      SS_reset             => '0',
+      loading_savestate    => '0',
+      SS_DataWrite         => 64x"0",
+      SS_Adr               => 7x"0",
+      SS_wren              => '0',
+      SS_rden              => '0',
+      SS_DataRead          => open,
+      SS_idle              => open
    );
    
    process

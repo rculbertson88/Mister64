@@ -12,6 +12,10 @@ entity pif is
       ce                   : in  std_logic;
       reset                : in  std_logic;
       
+      EEPROMTYPE           : in  std_logic_vector(1 downto 0); -- 00 -> off, 01 -> 4kbit, 10 -> 16kbit
+      
+      error                : out std_logic := '0';
+      
       pifrom_wraddress     : in  std_logic_vector(8 downto 0);
       pifrom_wrdata        : in  std_logic_vector(31 downto 0);
       pifrom_wren          : in  std_logic;
@@ -101,16 +105,24 @@ architecture arch of pif is
       EXTCOMM_EVALTYPEGAMEPAD,
       EXTCOMM_EVALTYPEEEPROMRTC,
       
-      EXTCOMM_RESPONSETYPE1,
-      EXTCOMM_RESPONSETYPE2,
-      EXTCOMM_RESPONSETYPE3,
-      EXTCOMM_RESPONSETYPEDONE,
+      EXTCOMM_RESPONSETYPE,
+      EXTCOMM_RESPONSEPAD,
       
-      EXTCOMM_RESPONSEPAD1,
-      EXTCOMM_RESPONSEPAD2,
-      EXTCOMM_RESPONSEPAD3,
-      EXTCOMM_RESPONSEPAD4,
-      EXTCOMM_RESPONSEPADDONE
+      EXTCOMM_EEPROMINFO,
+      
+      EXTCOMM_EEPROMREAD_SETADDR,
+      EXTCOMM_EEPROMREAD_READADDR,
+      EXTCOMM_EEPROMREAD_DATAREAD,
+      EXTCOMM_EEPROMREAD_DATAWRITE,
+      
+      EXTCOMM_EEPROMWRITE_READADDR,
+      EXTCOMM_EEPROMWRITE_SETADDR,
+      EXTCOMM_EEPROMWRITE_DATAREAD,
+      EXTCOMM_EEPROMWRITE_DATAWRITE,
+      
+      EXTCOMM_RESPONSE_VALIDOVER,
+      EXTCOMM_RESPONSE_WRITE,
+      EXTCOMM_RESPONSE_END
    );
    signal state                     : tState := IDLE;
    signal startup_complete          : std_logic := '0';
@@ -126,6 +138,12 @@ architecture arch of pif is
    signal EXT_recindex              : unsigned(5 downto 0);
    signal EXT_send                  : unsigned(5 downto 0);
    signal EXT_receive               : unsigned(5 downto 0);
+   signal EXT_valid                 : std_logic := '0';
+   signal EXT_over                  : std_logic := '0';
+   signal EXP_responseindex         : unsigned(5 downto 0);
+   
+   type t_responsedata is array(0 to 7) of std_logic_vector(7 downto 0);
+   signal EXT_responsedata : t_responsedata;      
    
    -- PIFRAM
    signal pifram_wren               : std_logic := '0';
@@ -135,6 +153,24 @@ architecture arch of pif is
    signal ram_data_b                : std_logic_vector(7 downto 0) := (others => '0');
    signal ram_wren_b                : std_logic := '0';   
    signal ram_q_b                   : std_logic_vector(7 downto 0); 
+   
+   -- EEPROM
+   signal eeprom_addr_a             : std_logic_vector(8 downto 0) := (others => '0');
+   signal eeprom_wren_a             : std_logic := '0';
+   signal eeprom_in_a               : std_logic_vector(31 downto 0) := (others => '0');
+   signal eeprom_out_a              : std_logic_vector(31 downto 0) := (others => '0');
+      
+   signal eeprom_addr_b             : std_logic_vector(10 downto 0) := (others => '0');
+   signal eeprom_wren_b             : std_logic := '0';
+   signal eeprom_in_b               : std_logic_vector(7 downto 0) := (others => '0');
+   signal eeprom_out_b              : std_logic_vector(7 downto 0) := (others => '0');
+   
+   type tEEPROMState is
+   (
+      EEPROM_IDLE,
+      EEPROM_CLEAR
+   );
+   signal EEPROMState               : tEEPROMState := EEPROM_IDLE;
    
 begin 
 
@@ -182,7 +218,9 @@ begin
    begin
       if rising_edge(clk1x) then
       
-         pifram_wren <= '0';
+         error         <= '0';
+         pifram_wren   <= '0';
+         eeprom_wren_b <= '0';
       
          if (reset = '1') then
             
@@ -196,7 +234,6 @@ begin
             startup_complete     <= '0';
             ram_address_b        <= (others => '0');
             ram_data_b           <= (others => '0');
-            
             
             SIPIF_ramgrant       <= '0';
             SIPIF_write_latched  <= '0';
@@ -420,7 +457,8 @@ begin
                 
                when EXTCOMM_EVALCOMMAND =>
                   if (EXT_index = 63 or ram_q_b = x"FE") then
-                     state <= CHECKDONE;
+                     state     <= CHECKDONE;
+                     EXT_index <= (others => '0');
                      if (pifreadmode = '0') then
                         ram_wren_b    <= '1';
                         ram_address_b <= 6x"3F";
@@ -460,6 +498,8 @@ begin
                   end if;
                   
                when EXTCOMM_RECEIVETYPE =>
+                  EXT_over      <= '0';
+                  EXT_valid     <= '0';
                   if (EXT_channel < 4) then
                      state <= EXTCOMM_EVALTYPEGAMEPAD;
                   else
@@ -468,119 +508,179 @@ begin
                   
                when EXTCOMM_EVALTYPEGAMEPAD =>
                   if (ram_q_b = x"00" or ram_q_b = x"FF") then -- type check
-                     state         <= EXTCOMM_RESPONSETYPE1;
+                     state         <= EXTCOMM_RESPONSETYPE;
                   elsif (ram_q_b = x"01") then -- pad response
-                     if (EXT_receive > 4) then
-                        ram_wren_b    <= '1';
-                        ram_address_b <= std_logic_vector(EXT_recindex);
-                        ram_data_b    <= "01" & std_logic_vector(EXT_receive); -- over flag
-                     end if;
-                     state <= EXTCOMM_RESPONSEPAD1;
+                     state <= EXTCOMM_RESPONSEPAD;
                   else -- rumble and controller pak
-                     state         <= EXTCOMM_FETCHNEXT;
+                     state         <= EXTCOMM_RESPONSE_VALIDOVER;
+                  end if;
+               
+               when EXTCOMM_EVALTYPEEEPROMRTC =>      
+                  if (ram_q_b = x"00" or ram_q_b = x"FF") then
+                     state         <= EXTCOMM_EEPROMINFO;
+                  elsif (ram_q_b = x"04") then
+                     state         <= EXTCOMM_EEPROMREAD_READADDR;
                      EXT_index     <= EXT_index + 1;
-                     ram_wren_b    <= '1';
-                     ram_address_b <= std_logic_vector(EXT_recindex);
-                     ram_data_b    <= "10" & std_logic_vector(EXT_receive); -- invalid flag
-                     EXT_channel   <= EXT_channel + 1;
+                     ram_address_b <= std_logic_vector(EXT_index + 1);                  
+                  elsif (ram_q_b = x"05") then
+                     state         <= EXTCOMM_EEPROMWRITE_READADDR;
+                     EXT_index     <= EXT_index + 1;
+                     ram_address_b <= std_logic_vector(EXT_index + 1);
+                  else
+                     state         <= EXTCOMM_RESPONSE_VALIDOVER;
                   end if;
+            
+               -- responses for gamepad
+               when EXTCOMM_RESPONSETYPE =>
+                  state               <= EXTCOMM_RESPONSE_VALIDOVER;
+                  EXT_valid           <= '1';
+                  EXT_responsedata(0) <= x"05";
+                  EXT_responsedata(1) <= x"00";
+                  EXT_responsedata(2) <= x"02";
                
-               when EXTCOMM_EVALTYPEEEPROMRTC =>            
-                  -- todo!
+               when EXTCOMM_RESPONSEPAD =>
+                  state               <= EXTCOMM_RESPONSE_VALIDOVER;
+                  EXT_valid           <= '1';
+                  if (EXT_receive > 4) then
+                     EXT_over         <= '1';
+                  end if;
+                  EXT_responsedata(0)(7) <= pad_0_A;         
+                  EXT_responsedata(0)(6) <= pad_0_B;         
+                  EXT_responsedata(0)(5) <= pad_0_Z;         
+                  EXT_responsedata(0)(4) <= pad_0_START;     
+                  EXT_responsedata(0)(3) <= pad_0_DPAD_UP;   
+                  EXT_responsedata(0)(2) <= pad_0_DPAD_DOWN; 
+                  EXT_responsedata(0)(1) <= pad_0_DPAD_LEFT; 
+                  EXT_responsedata(0)(0) <= pad_0_DPAD_RIGHT;
+                  
+                  EXT_responsedata(1)(7 downto 6) <= "00";      
+                  EXT_responsedata(1)(5) <= pad_0_L;      
+                  EXT_responsedata(1)(4) <= pad_0_R;      
+                  EXT_responsedata(1)(3) <= pad_0_C_UP;   
+                  EXT_responsedata(1)(2) <= pad_0_C_DOWN; 
+                  EXT_responsedata(1)(1) <= pad_0_C_LEFT; 
+                  EXT_responsedata(1)(0) <= pad_0_C_RIGHT;
+                  
+                  EXT_responsedata(2) <= pad_0_analog_h;
+                  EXT_responsedata(3) <= std_logic_vector(-signed(pad_0_analog_v));
+                  
+               -- responses for EEProm/RTC
+               when EXTCOMM_EEPROMINFO =>
+                  state <= EXTCOMM_RESPONSE_VALIDOVER;
+                  if (EEPROMTYPE = "01") then -- 4kbit
+                     EXT_valid           <= '1';
+                     EXT_responsedata(0) <= x"00";
+                     EXT_responsedata(1) <= x"80";
+                     EXT_responsedata(2) <= x"00";
+                  elsif (EEPROMTYPE = "10") then -- 16kbit
+                     EXT_valid           <= '1';
+                     EXT_responsedata(0) <= x"00";
+                     EXT_responsedata(1) <= x"C0";
+                     EXT_responsedata(2) <= x"00";
+                  end if;
+                  
+               -- eeprom read
+               when EXTCOMM_EEPROMREAD_READADDR =>
+                  if (EXT_receive /= 8) then
+                     error <= '1';
+                  end if;
+                  if (EXT_send >= 2) then
+                     state     <= EXTCOMM_EEPROMREAD_SETADDR;
+                     EXT_valid <= '1';
+                  else
+                     state     <= EXTCOMM_RESPONSE_VALIDOVER;
+                  end if;
+                     
+               when EXTCOMM_EEPROMREAD_SETADDR =>
+                  state             <= EXTCOMM_EEPROMREAD_DATAREAD;
+                  eeprom_addr_b     <= ram_q_b & "000";
+                  EXP_responseindex <= (others => '0');
+                     
+               when EXTCOMM_EEPROMREAD_DATAREAD =>
+                  state                     <= EXTCOMM_EEPROMREAD_DATAWRITE;
+                  eeprom_addr_b(2 downto 0) <= std_logic_vector(unsigned(eeprom_addr_b(2 downto 0)) + 1);
+                  
+               when EXTCOMM_EEPROMREAD_DATAWRITE =>
+                  if (eeprom_addr_b(2 downto 0) = "000") then
+                     state <= EXTCOMM_RESPONSE_VALIDOVER;
+                  else
+                     state <= EXTCOMM_EEPROMREAD_DATAREAD;
+                  end if;
+                  EXT_responsedata(to_integer(EXP_responseindex(2 downto 0))) <= eeprom_out_b;
+                  EXP_responseindex <= EXP_responseindex + 1;
+                  
+               -- eeprom write
+               when EXTCOMM_EEPROMWRITE_READADDR =>
+                  EXT_send <= EXT_send - 1;
+                  if (EXT_receive /= 1) then
+                     error <= '1';
+                  end if;
+                  if (EXT_send >= 2 and EXT_receive >= 1) then
+                     state     <= EXTCOMM_EEPROMWRITE_SETADDR;
+                     EXT_valid <= '1';
+                  else
+                     state     <= EXTCOMM_RESPONSE_VALIDOVER;
+                  end if;
+                     
+               when EXTCOMM_EEPROMWRITE_SETADDR =>
+                  state               <= EXTCOMM_EEPROMWRITE_DATAREAD;
+                  eeprom_addr_b       <= ram_q_b & "111";
+                  EXT_responsedata(0) <= x"00";
+                  EXT_send            <= EXT_send - 1;
+                  EXT_index           <= EXT_index + 1;
+                  ram_address_b       <= std_logic_vector(EXT_index + 1);    
+                  
+               when EXTCOMM_EEPROMWRITE_DATAREAD =>
+                  if (EXT_send = 0) then
+                     state      <= EXTCOMM_RESPONSE_VALIDOVER;
+                     EXT_index  <= EXT_index - 1;
+                  else
+                     state      <= EXTCOMM_EEPROMWRITE_DATAWRITE;
+                     EXT_index  <= EXT_index + 1;
+                  end if;
+                  ram_address_b  <= std_logic_vector(EXT_index + 1);    
+                  EXT_send       <= EXT_send - 1;
+                  eeprom_addr_b(2 downto 0) <= std_logic_vector(unsigned(eeprom_addr_b(2 downto 0)) + 1);  
+                  
+               when EXTCOMM_EEPROMWRITE_DATAWRITE =>
+                  state         <= EXTCOMM_EEPROMWRITE_DATAREAD;
+                  eeprom_in_b   <= ram_q_b;
+                  eeprom_wren_b <= '1';
+                  
+               -- response writeback
+               when EXTCOMM_RESPONSE_VALIDOVER =>
+                  if (EXT_receive > 0 and EXT_valid = '1') then
+                     state         <= EXTCOMM_RESPONSE_WRITE;
+                  else
+                     state         <= EXTCOMM_RESPONSE_END;
+                  end if;
+                  ram_wren_b        <= '1';
+                  ram_address_b     <= std_logic_vector(EXT_recindex);
+                  ram_data_b        <= (not EXT_valid) & EXT_over & std_logic_vector(EXT_receive);
+                  EXP_responseindex <= (others => '0');
+                                    
+               when EXTCOMM_RESPONSE_WRITE =>
+                  if (EXP_responseindex + 1 = EXT_receive) then
+                     state <= EXTCOMM_RESPONSE_END;
+                  end if;
+                  ram_wren_b        <= '1';
+                  EXT_index         <= EXT_index + 1;
+                  ram_address_b     <= std_logic_vector(EXT_index + 1);
+                  ram_data_b        <= EXT_responsedata(to_integer(EXP_responseindex(2 downto 0)));
+                  EXP_responseindex <= EXP_responseindex + 1;
+            
+               when EXTCOMM_RESPONSE_END => 
                   state         <= EXTCOMM_FETCHNEXT;
-                  EXT_index     <= EXT_index + 1;
-                  ram_wren_b    <= '1';
-                  ram_address_b <= std_logic_vector(EXT_recindex);
-                  ram_data_b    <= "10" & std_logic_vector(EXT_receive); -- invalid flag
-                  EXT_channel   <= EXT_channel + 1;
-               
-               -- response for type
-               when EXTCOMM_RESPONSETYPE1 =>
-                  state         <= EXTCOMM_RESPONSETYPE2;
-                  ram_wren_b    <= '1';
-                  EXT_index     <= EXT_index + 1;
-                  ram_address_b <= std_logic_vector(EXT_index + 1);
-                  ram_data_b    <= x"05"; -- gamepad    
-                  
-               when EXTCOMM_RESPONSETYPE2 =>
-                  state         <= EXTCOMM_RESPONSETYPE3;
-                  ram_wren_b    <= '1';
-                  EXT_index     <= EXT_index + 1;
-                  ram_address_b <= std_logic_vector(EXT_index + 1);
-                  ram_data_b    <= x"00";
-                  
-               when EXTCOMM_RESPONSETYPE3 =>
-                  state         <= EXTCOMM_RESPONSETYPEDONE;
-                  ram_wren_b    <= '1';
-                  EXT_index     <= EXT_index + 1;
-                  ram_address_b <= std_logic_vector(EXT_index + 1);
-                  ram_data_b    <= x"02"; -- nothing in controller slot   
-            
-               when EXTCOMM_RESPONSETYPEDONE =>
-                  state         <= EXTCOMM_FETCHNEXT;
                   EXT_channel   <= EXT_channel + 1;
                   EXT_index     <= EXT_index + 1;
-            
-               -- response for gamepad
-               when EXTCOMM_RESPONSEPAD1 =>
-                  state         <= EXTCOMM_RESPONSEPAD2;
-                  ram_wren_b    <= '1';
-                  EXT_index     <= EXT_index + 1;
-                  ram_address_b <= std_logic_vector(EXT_index + 1);
-                  ram_data_b    <= x"00";
-                  if (EXT_channel = 0) then
-                     ram_data_b(7) <= pad_0_A;         
-                     ram_data_b(6) <= pad_0_B;         
-                     ram_data_b(5) <= pad_0_Z;         
-                     ram_data_b(4) <= pad_0_START;     
-                     ram_data_b(3) <= pad_0_DPAD_UP;   
-                     ram_data_b(2) <= pad_0_DPAD_DOWN; 
-                     ram_data_b(1) <= pad_0_DPAD_LEFT; 
-                     ram_data_b(0) <= pad_0_DPAD_RIGHT;
-                  end if;
-            
-               when EXTCOMM_RESPONSEPAD2 =>
-                  state         <= EXTCOMM_RESPONSEPAD3;
-                  ram_wren_b    <= '1';
-                  EXT_index     <= EXT_index + 1;
-                  ram_address_b <= std_logic_vector(EXT_index + 1);
-                  ram_data_b    <= x"00";
-                  if (EXT_channel = 0) then        
-                     ram_data_b(5) <= pad_0_L;      
-                     ram_data_b(4) <= pad_0_R;      
-                     ram_data_b(3) <= pad_0_C_UP;   
-                     ram_data_b(2) <= pad_0_C_DOWN; 
-                     ram_data_b(1) <= pad_0_C_LEFT; 
-                     ram_data_b(0) <= pad_0_C_RIGHT;
-                  end if;
-                  
-               when EXTCOMM_RESPONSEPAD3 =>
-                  state         <= EXTCOMM_RESPONSEPAD4;
-                  ram_wren_b    <= '1';
-                  EXT_index     <= EXT_index + 1;
-                  ram_address_b <= std_logic_vector(EXT_index + 1);
-                  ram_data_b    <= x"00";
-                  if (EXT_channel = 0) then 
-                     ram_data_b <= pad_0_analog_h;
-                  end if;
-                  
-               when EXTCOMM_RESPONSEPAD4 =>
-                  state         <= EXTCOMM_RESPONSEPADDONE;
-                  ram_wren_b    <= '1';
-                  EXT_index     <= EXT_index + 1;
-                  ram_address_b <= std_logic_vector(EXT_index + 1);
-                  ram_data_b    <= x"00";
-                  if (EXT_channel = 0) then 
-                     ram_data_b <= std_logic_vector(-signed(pad_0_analog_v));
-                  end if;
-            
-               when EXTCOMM_RESPONSEPADDONE =>
-                  state         <= EXTCOMM_FETCHNEXT;
-                  EXT_channel   <= EXT_channel + 1;
-                  EXT_index     <= EXT_index + 1;
-
             
             end case;
+            
+            if (EXT_index = 6x"3F" and state /= EXTCOMM_FETCHNEXT and state /= EXTCOMM_EVALREAD and state /= EXTCOMM_EVALCOMMAND) then -- safety out
+               state       <= CHECKDONE;
+               error       <= '1';
+               EXT_index   <= (others => '0');
+            end if;
             
          end if; -- ce
          
@@ -591,6 +691,66 @@ begin
          end if;
          
       end if; -- clock
+   end process;
+   
+--##############################################################
+--############################### eeprom
+--##############################################################
+   
+   iEEPROM: entity work.dpram_dif
+   generic map 
+   ( 
+      addr_width_a  => 9,
+      data_width_a  => 32,
+      addr_width_b  => 11,
+      data_width_b  => 8
+   )
+   port map
+   (
+      clock_a     => clk1x,
+      address_a   => eeprom_addr_a,
+      data_a      => eeprom_in_a,
+      wren_a      => eeprom_wren_a,
+      q_a         => eeprom_out_a,
+      
+      clock_b     => clk1x,
+      address_b   => eeprom_addr_b,
+      data_b      => eeprom_in_b,
+      wren_b      => eeprom_wren_b,
+      q_b         => eeprom_out_b
+   );
+   
+   process (clk1x)
+   begin
+      if rising_edge(clk1x) then
+      
+         eeprom_wren_a <= '0';
+      
+         if (reset = '1') then
+         
+            EEPROMState   <= EEPROM_CLEAR;
+            eeprom_addr_a <= (others => '0');
+            eeprom_in_a   <= (others => '1');
+         
+         else
+         
+            case (EEPROMState) is
+            
+               when EEPROM_IDLE =>
+                  null;
+                  
+               when EEPROM_CLEAR =>
+                  eeprom_addr_a <= std_logic_vector(unsigned(eeprom_addr_a) + 1);
+                  eeprom_wren_a <= '1';
+                  if (eeprom_addr_a = 9x"1FF") then
+                      EEPROMState <= EEPROM_IDLE;
+                  end if;
+            
+            end case;
+         
+         end if;
+         
+      end if;
    end process;
 
 --##############################################################
