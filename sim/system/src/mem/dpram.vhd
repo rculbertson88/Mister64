@@ -379,3 +379,311 @@ begin
    
 
 end rtl;
+
+-- ##############################################
+-- dif_be : Port a wider than port b
+-- ##############################################
+
+library ieee;
+use ieee.std_logic_1164.all;
+use IEEE.numeric_std.all; 
+
+ENTITY dpram_dif_be_A IS
+   generic 
+   (
+		addr_width_a    : integer := 8;
+		data_width_a    : integer := 8;
+		addr_width_b    : integer := 8;
+		data_width_b    : integer := 8;
+      width_byteena_a : integer := 1;
+		width_byteena_b : integer := 1
+   ); 
+   PORT
+   (
+      clock_a     : IN  STD_LOGIC;
+      clken_a     : IN  STD_LOGIC := '1';
+      address_a   : IN  STD_LOGIC_VECTOR (addr_width_a-1 DOWNTO 0);
+      data_a      : IN  STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+      wren_a      : IN  STD_LOGIC := '0';
+      byteena_a   : IN  STD_LOGIC_VECTOR(width_byteena_a - 1 downto 0) := (others => '1');
+      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+
+      clock_b     : IN STD_LOGIC;
+      clken_b     : IN STD_LOGIC := '1';
+      address_b   : IN STD_LOGIC_VECTOR (addr_width_b-1 DOWNTO 0);
+      data_b      : IN STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0');
+      byteena_b   : IN  STD_LOGIC_VECTOR(width_byteena_b - 1 downto 0) := (others => '1');
+      wren_b      : IN STD_LOGIC := '0';
+      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0)
+   );
+END;
+
+architecture rtl of dpram_dif_be_A is
+
+   constant RATIO : integer := data_width_a / data_width_b;
+
+   -- Build a 2-D array type for the RAM
+   subtype word_t is std_logic_vector((data_width_b-1) downto 0);
+   type memory_t is array(2**addr_width_b-1 downto 0) of word_t;
+
+   -- Declare the RAM 
+   shared variable ram : memory_t := (others => (others => '0'));
+
+begin
+
+   -- Port A
+   process(clock_a)
+      variable bi      : integer;
+      variable mixdata : std_logic_vector((data_width_b-1) downto 0);
+      variable newdata : std_logic_vector((data_width_b-1) downto 0);
+   begin
+      if(rising_edge(clock_a)) then
+         if (clken_a = '1') then
+            bi := 0;
+            for i in 0 to RATIO - 1 loop
+               if(wren_a = '1') then  
+                  mixdata := ram(to_integer(unsigned(address_a)) * RATIO + i);
+                  newdata := data_a(((i * data_width_b) + (data_width_b - 1)) downto (i *data_width_b));
+                  for b in 0 to width_byteena_b-1 loop
+                     if (byteena_a(bi) = '1') then
+                        mixdata(((b * 8) + 7) downto (b*8)) := newdata(((b * 8) + 7) downto (b*8));
+                     end if;
+                     bi := bi + 1;
+                  end loop;
+                  ram(to_integer(unsigned(address_a)) * RATIO + i) := mixdata;
+               end if;
+               q_a(((i * data_width_b) + (data_width_b - 1)) downto (i *data_width_b)) <= ram(to_integer(unsigned(address_a)) * RATIO + i);
+            end loop;
+         end if;
+      end if;
+   end process;
+
+   -- Port B
+   process(clock_b)
+      variable mixdata : std_logic_vector((data_width_b-1) downto 0);
+   begin
+      if(rising_edge(clock_b)) then
+         if (clken_b = '1') then
+            if(wren_b = '1') then
+               mixdata := ram(to_integer(unsigned(address_b)));
+               for b in 0 to width_byteena_b-1 loop
+                  if (byteena_b(b) = '1') then
+                     mixdata(((b * 8) + 7) downto (b*8)) := data_b(((b * 8) + 7) downto (b*8));
+                  end if;
+               end loop;
+               ram(to_integer(unsigned(address_b))) := mixdata;
+            end if;
+            q_b <= ram(to_integer(unsigned(address_b)));
+         end if;
+      end if;
+   end process;
+
+end rtl;
+
+-- ##############################################
+-- dif_be : Port b wider than port a
+-- ##############################################
+
+library ieee;
+use ieee.std_logic_1164.all;
+use IEEE.numeric_std.all; 
+
+ENTITY dpram_dif_be_b IS
+   generic 
+   (
+		addr_width_a    : integer := 8;
+		data_width_a    : integer := 8;
+		addr_width_b    : integer := 8;
+		data_width_b    : integer := 8;
+      width_byteena_a : integer := 1;
+		width_byteena_b : integer := 1
+   ); 
+   PORT
+   (
+      clock_a     : IN  STD_LOGIC;
+      clken_a     : IN  STD_LOGIC := '1';
+      address_a   : IN  STD_LOGIC_VECTOR (addr_width_a-1 DOWNTO 0);
+      data_a      : IN  STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+      wren_a      : IN  STD_LOGIC := '0';
+      byteena_a   : IN  STD_LOGIC_VECTOR(width_byteena_a - 1 downto 0) := (others => '1');
+      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+
+      clock_b     : IN STD_LOGIC;
+      clken_b     : IN STD_LOGIC := '1';
+      address_b   : IN STD_LOGIC_VECTOR (addr_width_b-1 DOWNTO 0);
+      data_b      : IN STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0');
+      byteena_b   : IN  STD_LOGIC_VECTOR(width_byteena_b - 1 downto 0) := (others => '1');
+      wren_b      : IN STD_LOGIC := '0';
+      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0)
+   );
+END;
+
+architecture rtl of dpram_dif_be_b is
+
+   constant RATIO : integer := data_width_b / data_width_a;
+
+   -- Build a 2-D array type for the RAM
+   subtype word_t is std_logic_vector((data_width_a-1) downto 0);
+   type memory_t is array(2**addr_width_a-1 downto 0) of word_t;
+
+   -- Declare the RAM 
+   shared variable ram : memory_t := (others => (others => '0'));
+
+begin
+
+   -- Port A
+   process(clock_a)
+      variable mixdata : std_logic_vector((data_width_b-1) downto 0);
+   begin
+      if(rising_edge(clock_a)) then
+         if (clken_a = '1') then
+            if(wren_a = '1') then
+               mixdata := ram(to_integer(unsigned(address_a)));
+               for b in 0 to width_byteena_b-1 loop
+                  if (byteena_a(b) = '1') then
+                     mixdata(((b * 8) + 7) downto (b*8)) := data_a(((b * 8) + 7) downto (b*8));
+                  end if;
+               end loop;
+               ram(to_integer(unsigned(address_a))) := mixdata;
+            end if;
+            q_a <= ram(to_integer(unsigned(address_a)));
+         end if;
+      end if;
+   end process;
+
+   -- Port B
+   process(clock_b)
+      variable bi      : integer;
+      variable mixdata : std_logic_vector((data_width_b-1) downto 0);
+      variable newdata : std_logic_vector((data_width_b-1) downto 0);
+   begin
+      if(rising_edge(clock_b)) then
+         if (clken_b = '1') then
+            for i in 0 to RATIO - 1 loop
+               if(wren_b = '1') then
+                  mixdata := ram(to_integer(unsigned(address_b)) * RATIO + i);
+                  newdata := data_b(((i * data_width_a) + (data_width_a - 1)) downto (i *data_width_a));
+                  for b in 0 to width_byteena_b-1 loop
+                     if (byteena_b(bi) = '1') then
+                        mixdata(((b * 8) + 7) downto (b*8)) := newdata(((b * 8) + 7) downto (b*8));
+                     end if;
+                     bi := bi + 1;
+                  end loop;
+                  ram(to_integer(unsigned(address_b)) * RATIO + i) := mixdata;
+               end if;
+               q_b(((i * data_width_a) + (data_width_a - 1)) downto (i *data_width_a)) <= ram(to_integer(unsigned(address_b)) * RATIO + i);
+            end loop;
+         end if;
+      end if;
+   end process;
+
+end rtl;
+
+-- ##############################################
+-- dif_be : base unit that instantiates A or B
+-- ##############################################
+
+library ieee;
+use ieee.std_logic_1164.all;
+use IEEE.numeric_std.all; 
+
+ENTITY dpram_dif_be IS
+   generic 
+   (
+		addr_width_a    : integer := 8;
+		data_width_a    : integer := 8;
+		addr_width_b    : integer := 8;
+		data_width_b    : integer := 8;
+      width_byteena_a : integer := 1;
+		width_byteena_b : integer := 1
+   ); 
+   PORT
+   (
+      clock_a     : IN  STD_LOGIC;
+      clken_a     : IN  STD_LOGIC := '1';
+      address_a   : IN  STD_LOGIC_VECTOR (addr_width_a-1 DOWNTO 0);
+      data_a      : IN  STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+      wren_a      : IN  STD_LOGIC := '0';
+      byteena_a   : IN  STD_LOGIC_VECTOR(width_byteena_a - 1 downto 0) := (others => '1');
+      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+
+      clock_b     : IN STD_LOGIC;
+      clken_b     : IN STD_LOGIC := '1';
+      address_b   : IN STD_LOGIC_VECTOR (addr_width_b-1 DOWNTO 0);
+      data_b      : IN STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0');
+      byteena_b   : IN  STD_LOGIC_VECTOR(width_byteena_b - 1 downto 0) := (others => '1');
+      wren_b      : IN STD_LOGIC := '0';
+      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0)
+   );
+END;
+
+architecture rtl of dpram_dif_be is
+
+begin
+
+   gAlarger : if data_width_a >= data_width_b generate
+   begin
+      idpram_dif_A : entity work.dpram_dif_be_A
+      generic map
+      (
+         addr_width_a    => addr_width_a,
+         data_width_a    => data_width_a,
+         addr_width_b    => addr_width_b,
+         data_width_b    => data_width_b,
+         width_byteena_a => width_byteena_a,
+         width_byteena_b => width_byteena_b
+      )
+      PORT map
+      (
+         clock_a     => clock_a,  
+         clken_a     => clken_a,  
+         address_a   => address_a,
+         data_a      => data_a,  
+         wren_a      => wren_a,  
+         byteena_a   => byteena_a,
+         q_a         => q_a,      
+                                 
+         clock_b     => clock_b,  
+         clken_b     => clken_b,  
+         address_b   => address_b,
+         data_b      => data_b,   
+         wren_b      => wren_b, 
+         byteena_b   => byteena_b,         
+         q_b         => q_b      
+      );
+   end generate;
+   
+   gBlarger : if data_width_a < data_width_b generate
+   begin
+      idpram_dif_b : entity work.dpram_dif_be_b
+      generic map
+      (
+         addr_width_a  => addr_width_a,
+         data_width_a  => data_width_a,
+         addr_width_b  => addr_width_b,
+         data_width_b  => data_width_b,
+         width_byteena_a => width_byteena_a,
+         width_byteena_b => width_byteena_b
+      )
+      PORT map
+      (
+         clock_a     => clock_a,  
+         clken_a     => clken_a,  
+         address_a   => address_a,
+         data_a      => data_a,  
+         wren_a      => wren_a,  
+         byteena_a   => byteena_a,
+         q_a         => q_a,      
+                                 
+         clock_b     => clock_b,  
+         clken_b     => clken_b,  
+         address_b   => address_b,
+         data_b      => data_b,   
+         wren_b      => wren_b, 
+         byteena_b   => byteena_b,         
+         q_b         => q_b      
+      );
+   end generate;
+   
+
+end rtl;

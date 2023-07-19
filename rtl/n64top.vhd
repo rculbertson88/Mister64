@@ -101,6 +101,10 @@ architecture arch of n64top is
    signal ce_1x                  : std_logic := '0';
    signal ce_93                  : std_logic := '0';
    
+   signal clk1xToggle            : std_logic := '0';
+   signal clk1xToggle2X          : std_logic := '0';
+   signal clk2xIndex             : std_logic := '0';
+   
    -- error codes
    signal errorEna               : std_logic;
    signal errorCode              : unsigned(7 downto 0) := (others => '0');
@@ -260,6 +264,25 @@ architecture arch of n64top is
    
 begin 
 
+   -- clock index
+   process (clk1x)
+   begin
+      if rising_edge(clk1x) then
+         clk1xToggle <= not clk1xToggle;
+      end if;
+   end process;
+   
+   process (clk2x)
+   begin
+      if rising_edge(clk2x) then
+         clk1xToggle2x <= clk1xToggle;
+         clk2xIndex    <= '0';
+         if (clk1xToggle2x = clk1xToggle) then
+            clk2xIndex <= '1';
+         end if;
+      end if;
+   end process;
+
    -- ce
    process (clk1x)
    begin
@@ -301,6 +324,8 @@ begin
    port map
    (
       clk1x                => clk1x,        
+      clk2x                => clk2x,        
+      clk2xIndex           => clk2xIndex,        
       ce                   => ce_1x,           
       reset                => reset_intern_1x, 
 
@@ -311,7 +336,18 @@ begin
       bus_read             => bus_RSP_read,     
       bus_write            => bus_RSP_write,    
       bus_dataRead         => bus_RSP_dataRead, 
-      bus_done             => bus_RSP_done
+      bus_done             => bus_RSP_done,
+      
+      rdram_request        => rdram_request(DDR3MUX_RSP),   
+      rdram_rnw            => rdram_rnw(DDR3MUX_RSP),       
+      rdram_address        => rdram_address(DDR3MUX_RSP),   
+      rdram_burstcount     => rdram_burstcount(DDR3MUX_RSP),
+      rdram_writeMask      => rdram_writeMask(DDR3MUX_RSP), 
+      rdram_dataWrite      => rdram_dataWrite(DDR3MUX_RSP),     
+      rdram_granted        => rdram_granted(DDR3MUX_RSP),      
+      rdram_done           => rdram_done(DDR3MUX_RSP),   
+      ddr3_DOUT            => ddr3_DOUT,       
+      ddr3_DOUT_READY      => ddr3_DOUT_READY
    );
    
    iRDP : entity work.RDP
@@ -661,7 +697,7 @@ begin
       ce                   => ce_1x,   
       reset                => reset_intern_1x,
       
-      FASTBUS              => '0', --is_simu,
+      FASTBUS              => is_simu,
       
       error                => errorMEMMUX,
       

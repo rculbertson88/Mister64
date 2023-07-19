@@ -133,11 +133,11 @@ architecture arch of pif is
    signal pifProcMode               : std_logic := '0';
    
    signal EXT_first                 : std_logic := '0';
-   signal EXT_channel               : unsigned(5 downto 0);
-   signal EXT_index                 : unsigned(5 downto 0);
-   signal EXT_recindex              : unsigned(5 downto 0);
-   signal EXT_send                  : unsigned(5 downto 0);
-   signal EXT_receive               : unsigned(5 downto 0);
+   signal EXT_channel               : unsigned(5 downto 0) := (others => '0');
+   signal EXT_index                 : unsigned(5 downto 0) := (others => '0');
+   signal EXT_recindex              : unsigned(5 downto 0) := (others => '0');
+   signal EXT_send                  : unsigned(5 downto 0) := (others => '0');
+   signal EXT_receive               : unsigned(5 downto 0) := (others => '0');
    signal EXT_valid                 : std_logic := '0';
    signal EXT_over                  : std_logic := '0';
    signal EXP_responseindex         : unsigned(5 downto 0);
@@ -676,7 +676,7 @@ begin
             
             end case;
             
-            if (EXT_index = 6x"3F" and state /= EXTCOMM_FETCHNEXT and state /= EXTCOMM_EVALREAD and state /= EXTCOMM_EVALCOMMAND) then -- safety out
+            if (EXT_index = 6x"3F" and state /= EXTCOMM_FETCHNEXT and state /= EXTCOMM_EVALREAD and state /= EXTCOMM_EVALCOMMAND and state /= IDLE) then -- safety out
                state       <= CHECKDONE;
                error       <= '1';
                EXT_index   <= (others => '0');
