@@ -32,7 +32,13 @@ entity RSP is
       rdram_granted        : in  std_logic;
       rdram_done           : in  std_logic;
       ddr3_DOUT            : in  std_logic_vector(63 downto 0);
-      ddr3_DOUT_READY      : in  std_logic
+      ddr3_DOUT_READY      : in  std_logic;
+      
+      fifoout_reset        : out std_logic := '0'; 
+      fifoout_Din          : out std_logic_vector(84 downto 0) := (others => '0'); -- 64bit data + 21 bit address
+      fifoout_Wr           : out std_logic := '0';  
+      fifoout_nearfull     : in  std_logic;   
+      fifoout_empty        : in  std_logic    
    );
 end entity;
 
@@ -75,8 +81,6 @@ architecture arch of RSP is
    signal SP_DMA_CURRENT_COUNT      : unsigned(7 downto 0)  := (others => '0');
    signal SP_DMA_CURRENT_SKIP       : unsigned(11 downto 3) := (others => '0');
    signal SP_DMA_CURRENT_WORKLEN    : unsigned(9 downto 0) := (others => '0');
-   
-   signal SP_DMA_CURRENT_WORKLEN2   : unsigned(9 downto 0) := (others => '0');
    signal SP_DMA_CURRENT_FETCHLEN   : integer range 0 to 16;
       
    signal dma_next_isWrite          : std_logic := '0';
@@ -103,24 +107,16 @@ architecture arch of RSP is
    
    signal dma_store                 : std_logic := '0';
    
-   signal fifo_reset                : std_logic := '0'; 
-   
+   signal fifoin_reset              : std_logic := '0'; 
    signal fifoin_Dout               : std_logic_vector(63 downto 0);
    signal fifoin_Rd                 : std_logic := '0'; 
    signal fifoin_nearfull           : std_logic;    
    signal fifoin_Empty              : std_logic;    
    
-   signal fifoout_Din               : std_logic_vector(63 downto 0);
-   signal fifoout_Wr                : std_logic := '0'; 
-   signal fifoout_Rd                : std_logic := '0'; 
-   signal fifoout_nearfull          : std_logic;    
-   signal fifoout_Empty             : std_logic;   
-   
    type tDMASTATE is
    (
       DMA_IDLE,
-      DMA_READBLOCK,
-      DMA_WRITEONE
+      DMA_READBLOCK
    );
    signal DMASTATE : tDMASTATE := DMA_IDLE;
    
@@ -156,10 +152,11 @@ begin
          dmem_wren_a    <= '0';
          imem_wren_a    <= '0';
             
-         fifo_reset     <= '0';
+         fifoin_reset   <= '0';
          fifoin_Rd      <= '0';
+         
+         fifoout_reset  <= '0';
          fifoout_Wr     <= '0';
-         fifoout_Rd     <= '0';
          
          rdram_request  <= '0';
       
@@ -269,8 +266,10 @@ begin
                when x"40014" => var_dataRead(0) := SP_DMA_STATUS_dmafull;    
                when x"40018" => var_dataRead(0) := SP_DMA_STATUS_dmabusy;    
                when x"4001C" => 
-                  var_dataRead(0) := SP_SEMAPHORE;    
-                  SP_SEMAPHORE    <= '1';
+                  var_dataRead(0) := SP_SEMAPHORE;   
+                  if (bus_reg_req_read = '1') then -- todo: check for RSP COP0          
+                     SP_SEMAPHORE  <= '1';
+                  end if;
                when x"80000" => var_dataRead(11 downto 0) := std_logic_vector(SP_PC);    
                when others   => null;
             end case;
@@ -382,16 +381,14 @@ begin
                      fifoin_Rd     <= '1';
                      SP_DMA_CURRENT_SPADDR(11 downto 3) <= SP_DMA_CURRENT_SPADDR(11 downto 3) + 1;
                     
-                  elsif (SP_DMA_STATUS_dmabusy = '1' and fifoout_nearfull = '0' and dma_isWrite = '1' and SP_DMA_CURRENT_WORKLEN2 > 0) then
+                  elsif (SP_DMA_STATUS_dmabusy = '1' and fifoout_nearfull = '0' and dma_isWrite = '1' and SP_DMA_CURRENT_WORKLEN > 0) then
                      MEMSTATE      <= MEM_STARTDMA;
                      mem_address_a <= std_logic_vector(SP_DMA_CURRENT_SPADDR(11 downto 3));
                      SP_DMA_CURRENT_SPADDR(11 downto 3) <= SP_DMA_CURRENT_SPADDR(11 downto 3) + 1;
-                     if (SP_DMA_CURRENT_WORKLEN2 >= 16) then
+                     if (SP_DMA_CURRENT_WORKLEN >= 16) then
                         SP_DMA_CURRENT_FETCHLEN <= 16;
-                        SP_DMA_CURRENT_WORKLEN2 <= SP_DMA_CURRENT_WORKLEN2 - 16;
                      else
-                        SP_DMA_CURRENT_FETCHLEN <= to_integer(SP_DMA_CURRENT_WORKLEN2(3 downto 0));
-                        SP_DMA_CURRENT_WORKLEN2 <= (others => '0');
+                        SP_DMA_CURRENT_FETCHLEN <= to_integer(SP_DMA_CURRENT_WORKLEN(3 downto 0));
                      end if;
                      
                   end if;
@@ -434,19 +431,22 @@ begin
                      SP_DMA_CURRENT_SPADDR(11 downto 3) <= SP_DMA_CURRENT_SPADDR(11 downto 3) - 1;
                   end if;
                   SP_DMA_CURRENT_FETCHLEN <= SP_DMA_CURRENT_FETCHLEN - 1;
+                  SP_DMA_CURRENT_WORKLEN  <= SP_DMA_CURRENT_WORKLEN - 1;
                   if (SP_DMA_CURRENT_SPADDR(12) = '1') then
-                     fifoout_Din <= imem_q_a;
+                     fifoout_Din <= std_logic_vector(SP_DMA_CURRENT_RAMADDR) & imem_q_a;
                   else
-                     fifoout_Din <= dmem_q_a;
+                     fifoout_Din <= std_logic_vector(SP_DMA_CURRENT_RAMADDR) & dmem_q_a;
                   end if;
                   fifoout_Wr <= '1';
+                  SP_DMA_CURRENT_RAMADDR <= SP_DMA_CURRENT_RAMADDR + 1;
             
             end case;
             
             -- next DMA
             if (bus_reg_req_write = '0' and SP_DMA_STATUS_dmafull = '1' and (SP_DMA_STATUS_dmabusy = '0' or dma_startnext = '1')) then
                dma_startnext           <= '0';
-               fifo_reset              <= '1';
+               fifoin_reset            <= '1';
+               fifoout_reset           <= '1';
                SP_DMA_STATUS_dmabusy   <= '1';
                SP_DMA_STATUS_dmafull   <= '0';
                dma_isWrite             <= dma_next_isWrite;
@@ -456,16 +456,14 @@ begin
                SP_DMA_CURRENT_COUNT    <= SP_DMA_COUNT;
                SP_DMA_CURRENT_SKIP     <= SP_DMA_SKIP;
                SP_DMA_CURRENT_WORKLEN  <= ('0' & SP_DMA_LEN) + 1;
-               SP_DMA_CURRENT_WORKLEN2 <= ('0' & SP_DMA_LEN) + 1;
             end if;
             
-            if (SP_DMA_STATUS_dmabusy = '1') then
-               if ((dma_isWrite = '1' or (dma_isWrite = '0' and fifoin_Empty = '1')) and SP_DMA_CURRENT_WORKLEN = 0) then
+            if (SP_DMA_STATUS_dmabusy = '1' and SP_DMA_CURRENT_WORKLEN = 0) then
+               if ((dma_isWrite = '1' and fifoout_empty = '1' and fifoout_Wr = '0') or (dma_isWrite = '0' and fifoin_Empty = '1')) then
                   if (SP_DMA_CURRENT_COUNT > 0) then
                      SP_DMA_CURRENT_COUNT    <= SP_DMA_CURRENT_COUNT - 1;
                      SP_DMA_CURRENT_RAMADDR  <= SP_DMA_CURRENT_RAMADDR + SP_DMA_CURRENT_SKIP;
                      SP_DMA_CURRENT_WORKLEN  <= ('0' & SP_DMA_LEN) + 1;
-                     SP_DMA_CURRENT_WORKLEN2 <= ('0' & SP_DMA_LEN) + 1;
                   else
                      SP_DMA_CURRENT_LEN    <= (others => '1');
                      if (SP_DMA_STATUS_dmafull = '1') then
@@ -493,29 +491,13 @@ begin
                            else
                               rdram_burstcount       <= SP_DMA_CURRENT_WORKLEN;
                            end if;
-                        end if;
-                     else
-                        if (fifoout_Empty = '0' and SP_DMA_CURRENT_WORKLEN > 0) then
-                           DMASTATE         <= DMA_WRITEONE;
-                           rdram_request    <= '1';
-                           rdram_rnw        <= '0';
-                           rdram_address    <= "0000" & SP_DMA_CURRENT_RAMADDR & "000";
-                           rdram_burstcount <= 10x"001";
-                        end if;                        
+                        end if;                      
                      end if;
                   end if;
                   
                when DMA_READBLOCK =>
                   if (rdram_done = '1') then
                      DMASTATE               <= DMA_IDLE;
-                     SP_DMA_CURRENT_WORKLEN <= SP_DMA_CURRENT_WORKLEN - rdram_burstcount;
-                     SP_DMA_CURRENT_RAMADDR <= SP_DMA_CURRENT_RAMADDR + rdram_burstcount;
-                  end if;
-                  
-               when DMA_WRITEONE =>
-                  if (rdram_done = '1') then
-                     DMASTATE               <= DMA_IDLE;
-                     fifoout_Rd             <= '1';
                      SP_DMA_CURRENT_WORKLEN <= SP_DMA_CURRENT_WORKLEN - rdram_burstcount;
                      SP_DMA_CURRENT_RAMADDR <= SP_DMA_CURRENT_RAMADDR + rdram_burstcount;
                   end if;
@@ -554,7 +536,7 @@ begin
    port map
    ( 
       clk      => clk2x,
-      reset    => fifo_reset,  
+      reset    => fifoin_reset,  
       Din      => ddr3_DOUT,     
       Wr       => (ddr3_DOUT_READY and dma_store),      
       Full     => open,    
@@ -562,26 +544,6 @@ begin
       Dout     => fifoin_Dout,    
       Rd       => (fifoin_Rd and clk2xIndex),      
       Empty    => fifoin_Empty   
-   );
-   
-   iSyncFifo_OUT: entity mem.SyncFifoFallThrough
-   generic map
-   (
-      SIZE             => 64,
-      DATAWIDTH        => 64,
-      NEARFULLDISTANCE => 32
-   )
-   port map
-   ( 
-      clk      => clk2x,
-      reset    => fifo_reset,  
-      Din      => fifoout_Din,     
-      Wr       => (fifoout_Wr and clk2xIndex),
-      Full     => open,    
-      NearFull => fifoout_nearfull,
-      Dout     => rdram_dataWrite,    
-      Rd       => (fifoout_rd and clk2xIndex),      
-      Empty    => fifoout_Empty   
    );
    
    -- Memory

@@ -134,6 +134,12 @@ architecture arch of n64top is
    signal rdram_done             : tDDDR3Single;
    signal rdram_dataRead         : std_logic_vector(63 downto 0);
    
+   signal rspfifo_reset          : std_logic; 
+   signal rspfifo_Din            : std_logic_vector(84 downto 0);
+   signal rspfifo_Wr             : std_logic;  
+   signal rspfifo_nearfull       : std_logic;    
+   signal rspfifo_empty          : std_logic;    
+   
    -- Memory mux
    signal mem_request            : std_logic;
    signal mem_rnw                : std_logic; 
@@ -347,7 +353,13 @@ begin
       rdram_granted        => rdram_granted(DDR3MUX_RSP),      
       rdram_done           => rdram_done(DDR3MUX_RSP),   
       ddr3_DOUT            => ddr3_DOUT,       
-      ddr3_DOUT_READY      => ddr3_DOUT_READY
+      ddr3_DOUT_READY      => ddr3_DOUT_READY,
+      
+      fifoout_reset        => rspfifo_reset,   
+      fifoout_Din          => rspfifo_Din,     
+      fifoout_Wr           => rspfifo_Wr,      
+      fifoout_nearfull     => rspfifo_nearfull,
+      fifoout_empty        => rspfifo_empty
    );
    
    iRDP : entity work.RDP
@@ -665,6 +677,7 @@ begin
    (
       clk1x            => clk1x,           
       clk2x            => clk2x,  
+      clk2xIndex       => clk2xIndex, 
       
       error            => errorDDR3,
                                           
@@ -687,7 +700,13 @@ begin
       rdram_granted    => rdram_granted,      
       rdram_granted2x  => rdram_granted2x,      
       rdram_done       => rdram_done,      
-      rdram_dataRead   => rdram_dataRead      
+      rdram_dataRead   => rdram_dataRead,
+   
+      rspfifo_reset    => rspfifo_reset,   
+      rspfifo_Din      => rspfifo_Din,     
+      rspfifo_Wr       => rspfifo_Wr,      
+      rspfifo_nearfull => rspfifo_nearfull,
+      rspfifo_empty    => rspfifo_empty
    );
    
    imemorymux : entity work.memorymux

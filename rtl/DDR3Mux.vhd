@@ -10,14 +10,14 @@ package pDDR3 is
 
    constant DDR3MUXCOUNT : integer := 8;
    
-   constant DDR3MUX_MEMMUX : integer := 0;
-   constant DDR3MUX_PI     : integer := 1;
+   constant DDR3MUX_RSP    : integer := 0;
+   constant DDR3MUX_RDP    : integer := 1;
    constant DDR3MUX_VI     : integer := 2;
    constant DDR3MUX_SS     : integer := 3;
-   constant DDR3MUX_RDP    : integer := 4;
+   constant DDR3MUX_PI     : integer := 4;
    constant DDR3MUX_SI     : integer := 5;
    constant DDR3MUX_AI     : integer := 6;
-   constant DDR3MUX_RSP    : integer := 7;
+   constant DDR3MUX_MEMMUX : integer := 7;
    
    type tDDDR3Single     is array(0 to DDR3MUXCOUNT - 1) of std_logic;
    type tDDDR3ReqAddr    is array(0 to DDR3MUXCOUNT - 1) of unsigned(27 downto 0);
@@ -43,6 +43,7 @@ entity DDR3Mux is
    (
       clk1x            : in  std_logic;
       clk2x            : in  std_logic;
+      clk2xIndex       : in  std_logic;
       
       error            : out std_logic;
 
@@ -65,7 +66,13 @@ entity DDR3Mux is
       rdram_granted    : out tDDDR3Single;
       rdram_granted2X  : out tDDDR3Single;
       rdram_done       : out tDDDR3Single;
-      rdram_dataRead   : out std_logic_vector(63 downto 0)
+      rdram_dataRead   : out std_logic_vector(63 downto 0);
+      
+      rspfifo_reset    : in  std_logic; 
+      rspfifo_Din      : in  std_logic_vector(84 downto 0); -- 64bit data + 21 bit address
+      rspfifo_Wr       : in  std_logic;  
+      rspfifo_nearfull : out std_logic;  
+      rspfifo_empty    : out std_logic   
    );
 end entity;
 
@@ -90,6 +97,10 @@ architecture arch of DDR3Mux is
    type tdone is array(0 to DDR3MUXCOUNT - 1) of std_logic_vector(1 downto 0);
    signal done    : tdone := (others => (others => '0'));
    signal granted : tdone := (others => (others => '0'));
+   
+   -- rsp fifo
+   signal rspfifo_Dout     : std_logic_vector(84 downto 0);
+   signal rspfifo_Rd       : std_logic := '0';    
 
 begin 
 
@@ -101,7 +112,8 @@ begin
    begin
       if rising_edge(clk2x) then
       
-         error <= '0';
+         error      <= '0';
+         rspfifo_Rd <= '0';
       
          if (ddr3_BUSY = '0') then
             ddr3_WE <= '0';
@@ -142,34 +154,47 @@ begin
                lastIndex    <= activeIndex;
                timeoutCount <= (others => '0');
             
-               if ((ddr3_BUSY = '0' or ddr3_WE = '0') and activeRequest = '1') then
+               if (ddr3_BUSY = '0' or ddr3_WE = '0') then
                   
-                  req_latched(activeIndex) <= '0';
-                  ddr3_DIN                 <= rdram_dataWrite(activeIndex);
-                  ddr3_BE                  <= rdram_writeMask(activeIndex);
-                  ddr3_ADDR(24 downto 0)   <= std_logic_vector(rdram_address(activeIndex)(27 downto 3));
+                  if (activeRequest = '1') then
                   
-                  if (rdram_burstcount(activeIndex)(9 downto 8) = "00") then
-                     ddr3_BURSTCNT  <= std_logic_vector(rdram_burstcount(activeIndex)(7 downto 0));
-                     readCount      <= rdram_burstcount(activeIndex)(7 downto 0);
-                     lastReadReq    <= '1';
-                  else
-                     ddr3_BURSTCNT  <= x"FF";
-                     readCount      <= x"FF";
-                     lastReadReq    <= '0';
-                  end if;
+                     req_latched(activeIndex) <= '0';
+                     ddr3_DIN                 <= rdram_dataWrite(activeIndex);
+                     ddr3_BE                  <= rdram_writeMask(activeIndex);
+                     ddr3_ADDR(24 downto 0)   <= std_logic_vector(rdram_address(activeIndex)(27 downto 3));
+                     
+                     if (rdram_burstcount(activeIndex)(9 downto 8) = "00") then
+                        ddr3_BURSTCNT  <= std_logic_vector(rdram_burstcount(activeIndex)(7 downto 0));
+                        readCount      <= rdram_burstcount(activeIndex)(7 downto 0);
+                        lastReadReq    <= '1';
+                     else
+                        ddr3_BURSTCNT  <= x"FF";
+                        readCount      <= x"FF";
+                        lastReadReq    <= '0';
+                     end if;
+                     
+                     remain    <= rdram_burstcount(activeIndex) - 16#FF#;
+   
+                     if (rdram_rnw(activeIndex) = '1') then
+                        ddr3State                     <= WAITREAD;
+                        ddr3_RD                       <= '1';
+                        granted(activeIndex)          <= "11";
+                        rdram_granted2X(activeIndex)  <= '1';
+                     else
+                        ddr3_WE                       <= '1';
+                        done(activeIndex)             <= "11"; 
+                     end if;
+                   
+                  elsif (rspfifo_empty = '0' and rspfifo_rd = '0') then
                   
-                  remain    <= rdram_burstcount(activeIndex) - 16#FF#;
-
-                  if (rdram_rnw(activeIndex) = '1') then
-                     ddr3State                     <= WAITREAD;
-                     ddr3_RD                       <= '1';
-                     granted(activeIndex)          <= "11";
-                     rdram_granted2X(activeIndex)  <= '1';
-                  else
-                     ddr3_WE                       <= '1';
-                     done(activeIndex)             <= "11"; 
-                  end if;
+                     rspfifo_rd <= '1';
+                     ddr3_WE    <= '1';
+                     ddr3_DIN   <= rspfifo_Dout(63 downto 0);      
+                     ddr3_BE    <= (others => '1');       
+                     ddr3_ADDR(24 downto 0) <= "0000" & rspfifo_Dout(84 downto 64);
+                     ddr3_BURSTCNT <= x"01";
+                  
+                  end if;   
                   
                end if;
                   
@@ -213,6 +238,27 @@ begin
 
       end if;
    end process;
+   
+   
+   iRSPFifo: entity mem.SyncFifoFallThrough
+   generic map
+   (
+      SIZE             => 64,
+      DATAWIDTH        => 64 + 21, -- 64bit data + 21 bit address
+      NEARFULLDISTANCE => 32
+   )
+   port map
+   ( 
+      clk      => clk2x,
+      reset    => rspfifo_reset,  
+      Din      => rspfifo_Din,     
+      Wr       => (rspfifo_Wr and clk2xIndex),
+      Full     => open,    
+      NearFull => rspfifo_nearfull,
+      Dout     => rspfifo_Dout,    
+      Rd       => rspfifo_rd,      
+      Empty    => rspfifo_empty   
+   );
 
 end architecture;
 
