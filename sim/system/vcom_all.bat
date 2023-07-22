@@ -41,6 +41,7 @@ src/tb/cpu_mul.vhd ^
 ../../rtl/memorymux.vhd ^
 ../../rtl/pifrom_ntsc_fast.vhd ^
 ../../rtl/PIF.vhd ^
+../../rtl/RSP_package.vhd ^
 ../../rtl/RSP_core.vhd ^
 ../../rtl/RSP.vhd ^
 ../../rtl/PI.vhd ^

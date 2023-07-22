@@ -1,9 +1,11 @@
 library IEEE;
 use IEEE.std_logic_1164.all;  
 use IEEE.numeric_std.all;   
+use STD.textio.all;
 
 library mem;
 use work.pFunctions.all;
+use work.pRSP.all;
 
 entity RSP_core is
    port 
@@ -20,11 +22,10 @@ entity RSP_core is
       imem_addr             : out std_logic_vector(9 downto 0);
       imem_dataRead         : in  std_logic_vector(31 downto 0);
       
-      dmem_addr             : out std_logic_vector(9 downto 0);
-      dmem_dataWrite        : out std_logic_vector(31 downto 0);
-      dmem_WriteEnable      : out std_logic;
-      dmem_ByteEnable       : out std_logic_vector(3 downto 0);
-      dmem_dataRead         : in  std_logic_vector(31 downto 0);
+      dmem_addr             : out tDMEMarray;
+      dmem_dataWrite        : out tDMEMarray;
+      dmem_WriteEnable      : out std_logic_vector(15 downto 0);
+      dmem_dataRead         : in  tDMEMarray;
       
       error_instr           : out std_logic := '0';
       error_stall           : out std_logic := '0'
@@ -73,7 +74,6 @@ architecture arch of RSP_core is
    signal value2                       : unsigned(31 downto 0) := (others => '0');
                
    -- stage 1          
-   -- cache
    
    -- regs           
    signal fetchNew                     : std_logic := '0';
@@ -198,6 +198,7 @@ architecture arch of RSP_core is
    signal resultData                   : unsigned(31 downto 0) := (others => '0');
    signal executeMemReadEnable         : std_logic := '0';
    signal executeLoadType              : CPU_LOADTYPE;
+   signal executeLoadAddr              : unsigned(11 downto 0);
 
    --wires
    signal EXEresultWriteEnable         : std_logic;
@@ -212,6 +213,7 @@ architecture arch of RSP_core is
    signal writebackTarget              : unsigned(4 downto 0) := (others => '0');
    signal writebackData                : unsigned(31 downto 0) := (others => '0');
    signal writebackWriteEnable         : std_logic := '0';
+   signal dmem_dataRead32              : std_logic_vector(31 downto 0);
 
    signal debugStallcounter            : unsigned(12 downto 0);
    
@@ -219,6 +221,9 @@ architecture arch of RSP_core is
 -- synthesis translate_off
    type tRegs is array(0 to 31) of unsigned(31 downto 0);
    signal regs                         : tRegs := (others => (others => '0'));
+   
+   signal ce_1x_1                      : std_logic := '0';
+   signal writeDoneNew                 : std_logic := '0';
 -- synthesis translate_on
    
 begin 
@@ -280,12 +285,12 @@ begin
    begin
       if (rising_edge(clk1x)) then
       
-         if (reset_1x = '1') then
+         if (ce_1x = '0') then
          
             fetchNew <= '0';
             PC       <= PC_in;
          
-         elsif (ce_1x = '1') then
+         else
             
             if (stall = 0) then
                PC       <= FetchAddr;
@@ -321,13 +326,13 @@ begin
    begin
       if (rising_edge(clk1x)) then
       
-         if (reset_1x = '1') then
+         if (ce_1x = '0') then
          
             stall2           <= '0';
             decodeNew        <= '0';
             decodeBranchType <= BRANCH_OFF;
             
-         elsif (ce_1x = '1') then
+         else
          
             if (stall = 0) then
             
@@ -622,26 +627,66 @@ begin
                       calcResult_bit    when (decodeResultMux = RESULTMUX_BIT)        else
                       unsigned(resize(signed(decodeImmData) & x"0000", 32)); -- (decodeResultMux = RESULTMUX_LUI);  
 
+   
+   
    process (decodeSource2, decodeOP, decodeFunct, stall3, stall, value2, decodeNew, calcMemAddr)
-      variable rotatedData    : std_logic_vector(31 downto 0) := (others => '0');
+      type trotatedData is array(0 to 3) of std_logic_vector(7 downto 0);
+      variable rotatedData : trotatedData;
+      variable rotateAddrMuxAdd : integer range 0 to 3;
    begin
    
       EXEerror_instr          <= '0';
    
       stallNew3               <= stall3;
-      EXEresultWriteEnable    <= '0';          
+      EXEresultWriteEnable    <= '0';  
+      break_out               <= '0';      
       
-      rotatedData             := byteswap32(std_logic_vector(value2));
+      -- DMEM muxing 
+      rotateAddrMuxAdd := 0;
+      if (to_integer(decodeOP) = 16#28#) then -- SB
+         case (calcMemAddr(1 downto 0)) is
+            when "00" => rotateAddrMuxAdd := 3;
+            when "01" => rotateAddrMuxAdd := 2;
+            when "10" => rotateAddrMuxAdd := 1;
+            when "11" => rotateAddrMuxAdd := 0;
+            when others => null;
+         end case;
+      elsif (to_integer(decodeOP) = 16#29#) then -- SH
+         case (calcMemAddr(1 downto 0)) is
+            when "00" => rotateAddrMuxAdd := 2;
+            when "01" => rotateAddrMuxAdd := 1;
+            when "10" => rotateAddrMuxAdd := 0;
+            when "11" => rotateAddrMuxAdd := 3;
+            when others => null;
+         end case;
+      else
+         case (calcMemAddr(1 downto 0)) is
+            when "00" => rotateAddrMuxAdd := 0;
+            when "01" => rotateAddrMuxAdd := 3;
+            when "10" => rotateAddrMuxAdd := 2;
+            when "11" => rotateAddrMuxAdd := 1;
+            when others => null;
+         end case;
+      end if;
+      
+      rotatedData(0) := std_logic_vector(value2(31 downto 24));
+      rotatedData(1) := std_logic_vector(value2(23 downto 16));
+      rotatedData(2) := std_logic_vector(value2(15 downto  8));
+      rotatedData(3) := std_logic_vector(value2( 7 downto  0));
       
       EXELoadType             <= LOADTYPE_DWORD;
       EXEReadEnable           <= '0';
       
-      dmem_addr               <= std_logic_vector(calcMemAddr(11 downto 2));
-      dmem_dataWrite          <= rotatedData;
-      dmem_WriteEnable        <= '0';   
-      dmem_ByteEnable         <= "0000";
-      
-      break_out               <= '0';
+      for i in 0 to 15 loop
+         if (calcMemAddr(3 downto 0) > i) then
+            dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4) + 1);
+         else
+            dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4));
+         end if;
+         dmem_WriteEnable     <= (others => '0');   
+         dmem_dataWrite(i)    <= rotatedData((i + rotateAddrMuxAdd) mod 4);
+      end loop;
+
       
       if (stall = 0 and decodeNew = '1') then
              
@@ -766,27 +811,17 @@ begin
                EXEReadEnable <= '1';
 
             when 16#28# => -- SB
-               case (to_integer(calcMemAddr(1 downto 0))) is 
-                  when 0 => dmem_ByteEnable <= "0001"; dmem_dataWrite <= x"000000" & rotatedData(31 downto 24); 
-                  when 1 => dmem_ByteEnable <= "0010"; dmem_dataWrite <= x"0000" &   rotatedData(31 downto 16);   
-                  when 2 => dmem_ByteEnable <= "0100"; dmem_dataWrite <= x"00" &     rotatedData(31 downto 8);   
-                  when 3 => dmem_ByteEnable <= "1000"; dmem_dataWrite <=             rotatedData(31 downto 0);   
-                  when others => null;
-               end case;
-               dmem_WriteEnable <= '1';
+               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0))) <= '1';
 
             when 16#29# => -- SH
-               if (calcMemAddr(1) = '1') then
-                  dmem_ByteEnable <= "1100";
-               else
-                  dmem_dataWrite <= x"0000" & rotatedData(31 downto 16);
-                  dmem_ByteEnable <= "0011";
-               end if;
-               dmem_WriteEnable <= '1';
+               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 0)) <= '1';
+               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 1)) <= '1';
                
             when 16#2B# => -- SW
-               dmem_ByteEnable(3 downto 0) <= "1111";
-               dmem_WriteEnable <= '1';
+               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 0)) <= '1';
+               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 1)) <= '1';
+               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 2)) <= '1';
+               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 3)) <= '1';
            
             when 16#32# => -- LWC2
                null;
@@ -814,14 +849,14 @@ begin
       
          error_instr <= '0';
       
-         if (reset_1x = '1') then
+         if (ce_1x = '0') then
          
             stall3                        <= '0';
             executeNew                    <= '0';
             executeStallFromMEM           <= '0';
             resultWriteEnable             <= '0';
             
-         elsif (ce_1x = '1') then
+         else
             
             -- load delay block
             if (stall3) then
@@ -866,6 +901,7 @@ begin
                         
                   executeLoadType               <= EXELoadType;   
                   executeMemReadEnable          <= EXEReadEnable; 
+                  executeLoadAddr               <= calcMemAddr(11 downto 0); 
 
                   if (EXEReadEnable = '1') then
                      stall3              <= '1';
@@ -889,18 +925,35 @@ begin
 
    stall4Masked <= stall(3) & (stall(2) and (not executeStallFromMEM)) & stall(1);
    
+   dmem_dataRead32 <= dmem_dataRead(3 ) & dmem_dataRead(2 ) & dmem_dataRead(1 ) & dmem_dataRead(0 ) when (executeLoadAddr(3 downto 0) = x"0") else
+                      dmem_dataRead(4 ) & dmem_dataRead(3 ) & dmem_dataRead(2 ) & dmem_dataRead(1 ) when (executeLoadAddr(3 downto 0) = x"1") else
+                      dmem_dataRead(5 ) & dmem_dataRead(4 ) & dmem_dataRead(3 ) & dmem_dataRead(2 ) when (executeLoadAddr(3 downto 0) = x"2") else
+                      dmem_dataRead(6 ) & dmem_dataRead(5 ) & dmem_dataRead(4 ) & dmem_dataRead(3 ) when (executeLoadAddr(3 downto 0) = x"3") else
+                      dmem_dataRead(7 ) & dmem_dataRead(6 ) & dmem_dataRead(5 ) & dmem_dataRead(4 ) when (executeLoadAddr(3 downto 0) = x"4") else
+                      dmem_dataRead(8 ) & dmem_dataRead(7 ) & dmem_dataRead(6 ) & dmem_dataRead(5 ) when (executeLoadAddr(3 downto 0) = x"5") else
+                      dmem_dataRead(9 ) & dmem_dataRead(8 ) & dmem_dataRead(7 ) & dmem_dataRead(6 ) when (executeLoadAddr(3 downto 0) = x"6") else
+                      dmem_dataRead(10) & dmem_dataRead(9 ) & dmem_dataRead(8 ) & dmem_dataRead(7 ) when (executeLoadAddr(3 downto 0) = x"7") else
+                      dmem_dataRead(11) & dmem_dataRead(10) & dmem_dataRead(9 ) & dmem_dataRead(8 ) when (executeLoadAddr(3 downto 0) = x"8") else
+                      dmem_dataRead(12) & dmem_dataRead(11) & dmem_dataRead(10) & dmem_dataRead(9 ) when (executeLoadAddr(3 downto 0) = x"9") else
+                      dmem_dataRead(13) & dmem_dataRead(12) & dmem_dataRead(11) & dmem_dataRead(10) when (executeLoadAddr(3 downto 0) = x"A") else
+                      dmem_dataRead(14) & dmem_dataRead(13) & dmem_dataRead(12) & dmem_dataRead(11) when (executeLoadAddr(3 downto 0) = x"B") else
+                      dmem_dataRead(15) & dmem_dataRead(14) & dmem_dataRead(13) & dmem_dataRead(12) when (executeLoadAddr(3 downto 0) = x"C") else
+                      dmem_dataRead( 0) & dmem_dataRead(15) & dmem_dataRead(14) & dmem_dataRead(13) when (executeLoadAddr(3 downto 0) = x"D") else
+                      dmem_dataRead( 1) & dmem_dataRead( 0) & dmem_dataRead(15) & dmem_dataRead(14) when (executeLoadAddr(3 downto 0) = x"E") else
+                      dmem_dataRead( 2) & dmem_dataRead( 1) & dmem_dataRead( 0) & dmem_dataRead(15);
+   
    process (clk1x)
    begin
       if (rising_edge(clk1x)) then
       
-         if (reset_1x = '1') then
+         if (ce_1x = '0') then
          
             stall4                           <= '0';
             writebackNew                     <= '0';
             writebackStallFromMEM            <= '0';                  
             writebackWriteEnable             <= '0';
             
-         elsif (ce_1x = '1') then
+         else
          
             stall4                  <= '0';
 
@@ -931,11 +984,11 @@ begin
                      
                      case (executeLoadType) is
                         
-                        when LOADTYPE_SBYTE => writebackData <= unsigned(resize(signed(dmem_dataRead(7 downto 0)), 32));
-                        when LOADTYPE_SWORD => writebackData <= unsigned(resize(signed(byteswap16(dmem_dataRead(15 downto 0))), 32));     
-                        when LOADTYPE_DWORD  => writebackData <= unsigned(resize(signed(byteswap32(dmem_dataRead(31 downto 0))), 32));
-                        when LOADTYPE_BYTE  => writebackData <= x"000000" & unsigned(dmem_dataRead(7 downto 0));
-                        when LOADTYPE_WORD  => writebackData <= x"0000" & unsigned(byteswap16(dmem_dataRead(15 downto 0)));
+                        when LOADTYPE_SBYTE => null; writebackData <= unsigned(resize(signed(dmem_dataRead32(7 downto 0)), 32));
+                        when LOADTYPE_SWORD => null; writebackData <= unsigned(resize(signed(byteswap16(dmem_dataRead32(15 downto 0))), 32));     
+                        when LOADTYPE_DWORD => null; writebackData <= unsigned(resize(signed(byteswap32(dmem_dataRead32(31 downto 0))), 32));
+                        when LOADTYPE_BYTE  => null; writebackData <= x"000000" & unsigned(dmem_dataRead32(7 downto 0));
+                        when LOADTYPE_WORD  => null; writebackData <= x"0000" & unsigned(byteswap16(dmem_dataRead32(15 downto 0)));
                            
                      end case; 
 
@@ -958,40 +1011,30 @@ begin
    process (clk1x)
    begin
       if (rising_edge(clk1x)) then
-      
--- synthesis translate_off
-         --cpu_done <= '0';
--- synthesis translate_on
+       
+-- synthesis translate_off       
+         writeDoneNew <= '0';
+         ce_1x_1      <= ce_1x;
          
-         if (ce_1x = '1') then
+         if (ce_1x = '1' or ce_1x_1 = '1') then
             
             if (stall4Masked = 0 and writebackNew = '1') then
-            
--- synthesis translate_off
+
+               writeDoneNew         <= '1';
+
                pcOld4               <= pcOld3;
                opcode4              <= opcode3;
--- synthesis translate_on
                
-               -- export
                if (writebackWriteEnable = '1') then 
                   if (writebackTarget > 0) then
--- synthesis translate_off
                      regs(to_integer(writebackTarget)) <= writebackData;
--- synthesis translate_on
                   end if;
                end if;
--- synthesis translate_off
-               --cpu_done          <= '1';
-               --cpu_export.pc     <= pcOld4;
-               --cpu_export.opcode <= opcode4;
-               --for i in 0 to 31 loop
-               --   cpu_export.regs(i)    <= regs(i);
-               --end loop;
--- synthesis translate_on
                
             end if;
              
          end if;
+-- synthesis translate_on
          
       end if;
    end process;
@@ -1012,11 +1055,11 @@ begin
       
          error_stall <= '0';
       
-         if (reset_1x = '1') then
+         if (ce_1x = '0') then
          
             debugStallcounter <= (others => '0');
       
-         elsif (ce_1x = '1') then
+         else
          
             if (stall = 0) then
                debugStallcounter <= (others => '0');
@@ -1033,6 +1076,113 @@ begin
       end if;
    end process;
    
+--##############################################################
+--############################### export
+--##############################################################
+   
+   -- synthesis translate_off
+   goutput : if 1 = 1 generate
+      signal out_count        : unsigned(31 downto 0) := (others => '0');
+      signal regs_last        : tRegs := (others => (others => '0'));
+      signal firstExport      : std_logic := '0';
+   begin
+   
+      process
+         file outfile          : text;
+         variable f_status     : FILE_OPEN_STATUS;
+         variable line_out     : line;
+         variable stringbuffer : string(1 to 31);
+      begin
+   
+         file_open(f_status, outfile, "R:\\rsp_n64_sim.txt", write_mode);
+         file_close(outfile);
+         file_open(f_status, outfile, "R:\\rsp_n64_sim.txt", append_mode);
+         
+         while (true) loop
+            
+            wait until rising_edge(clk1x);
+             
+            if (reset_1x = '1') then
+               file_close(outfile);
+               file_open(f_status, outfile, "R:\\rsp_n64_sim.txt", write_mode);
+               file_close(outfile);
+               file_open(f_status, outfile, "R:\\rsp_n64_sim.txt", append_mode);
+               out_count <= (others => '0');
+            end if;
+            
+            if (ce_1x_1 = '0' and ce_1x = '1') then
+               write(line_out, string'("Reset")); 
+               writeline(outfile, line_out);
+               out_count <= out_count + 1;
+               firstExport <= '1';
+            end if;
+            
+            if (writeDoneNew = '1') then
+               -- count
+               write(line_out, string'("# ")); 
+               write(line_out, to_hstring(out_count));
+               -- PC
+               write(line_out, string'(" PC ")); 
+               write(line_out, to_hstring(pcOld4));
+               -- OP
+               write(line_out, string'(" OP ")); 
+               write(line_out, to_hstring(opcode4));
+               write(line_out, string'(" "));
+               -- regs
+               for i in 0 to 31 loop
+                  if (regs(i) /= regs_last(i) or firstExport = '1') then
+                     write(line_out, string'("R"));
+                     if (i < 10) then 
+                        write(line_out, string'("0"));
+                     end if;
+                     write(line_out, to_string(i));
+                     write(line_out, string'(" "));
+                     write(line_out, to_hstring(regs(i)) & " ");
+                  end if;
+               end loop; 
+               regs_last <= regs;
+               firstExport <= '0';
+               
+               writeline(outfile, line_out);
+               out_count <= out_count + 1;
+               
+               if (ce_1x_1 = '0') then
+                  -- count
+                  write(line_out, string'("# ")); 
+                  write(line_out, to_hstring(out_count + 1));
+                  -- PC
+                  write(line_out, string'(" PC ")); 
+                  write(line_out, to_hstring(pcOld2));
+                  -- OP
+                  write(line_out, string'(" OP ")); 
+                  write(line_out, to_hstring(opcode2));
+                  write(line_out, string'(" "));
+               
+                  writeline(outfile, line_out);
+                  out_count <= out_count + 2;
+               end if;
+               
+            end if;
+            
+            --if (export_command_done = '1') then
+            --   write(line_out, string'("Command: I ")); 
+            --   write(line_out, to_string_len(tracecounts_out(2) + 1, 8));
+            --   write(line_out, string'(" A ")); 
+            --   write(line_out, to_hstring(export_command_array.addr + (commandRAMPtr - 1) * 8));
+            --   write(line_out, string'(" D "));
+            --   write(line_out, to_hstring(CommandData));
+            --   writeline(outfile, line_out);
+            --   tracecounts_out(2) <= tracecounts_out(2) + 1;
+            --end if;
+           
+            
+         end loop;
+         
+      end process;
+   
+   end generate goutput;
+
+   -- synthesis translate_on  
    
 
 end architecture;

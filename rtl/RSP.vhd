@@ -4,6 +4,7 @@ use IEEE.numeric_std.all;
 
 library mem;
 use work.pFunctions.all;
+use work.pRSP.all;
 
 entity RSP is
    port 
@@ -121,21 +122,30 @@ architecture arch of RSP is
    
    -- I/DMEM
    signal mem_address_a             : std_logic_vector(8 downto 0) := (others => '0');
+   signal mem_address_a_1           : std_logic_vector(8 downto 0) := (others => '0');
    signal mem_data_a                : std_logic_vector(63 downto 0) := (others => '0');
    signal mem_be_a                  : std_logic_vector(7 downto 0) := (others => '0');
-   
-   signal dmem_address_b            : std_logic_vector(9 downto 0) := (others => '0');    
-   signal dmem_data_b               : std_logic_vector(31 downto 0) := (others => '0');
-   signal dmem_wren_a               : std_logic := '0'; 
-   signal dmem_wren_b               : std_logic := '0';   
-   signal dmem_be_b                 : std_logic_vector(3 downto 0) := (others => '0');
-   signal dmem_q_a                  : std_logic_vector(63 downto 0); 
-   signal dmem_q_b                  : std_logic_vector(31 downto 0);  
    
    signal imem_address_b            : std_logic_vector(9 downto 0) := (others => '0');    
    signal imem_wren_a               : std_logic := '0'; 
    signal imem_q_a                  : std_logic_vector(63 downto 0); 
    signal imem_q_b                  : std_logic_vector(31 downto 0); 
+   
+   signal dmem_address_b            : std_logic_vector(9 downto 0) := (others => '0');    
+   signal dmem_data_b               : std_logic_vector(31 downto 0) := (others => '0');
+   signal dmem_wren_a               : std_logic := '0'; 
+   signal dmem_wren_b               : std_logic := '0';   
+   signal dmem_q_a                  : std_logic_vector(63 downto 0); 
+   signal dmem_q_b                  : std_logic_vector(31 downto 0);  
+    
+   signal dmem_128_address_a        : tDMEMarray; 
+   signal dmem_128_address_b        : tDMEMarray; 
+   signal dmem_128_data_a           : std_logic_vector(127 downto 0);
+   signal dmem_128_data_b           : tDMEMarray;
+   signal dmem_128_wren_a           : std_logic_vector(15 downto 0);
+   signal dmem_128_wren_b           : std_logic_vector(15 downto 0);
+   signal dmem_128_q_a              : std_logic_vector(127 downto 0);
+   signal dmem_128_q_b              : tDMEMarray;
 
    -- RSP core
    signal PC_trigger                : std_logic := '0';
@@ -162,6 +172,8 @@ begin
          fifoout_Wr     <= '0';
          
          rdram_request  <= '0';
+         
+         mem_address_a_1 <= mem_address_a;
       
          if (reset = '1') then
             
@@ -341,7 +353,7 @@ begin
                      if (reg_dataWrite(24) = '1' and reg_dataWrite(23) = '0') then SP_STATUS_signal7set  <= '1'; end if;
                   when x"4001C" => SP_SEMAPHORE <= '0';    
                   when x"80000" => 
-                     SP_PC      <= unsigned(reg_dataWrite(11 downto 2) & "00");   
+                     SP_PC      <= unsigned(reg_dataWrite(11 downto 2)) & "00";   
                      PC_trigger <= '1';
                   when others => null;
                end case;
@@ -565,33 +577,6 @@ begin
    );
    
    -- Memory
-   iDMEM: entity work.dpram_dif_be
-   generic map 
-   ( 
-      addr_width_a    => 9,
-      data_width_a    => 64,
-      addr_width_b    => 10,
-      data_width_b    => 32,
-      width_byteena_a => 8,
-      width_byteena_b => 4
-   )
-   port map
-   (
-      clock_a     => clk1x,
-      address_a   => mem_address_a,
-      data_a      => mem_data_a,
-      wren_a      => dmem_wren_a,
-      byteena_a   => mem_be_a,
-      q_a         => dmem_q_a,
-      
-      clock_b     => clk1x,
-      address_b   => dmem_address_b,
-      data_b      => dmem_data_b,
-      wren_b      => dmem_wren_b,
-      byteena_b   => dmem_be_b,
-      q_b         => dmem_q_b
-   );
-   
    iIMEM: entity work.dpram_dif_be
    generic map 
    ( 
@@ -619,12 +604,49 @@ begin
       q_b         => imem_q_b
    );
    
+   dmem_128_data_a <= mem_data_a & mem_data_a;
+   
+   dmem_q_a        <= dmem_128_q_a(127 downto 64) when (mem_address_a_1(0) = '1') else
+                      dmem_128_q_a( 63 downto  0);
+                      
+   dmem_128_wren_a <= mem_be_a & x"00" when (dmem_wren_a = '1' and mem_address_a(0) = '1') else
+                      x"00" & mem_be_a when (dmem_wren_a = '1' and mem_address_a(0) = '0') else
+                      x"0000";
+   
+   gDMEM: for i in 0 to 15 generate
+   begin
+   
+      dmem_128_address_a(i) <= mem_address_a(8 downto 1);
+      
+      iDMEM: entity work.dpram
+      generic map 
+      ( 
+         addr_width => 8,
+         data_width => 8
+      )
+      port map
+      (
+         clock_a     => clk1x,
+         address_a   => dmem_128_address_a(i),
+         data_a      => dmem_128_data_a(((i * 8) + 7) downto (i*8)),
+         wren_a      => dmem_128_wren_a(i),
+         q_a         => dmem_128_q_a(((i * 8) + 7) downto (i*8)),
+         
+         clock_b     => clk1x,
+         address_b   => dmem_128_address_b(i),
+         data_b      => dmem_128_data_b(i),
+         wren_b      => dmem_128_wren_b(i),
+         q_b         => dmem_128_q_b(i)
+      );
+   
+   end generate;
+   
    iRSP_core : entity work.RSP_core
    port map
    (
       clk1x                 => clk1x,   
       ce_1x                 => not SP_STATUS_halt,   
-      reset_1x              => SP_STATUS_halt,
+      reset_1x              => reset,
       
       PC_trigger            => PC_trigger,
       PC_in                 => SP_PC,     
@@ -634,11 +656,10 @@ begin
       imem_addr             => imem_address_b,
       imem_dataRead         => imem_q_b,
       
-      dmem_addr             => dmem_address_b,       
-      dmem_dataWrite        => dmem_data_b,  
-      dmem_WriteEnable      => dmem_wren_b,
-      dmem_ByteEnable       => dmem_be_b, 
-      dmem_dataRead         => dmem_q_b,   
+      dmem_addr             => dmem_128_address_b,       
+      dmem_dataWrite        => dmem_128_data_b,  
+      dmem_WriteEnable      => dmem_128_wren_b,
+      dmem_dataRead         => dmem_128_q_b,   
       
       error_instr           => open,
       error_stall           => open

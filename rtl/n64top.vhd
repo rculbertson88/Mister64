@@ -361,6 +361,8 @@ begin
       fifoout_empty        => rspfifo_empty
    );
    
+   rdram_dataWrite(DDR3MUX_RSP) <= (others => '0');
+   
    iRDP : entity work.RDP
    port map
    (
