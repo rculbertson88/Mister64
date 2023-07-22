@@ -28,7 +28,6 @@ entity RSP is
       rdram_address        : out unsigned(27 downto 0):= (others => '0');
       rdram_burstcount     : out unsigned(9 downto 0):= (others => '0');
       rdram_writeMask      : out std_logic_vector(7 downto 0) := (others => '0'); 
-      rdram_dataWrite      : out std_logic_vector(63 downto 0) := (others => '0');
       rdram_granted        : in  std_logic;
       rdram_done           : in  std_logic;
       ddr3_DOUT            : in  std_logic_vector(63 downto 0);
@@ -50,21 +49,21 @@ architecture arch of RSP is
    signal SP_DMA_LEN                : unsigned(11 downto 3);
    signal SP_DMA_COUNT              : unsigned(7 downto 0);
    signal SP_DMA_SKIP               : unsigned(11 downto 3);
-   signal SP_DMA_STATUS_halt        : std_logic; -- 0x04040010 RSP status register
-   signal SP_DMA_STATUS_broke       : std_logic;
-   signal SP_DMA_STATUS_dmabusy     : std_logic;
-   signal SP_DMA_STATUS_dmafull     : std_logic;
-   signal SP_DMA_STATUS_iofull      : std_logic;
-   signal SP_DMA_STATUS_singlestep  : std_logic;
-   signal SP_DMA_STATUS_irqonbreak  : std_logic;
-   signal SP_DMA_STATUS_signal0set  : std_logic;
-   signal SP_DMA_STATUS_signal1set  : std_logic;
-   signal SP_DMA_STATUS_signal2set  : std_logic;
-   signal SP_DMA_STATUS_signal3set  : std_logic;
-   signal SP_DMA_STATUS_signal4set  : std_logic;
-   signal SP_DMA_STATUS_signal5set  : std_logic;
-   signal SP_DMA_STATUS_signal6set  : std_logic;
-   signal SP_DMA_STATUS_signal7set  : std_logic;
+   signal SP_STATUS_halt            : std_logic; -- 0x04040010 RSP status register
+   signal SP_STATUS_broke           : std_logic;
+   signal SP_STATUS_dmabusy         : std_logic;
+   signal SP_STATUS_dmafull         : std_logic;
+   signal SP_STATUS_iofull          : std_logic;
+   signal SP_STATUS_singlestep      : std_logic;
+   signal SP_STATUS_irqonbreak      : std_logic;
+   signal SP_STATUS_signal0set      : std_logic;
+   signal SP_STATUS_signal1set      : std_logic;
+   signal SP_STATUS_signal2set      : std_logic;
+   signal SP_STATUS_signal3set      : std_logic;
+   signal SP_STATUS_signal4set      : std_logic;
+   signal SP_STATUS_signal5set      : std_logic;
+   signal SP_STATUS_signal6set      : std_logic;
+   signal SP_STATUS_signal7set      : std_logic;
    signal SP_SEMAPHORE              : std_logic; -- 0x0404001C Register to assist implementing a simple mutex between VR4300 and RSP. 
    signal SP_PC                     : unsigned(11 downto 0); -- 0x04080000 PC //(RW) : [11:0]
 
@@ -129,15 +128,19 @@ architecture arch of RSP is
    signal dmem_data_b               : std_logic_vector(31 downto 0) := (others => '0');
    signal dmem_wren_a               : std_logic := '0'; 
    signal dmem_wren_b               : std_logic := '0';   
+   signal dmem_be_b                 : std_logic_vector(3 downto 0) := (others => '0');
    signal dmem_q_a                  : std_logic_vector(63 downto 0); 
    signal dmem_q_b                  : std_logic_vector(31 downto 0);  
    
    signal imem_address_b            : std_logic_vector(9 downto 0) := (others => '0');    
-   signal imem_data_b               : std_logic_vector(31 downto 0) := (others => '0');
-   signal imem_wren_a               : std_logic := '0';
-   signal imem_wren_b               : std_logic := '0';   
+   signal imem_wren_a               : std_logic := '0'; 
    signal imem_q_a                  : std_logic_vector(63 downto 0); 
    signal imem_q_b                  : std_logic_vector(31 downto 0); 
+
+   -- RSP core
+   signal PC_trigger                : std_logic := '0';
+   signal PC_out                    : unsigned(11 downto 0);
+   signal break_core                : std_logic;
 
 begin 
 
@@ -169,21 +172,21 @@ begin
             SP_DMA_LEN                 <= (others => '0');
             SP_DMA_COUNT               <= (others => '0');
             SP_DMA_SKIP                <= (others => '0');
-            SP_DMA_STATUS_halt         <= '1';
-            SP_DMA_STATUS_broke        <= '0';
-            SP_DMA_STATUS_dmabusy      <= '0';
-            SP_DMA_STATUS_dmafull      <= '0';
-            SP_DMA_STATUS_iofull       <= '0';
-            SP_DMA_STATUS_singlestep   <= '0';
-            SP_DMA_STATUS_irqonbreak   <= '0';
-            SP_DMA_STATUS_signal0set   <= '0';
-            SP_DMA_STATUS_signal1set   <= '0';
-            SP_DMA_STATUS_signal2set   <= '0';
-            SP_DMA_STATUS_signal3set   <= '0';
-            SP_DMA_STATUS_signal4set   <= '0';
-            SP_DMA_STATUS_signal5set   <= '0';
-            SP_DMA_STATUS_signal6set   <= '0';
-            SP_DMA_STATUS_signal7set   <= '0';
+            SP_STATUS_halt             <= '1';
+            SP_STATUS_broke            <= '0';
+            SP_STATUS_dmabusy          <= '0';
+            SP_STATUS_dmafull          <= '0';
+            SP_STATUS_iofull           <= '0';
+            SP_STATUS_singlestep       <= '0';
+            SP_STATUS_irqonbreak       <= '0';
+            SP_STATUS_signal0set       <= '0';
+            SP_STATUS_signal1set       <= '0';
+            SP_STATUS_signal2set       <= '0';
+            SP_STATUS_signal3set       <= '0';
+            SP_STATUS_signal4set       <= '0';
+            SP_STATUS_signal5set       <= '0';
+            SP_STATUS_signal6set       <= '0';
+            SP_STATUS_signal7set       <= '0';
             SP_SEMAPHORE               <= '0';
             SP_PC                      <= (others => '0');
             
@@ -248,23 +251,23 @@ begin
                   var_dataRead(19 downto 12) := std_logic_vector(SP_DMA_CURRENT_COUNT);    
                   var_dataRead(31 downto 23) := std_logic_vector(SP_DMA_CURRENT_SKIP);    
                when x"40010" => 
-                  var_dataRead(0)  := SP_DMA_STATUS_halt;    
-                  var_dataRead(1)  := SP_DMA_STATUS_broke;    
-                  var_dataRead(2)  := SP_DMA_STATUS_dmabusy;    
-                  var_dataRead(3)  := SP_DMA_STATUS_dmafull;    
-                  var_dataRead(4)  := SP_DMA_STATUS_iofull;    
-                  var_dataRead(5)  := SP_DMA_STATUS_singlestep;    
-                  var_dataRead(6)  := SP_DMA_STATUS_irqonbreak;    
-                  var_dataRead(7)  := SP_DMA_STATUS_signal0set;    
-                  var_dataRead(8)  := SP_DMA_STATUS_signal1set;    
-                  var_dataRead(9)  := SP_DMA_STATUS_signal2set;    
-                  var_dataRead(10) := SP_DMA_STATUS_signal3set;    
-                  var_dataRead(11) := SP_DMA_STATUS_signal4set;    
-                  var_dataRead(12) := SP_DMA_STATUS_signal5set;    
-                  var_dataRead(13) := SP_DMA_STATUS_signal6set;    
-                  var_dataRead(14) := SP_DMA_STATUS_signal7set;    
-               when x"40014" => var_dataRead(0) := SP_DMA_STATUS_dmafull;    
-               when x"40018" => var_dataRead(0) := SP_DMA_STATUS_dmabusy;    
+                  var_dataRead(0)  := SP_STATUS_halt;    
+                  var_dataRead(1)  := SP_STATUS_broke;    
+                  var_dataRead(2)  := SP_STATUS_dmabusy;    
+                  var_dataRead(3)  := SP_STATUS_dmafull;    
+                  var_dataRead(4)  := SP_STATUS_iofull;    
+                  var_dataRead(5)  := SP_STATUS_singlestep;    
+                  var_dataRead(6)  := SP_STATUS_irqonbreak;    
+                  var_dataRead(7)  := SP_STATUS_signal0set;    
+                  var_dataRead(8)  := SP_STATUS_signal1set;    
+                  var_dataRead(9)  := SP_STATUS_signal2set;    
+                  var_dataRead(10) := SP_STATUS_signal3set;    
+                  var_dataRead(11) := SP_STATUS_signal4set;    
+                  var_dataRead(12) := SP_STATUS_signal5set;    
+                  var_dataRead(13) := SP_STATUS_signal6set;    
+                  var_dataRead(14) := SP_STATUS_signal7set;    
+               when x"40014" => var_dataRead(0) := SP_STATUS_dmafull;    
+               when x"40018" => var_dataRead(0) := SP_STATUS_dmabusy;    
                when x"4001C" => 
                   var_dataRead(0) := SP_SEMAPHORE;   
                   if (bus_reg_req_read = '1') then -- todo: check for RSP COP0          
@@ -281,6 +284,19 @@ begin
             end if;
             
             -- register write access
+            if (break_core = '1') then
+               SP_STATUS_halt  <= '1';
+               SP_STATUS_broke <= '1';
+               if (SP_STATUS_irqonbreak = '1') then
+                  irq_out <= '1';
+               end if;
+            end if;
+            
+            if (SP_STATUS_halt = '0') then
+               SP_PC <= PC_out;
+            end if;
+            
+            PC_trigger <= '0';
             if (bus_reg_req_write = '1') then -- todo: check for RSP COP0
             
                if (bus_reg_req_write = '1') then
@@ -295,37 +311,39 @@ begin
                      SP_DMA_LEN    <= unsigned(reg_dataWrite(11 downto  3));     
                      SP_DMA_COUNT  <= unsigned(reg_dataWrite(19 downto 12));     
                      SP_DMA_SKIP   <= unsigned(reg_dataWrite(31 downto 23));
-                     SP_DMA_STATUS_dmafull <= '1';
+                     SP_STATUS_dmafull <= '1';
                      if (bus_addr(19 downto 2) & "00" = x"40008") then dma_next_isWrite <= '0'; else dma_next_isWrite <= '1'; end if;
                   when x"40010" => 
-                     if (reg_dataWrite(0 ) = '1') then SP_DMA_STATUS_halt        <= '0'; end if;
-                     if (reg_dataWrite(1 ) = '1') then SP_DMA_STATUS_halt        <= '1'; end if;
-                     if (reg_dataWrite(2 ) = '1') then SP_DMA_STATUS_broke       <= '0'; end if;
-                     if (reg_dataWrite(3 ) = '1') then irq_out                   <= '0'; end if;
-                     if (reg_dataWrite(4 ) = '1') then irq_out                   <= '1'; end if;
-                     if (reg_dataWrite(5 ) = '1') then SP_DMA_STATUS_singlestep  <= '0'; end if;
-                     if (reg_dataWrite(6 ) = '1') then SP_DMA_STATUS_singlestep  <= '1'; end if;
-                     if (reg_dataWrite(7 ) = '1') then SP_DMA_STATUS_irqonbreak  <= '0'; end if;
-                     if (reg_dataWrite(8 ) = '1') then SP_DMA_STATUS_irqonbreak  <= '1'; end if;
-                     if (reg_dataWrite(9 ) = '1') then SP_DMA_STATUS_signal0set  <= '0'; end if;
-                     if (reg_dataWrite(10) = '1') then SP_DMA_STATUS_signal0set  <= '1'; end if;
-                     if (reg_dataWrite(11) = '1') then SP_DMA_STATUS_signal1set  <= '0'; end if;
-                     if (reg_dataWrite(12) = '1') then SP_DMA_STATUS_signal1set  <= '1'; end if;
-                     if (reg_dataWrite(13) = '1') then SP_DMA_STATUS_signal2set  <= '0'; end if;
-                     if (reg_dataWrite(14) = '1') then SP_DMA_STATUS_signal2set  <= '1'; end if;
-                     if (reg_dataWrite(15) = '1') then SP_DMA_STATUS_signal3set  <= '0'; end if;
-                     if (reg_dataWrite(16) = '1') then SP_DMA_STATUS_signal3set  <= '1'; end if;
-                     if (reg_dataWrite(17) = '1') then SP_DMA_STATUS_signal4set  <= '0'; end if;
-                     if (reg_dataWrite(18) = '1') then SP_DMA_STATUS_signal4set  <= '1'; end if;
-                     if (reg_dataWrite(19) = '1') then SP_DMA_STATUS_signal5set  <= '0'; end if;
-                     if (reg_dataWrite(20) = '1') then SP_DMA_STATUS_signal5set  <= '1'; end if;
-                     if (reg_dataWrite(21) = '1') then SP_DMA_STATUS_signal6set  <= '0'; end if;
-                     if (reg_dataWrite(22) = '1') then SP_DMA_STATUS_signal6set  <= '1'; end if;
-                     if (reg_dataWrite(23) = '1') then SP_DMA_STATUS_signal7set  <= '0'; end if;
-                     if (reg_dataWrite(24) = '1') then SP_DMA_STATUS_signal7set  <= '1'; end if;
+                     if (reg_dataWrite(0 ) = '1' and reg_dataWrite(1 ) = '0') then SP_STATUS_halt        <= '0'; end if;
+                     if (reg_dataWrite(1 ) = '1' and reg_dataWrite(0 ) = '0') then SP_STATUS_halt        <= '1'; end if;
+                     if (reg_dataWrite(2 ) = '1')                             then SP_STATUS_broke       <= '0'; end if;
+                     if (reg_dataWrite(3 ) = '1' and reg_dataWrite(4 ) = '0') then irq_out               <= '0'; end if;
+                     if (reg_dataWrite(4 ) = '1' and reg_dataWrite(3 ) = '0') then irq_out               <= '1'; end if;
+                     if (reg_dataWrite(5 ) = '1' and reg_dataWrite(6 ) = '0') then SP_STATUS_singlestep  <= '0'; end if;
+                     if (reg_dataWrite(6 ) = '1' and reg_dataWrite(5 ) = '0') then SP_STATUS_singlestep  <= '1'; end if;
+                     if (reg_dataWrite(7 ) = '1' and reg_dataWrite(8 ) = '0') then SP_STATUS_irqonbreak  <= '0'; end if;
+                     if (reg_dataWrite(8 ) = '1' and reg_dataWrite(7 ) = '0') then SP_STATUS_irqonbreak  <= '1'; end if;
+                     if (reg_dataWrite(9 ) = '1' and reg_dataWrite(10) = '0') then SP_STATUS_signal0set  <= '0'; end if;
+                     if (reg_dataWrite(10) = '1' and reg_dataWrite( 9) = '0') then SP_STATUS_signal0set  <= '1'; end if;
+                     if (reg_dataWrite(11) = '1' and reg_dataWrite(12) = '0') then SP_STATUS_signal1set  <= '0'; end if;
+                     if (reg_dataWrite(12) = '1' and reg_dataWrite(11) = '0') then SP_STATUS_signal1set  <= '1'; end if;
+                     if (reg_dataWrite(13) = '1' and reg_dataWrite(14) = '0') then SP_STATUS_signal2set  <= '0'; end if;
+                     if (reg_dataWrite(14) = '1' and reg_dataWrite(13) = '0') then SP_STATUS_signal2set  <= '1'; end if;
+                     if (reg_dataWrite(15) = '1' and reg_dataWrite(16) = '0') then SP_STATUS_signal3set  <= '0'; end if;
+                     if (reg_dataWrite(16) = '1' and reg_dataWrite(15) = '0') then SP_STATUS_signal3set  <= '1'; end if;
+                     if (reg_dataWrite(17) = '1' and reg_dataWrite(18) = '0') then SP_STATUS_signal4set  <= '0'; end if;
+                     if (reg_dataWrite(18) = '1' and reg_dataWrite(17) = '0') then SP_STATUS_signal4set  <= '1'; end if;
+                     if (reg_dataWrite(19) = '1' and reg_dataWrite(20) = '0') then SP_STATUS_signal5set  <= '0'; end if;
+                     if (reg_dataWrite(20) = '1' and reg_dataWrite(19) = '0') then SP_STATUS_signal5set  <= '1'; end if;
+                     if (reg_dataWrite(21) = '1' and reg_dataWrite(22) = '0') then SP_STATUS_signal6set  <= '0'; end if;
+                     if (reg_dataWrite(22) = '1' and reg_dataWrite(21) = '0') then SP_STATUS_signal6set  <= '1'; end if;
+                     if (reg_dataWrite(23) = '1' and reg_dataWrite(24) = '0') then SP_STATUS_signal7set  <= '0'; end if;
+                     if (reg_dataWrite(24) = '1' and reg_dataWrite(23) = '0') then SP_STATUS_signal7set  <= '1'; end if;
                   when x"4001C" => SP_SEMAPHORE <= '0';    
-                  when x"80000" => SP_PC <= unsigned(reg_dataWrite(11 downto 0));    
-                  when others   => null;
+                  when x"80000" => 
+                     SP_PC      <= unsigned(reg_dataWrite(11 downto 2) & "00");   
+                     PC_trigger <= '1';
+                  when others => null;
                end case;
             end if;
             
@@ -381,7 +399,7 @@ begin
                      fifoin_Rd     <= '1';
                      SP_DMA_CURRENT_SPADDR(11 downto 3) <= SP_DMA_CURRENT_SPADDR(11 downto 3) + 1;
                     
-                  elsif (SP_DMA_STATUS_dmabusy = '1' and fifoout_nearfull = '0' and dma_isWrite = '1' and SP_DMA_CURRENT_WORKLEN > 0) then
+                  elsif (SP_STATUS_dmabusy = '1' and fifoout_nearfull = '0' and dma_isWrite = '1' and SP_DMA_CURRENT_WORKLEN > 0) then
                      MEMSTATE      <= MEM_STARTDMA;
                      mem_address_a <= std_logic_vector(SP_DMA_CURRENT_SPADDR(11 downto 3));
                      SP_DMA_CURRENT_SPADDR(11 downto 3) <= SP_DMA_CURRENT_SPADDR(11 downto 3) + 1;
@@ -443,12 +461,12 @@ begin
             end case;
             
             -- next DMA
-            if (bus_reg_req_write = '0' and SP_DMA_STATUS_dmafull = '1' and (SP_DMA_STATUS_dmabusy = '0' or dma_startnext = '1')) then
+            if (bus_reg_req_write = '0' and SP_STATUS_dmafull = '1' and (SP_STATUS_dmabusy = '0' or dma_startnext = '1')) then
                dma_startnext           <= '0';
                fifoin_reset            <= '1';
                fifoout_reset           <= '1';
-               SP_DMA_STATUS_dmabusy   <= '1';
-               SP_DMA_STATUS_dmafull   <= '0';
+               SP_STATUS_dmabusy   <= '1';
+               SP_STATUS_dmafull   <= '0';
                dma_isWrite             <= dma_next_isWrite;
                SP_DMA_CURRENT_SPADDR   <= SP_DMA_SPADDR;
                SP_DMA_CURRENT_RAMADDR  <= SP_DMA_RAMADDR;
@@ -458,7 +476,7 @@ begin
                SP_DMA_CURRENT_WORKLEN  <= ('0' & SP_DMA_LEN) + 1;
             end if;
             
-            if (SP_DMA_STATUS_dmabusy = '1' and SP_DMA_CURRENT_WORKLEN = 0) then
+            if (SP_STATUS_dmabusy = '1' and SP_DMA_CURRENT_WORKLEN = 0) then
                if ((dma_isWrite = '1' and fifoout_empty = '1' and fifoout_Wr = '0') or (dma_isWrite = '0' and fifoin_Empty = '1')) then
                   if (SP_DMA_CURRENT_COUNT > 0) then
                      SP_DMA_CURRENT_COUNT    <= SP_DMA_CURRENT_COUNT - 1;
@@ -466,10 +484,10 @@ begin
                      SP_DMA_CURRENT_WORKLEN  <= ('0' & SP_DMA_LEN) + 1;
                   else
                      SP_DMA_CURRENT_LEN    <= (others => '1');
-                     if (SP_DMA_STATUS_dmafull = '1') then
+                     if (SP_STATUS_dmafull = '1') then
                         dma_startnext         <= '1';
                      else
-                        SP_DMA_STATUS_dmabusy <= '0';
+                        SP_STATUS_dmabusy <= '0';
                      end if;
                   end if;
                end if;
@@ -479,7 +497,7 @@ begin
             case (DMASTATE) is
             
                when DMA_IDLE =>
-                  if (SP_DMA_STATUS_dmabusy = '1') then
+                  if (SP_STATUS_dmabusy = '1') then
                      if (dma_isWrite = '0') then
                         if (fifoin_nearfull = '0' and SP_DMA_CURRENT_WORKLEN > 0) then
                            DMASTATE         <= DMA_READBLOCK;
@@ -570,7 +588,7 @@ begin
       address_b   => dmem_address_b,
       data_b      => dmem_data_b,
       wren_b      => dmem_wren_b,
-      byteena_b   => "1111",
+      byteena_b   => dmem_be_b,
       q_b         => dmem_q_b
    );
    
@@ -595,10 +613,35 @@ begin
       
       clock_b     => clk1x,
       address_b   => imem_address_b,
-      data_b      => imem_data_b,
-      wren_b      => imem_wren_b,
-      byteena_b   => "1111",
+      data_b      => 32x"0",
+      wren_b      => '0',
+      byteena_b   => "0000",
       q_b         => imem_q_b
+   );
+   
+   iRSP_core : entity work.RSP_core
+   port map
+   (
+      clk1x                 => clk1x,   
+      ce_1x                 => not SP_STATUS_halt,   
+      reset_1x              => SP_STATUS_halt,
+      
+      PC_trigger            => PC_trigger,
+      PC_in                 => SP_PC,     
+      PC_out                => PC_out,    
+      break_out             => break_core,
+      
+      imem_addr             => imem_address_b,
+      imem_dataRead         => imem_q_b,
+      
+      dmem_addr             => dmem_address_b,       
+      dmem_dataWrite        => dmem_data_b,  
+      dmem_WriteEnable      => dmem_wren_b,
+      dmem_ByteEnable       => dmem_be_b, 
+      dmem_dataRead         => dmem_q_b,   
+      
+      error_instr           => open,
+      error_stall           => open
    );
         
 end architecture;
