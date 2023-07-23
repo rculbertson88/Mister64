@@ -249,9 +249,9 @@ begin
                   
                   case (reg_addr(19 downto 0)) is
                      when x"00000" =>
-                        --if (DPC_STATUS_start_valid = '0') then -- wrong according to n64brew, should always update
+                        if (DPC_STATUS_start_pending = '0') then -- wrong according to n64brew, should always update, systemtest proves otherwise!
                            DPC_START_NEXT <= unsigned(reg_dataWrite(23 downto 3)) & "000";
-                        --end if;
+                        end if;
                         DPC_STATUS_start_pending <= '1';
                      
                      when x"00004" => 
