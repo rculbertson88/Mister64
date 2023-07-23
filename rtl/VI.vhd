@@ -16,7 +16,7 @@ entity VI is
       irq_out          : out std_logic := '0';
       
       errorEna         : in  std_logic;
-      errorCode        : in  unsigned(7 downto 0);
+      errorCode        : in  unsigned(11 downto 0);
       
       rdram_request    : out std_logic := '0';
       rdram_rnw        : out std_logic := '0'; 

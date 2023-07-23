@@ -17,6 +17,9 @@ entity RSP is
       
       irq_out              : out std_logic := '0';
       
+      error_instr           : out std_logic;
+      error_stall           : out std_logic;
+      
       bus_addr             : in  unsigned(19 downto 0); 
       bus_dataWrite        : in  std_logic_vector(31 downto 0);
       bus_read             : in  std_logic;
@@ -33,6 +36,12 @@ entity RSP is
       rdram_done           : in  std_logic;
       ddr3_DOUT            : in  std_logic_vector(63 downto 0);
       ddr3_DOUT_READY      : in  std_logic;
+      
+      RSP_RDP_reg_addr     : out unsigned(6 downto 0);
+      RSP_RDP_reg_dataOut  : out unsigned(31 downto 0);
+      RSP_RDP_reg_read     : out std_logic;
+      RSP_RDP_reg_write    : out std_logic;
+      RSP_RDP_reg_dataIn   : in  unsigned(31 downto 0);
       
       fifoout_reset        : out std_logic := '0'; 
       fifoout_Din          : out std_logic_vector(84 downto 0) := (others => '0'); -- 64bit data + 21 bit address
@@ -151,11 +160,17 @@ architecture arch of RSP is
    signal PC_trigger                : std_logic := '0';
    signal PC_out                    : unsigned(11 downto 0);
    signal break_core                : std_logic;
+   
+   signal core_reg_addr             : unsigned(6 downto 0);
+   signal core_reg_dataWrite        : unsigned(31 downto 0);
+   signal core_reg_RSP_read         : std_logic;
+   signal core_reg_RSP_write        : std_logic;
+   signal core_reg_RSP_dataRead     : unsigned(31 downto 0);
 
 begin 
 
-   reg_addr      <= bus_addr;     
-   reg_dataWrite <= bus_dataWrite;
+   reg_addr      <= 13x"800" & core_reg_addr when (core_reg_RSP_read = '1' or core_reg_RSP_write = '1') else bus_addr;     
+   reg_dataWrite <= std_logic_vector(core_reg_dataWrite) when (core_reg_RSP_write = '1') else bus_dataWrite;
    
    process (clk1x)
       variable var_dataRead : std_logic_vector(31 downto 0) := (others => '0');
@@ -282,18 +297,20 @@ begin
                when x"40018" => var_dataRead(0) := SP_STATUS_dmabusy;    
                when x"4001C" => 
                   var_dataRead(0) := SP_SEMAPHORE;   
-                  if (bus_reg_req_read = '1') then -- todo: check for RSP COP0          
+                  if (bus_reg_req_read = '1' or core_reg_RSP_read = '1') then       
                      SP_SEMAPHORE  <= '1';
                   end if;
                when x"80000" => var_dataRead(11 downto 0) := std_logic_vector(SP_PC);    
                when others   => null;
             end case;
               
-            if (bus_reg_req_read = '1') then -- todo: check for RSP COP0
+            if (bus_reg_req_read = '1' and core_reg_RSP_read = '0') then
                bus_done         <= '1';              
                bus_dataRead     <= var_dataRead;
                bus_reg_req_read <= '0';
             end if;
+            
+            core_reg_RSP_dataRead <= unsigned(var_dataRead);
             
             -- register write access
             if (break_core = '1') then
@@ -308,13 +325,13 @@ begin
                SP_PC <= PC_out;
             end if;
             
-            PC_trigger <= '0';
-            if (bus_reg_req_write = '1') then -- todo: check for RSP COP0
+            if (bus_reg_req_write = '1' and core_reg_RSP_write = '0') then
+               bus_done          <= '1';
+               bus_reg_req_write <= '0';
+            end if;
             
-               if (bus_reg_req_write = '1') then
-                  bus_done          <= '1';
-                  bus_reg_req_write <= '0';
-               end if;
+            PC_trigger <= '0';
+            if (bus_reg_req_write = '1' or core_reg_RSP_write = '1') then
                
                case (reg_addr(19 downto 2) & "00") is
                   when x"40000" => SP_DMA_SPADDR  <= unsigned(reg_dataWrite(12 downto 3));   
@@ -641,6 +658,9 @@ begin
    
    end generate;
    
+   RSP_RDP_reg_addr    <= core_reg_addr;
+   RSP_RDP_reg_dataOut <= core_reg_dataWrite;
+   
    iRSP_core : entity work.RSP_core
    port map
    (
@@ -661,8 +681,17 @@ begin
       dmem_WriteEnable      => dmem_128_wren_b,
       dmem_dataRead         => dmem_128_q_b,   
       
-      error_instr           => open,
-      error_stall           => open
+      reg_addr              => core_reg_addr,        
+      reg_dataWrite         => core_reg_dataWrite,   
+      reg_RSP_read          => core_reg_RSP_read,    
+      reg_RDP_read          => RSP_RDP_reg_read,   
+      reg_RSP_write         => core_reg_RSP_write,   
+      reg_RDP_write         => RSP_RDP_reg_write,   
+      reg_RSP_dataRead      => core_reg_RSP_dataRead,
+      reg_RDP_dataRead      => RSP_RDP_reg_dataIn,
+
+      error_instr           => error_instr,
+      error_stall           => error_stall
    );
         
 end architecture;

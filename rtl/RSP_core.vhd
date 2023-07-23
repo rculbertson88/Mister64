@@ -27,6 +27,15 @@ entity RSP_core is
       dmem_WriteEnable      : out std_logic_vector(15 downto 0);
       dmem_dataRead         : in  tDMEMarray;
       
+      reg_addr              : out unsigned(6 downto 0);
+      reg_dataWrite         : out unsigned(31 downto 0);
+      reg_RSP_read          : out std_logic;
+      reg_RDP_read          : out std_logic;
+      reg_RSP_write         : out std_logic;
+      reg_RDP_write         : out std_logic;
+      reg_RSP_dataRead      : in  unsigned(31 downto 0);
+      reg_RDP_dataRead      : in  unsigned(31 downto 0);
+      
       error_instr           : out std_logic := '0';
       error_stall           : out std_logic := '0'
    );
@@ -78,7 +87,20 @@ architecture arch of RSP_core is
    -- regs           
    signal fetchNew                     : std_logic := '0';
             
-   -- stage 2           
+   -- stage 2  
+   -- wires
+   signal opcodeCacheMuxed             : unsigned(31 downto 0) := (others => '0');
+   
+   signal decImmData                   : unsigned(15 downto 0);
+   signal decSource1                   : unsigned(4 downto 0);
+   signal decSource2                   : unsigned(4 downto 0);
+   signal decOP                        : unsigned(5 downto 0);
+   signal decFunct                     : unsigned(5 downto 0);
+   signal decShamt                     : unsigned(4 downto 0);
+   signal decRD                        : unsigned(4 downto 0);
+   signal decTarget                    : unsigned(4 downto 0);
+   signal decJumpTarget                : unsigned(25 downto 0);
+   
    --regs      
    signal decodeNew                    : std_logic := '0';
    signal decodeImmData                : unsigned(15 downto 0) := (others => '0');
@@ -86,10 +108,7 @@ architecture arch of RSP_core is
    signal decodeSource2                : unsigned(4 downto 0) := (others => '0');
    signal decodeValue1                 : unsigned(31 downto 0) := (others => '0');
    signal decodeValue2                 : unsigned(31 downto 0) := (others => '0');
-   signal decodeOP                     : unsigned(5 downto 0) := (others => '0');
-   signal decodeFunct                  : unsigned(5 downto 0) := (others => '0');
    signal decodeShamt                  : unsigned(4 downto 0) := (others => '0');
-   signal decodeRD                     : unsigned(4 downto 0) := (others => '0');
    signal decodeTarget                 : unsigned(4 downto 0) := (others => '0');
    signal decodeJumpTarget             : unsigned(25 downto 0) := (others => '0');
    signal decodeForwardValue1          : std_logic := '0';
@@ -97,6 +116,14 @@ architecture arch of RSP_core is
    signal decodeUseImmidateValue2      : std_logic := '0';
    signal decodeShiftSigned            : std_logic := '0';
    signal decodeShiftAmountType        : std_logic := '0';
+   signal decodeWriteEnable            : std_logic := '0';
+   signal decode_break                 : std_logic := '0';
+   signal decodeReadEnable             : std_logic := '0';
+   signal decodeReadRSPReg             : std_logic := '0';
+   signal decodeReadRDPReg             : std_logic := '0';   
+   signal decodeWriteRSPReg            : std_logic := '0';
+   signal decodeWriteRDPReg            : std_logic := '0';
+   signal decodeRegAddr                : unsigned(6 downto 0) := (others => '0');
    
    type t_decodeBitFuncType is
    (
@@ -135,20 +162,26 @@ architecture arch of RSP_core is
       RESULTMUX_BIT,   
       RESULTMUX_LUI
    );
-   signal decodeResultMux : t_decodeResultMux;   
+   signal decodeResultMux : t_decodeResultMux;  
+
+   type CPU_LOADTYPE is
+   (
+      LOADTYPE_SBYTE,
+      LOADTYPE_SWORD,
+      LOADTYPE_DWORD,
+      LOADTYPE_BYTE,
+      LOADTYPE_WORD
+   );
+   signal decodeLoadType               : CPU_LOADTYPE;   
    
-   -- wires
-   signal opcodeCacheMuxed             : unsigned(31 downto 0) := (others => '0');
-   
-   signal decImmData                   : unsigned(15 downto 0);
-   signal decSource1                   : unsigned(4 downto 0);
-   signal decSource2                   : unsigned(4 downto 0);
-   signal decOP                        : unsigned(5 downto 0);
-   signal decFunct                     : unsigned(5 downto 0);
-   signal decShamt                     : unsigned(4 downto 0);
-   signal decRD                        : unsigned(4 downto 0);
-   signal decTarget                    : unsigned(4 downto 0);
-   signal decJumpTarget                : unsigned(25 downto 0);
+   type CPU_SAVETYPE is
+   (
+      SAVETYPE_NONE,
+      SAVETYPE_DWORD,
+      SAVETYPE_BYTE,
+      SAVETYPE_WORD
+   );
+   signal decodeSaveType               : CPU_SAVETYPE;   
             
    -- stage 3   
    signal value2_muxedSigned           : unsigned(31 downto 0);
@@ -176,19 +209,10 @@ architecture arch of RSP_core is
    signal cmpNegative                  : std_logic;
    signal cmpZero                      : std_logic;
    signal PCnext                       : unsigned(11 downto 0) := (others => '0');
-   signal PCnextBranch                 : unsigned(11 downto 0) := (others => '0');
+   signal PCnextBranch                 : unsigned(17 downto 0) := (others => '0');
    signal FetchAddr                    : unsigned(11 downto 0) := (others => '0');
    
    signal resultDataMuxed              : unsigned(31 downto 0);
-   
-   type CPU_LOADTYPE is
-   (
-      LOADTYPE_SBYTE,
-      LOADTYPE_SWORD,
-      LOADTYPE_DWORD,
-      LOADTYPE_BYTE,
-      LOADTYPE_WORD
-   );
    
    --regs         
    signal executeNew                   : std_logic := '0';
@@ -199,12 +223,8 @@ architecture arch of RSP_core is
    signal executeMemReadEnable         : std_logic := '0';
    signal executeLoadType              : CPU_LOADTYPE;
    signal executeLoadAddr              : unsigned(11 downto 0);
-
-   --wires
-   signal EXEresultWriteEnable         : std_logic;
-   signal EXELoadType                  : CPU_LOADTYPE;
-   signal EXEReadEnable                : std_logic := '0';
-   signal EXEerror_instr               : std_logic := '0';
+   signal executeReadRSPReg            : std_logic := '0';
+   signal executeReadRDPReg            : std_logic := '0';
    
    -- stage 4 
    -- reg      
@@ -326,6 +346,8 @@ begin
    begin
       if (rising_edge(clk1x)) then
       
+         error_instr <= '0';
+      
          if (ce_1x = '0') then
          
             stall2           <= '0';
@@ -350,12 +372,10 @@ begin
                   decodeImmData    <= decImmData;   
                   decodeJumpTarget <= decJumpTarget;
                   decodeSource1    <= decSource1;
-                  decodeSource2    <= decSource2;
-                  decodeOP         <= decOP;
-                  decodeFunct      <= decFunct;     
-                  decodeShamt      <= decShamt;     
-                  decodeRD         <= decRD;        
-                  decodeTarget     <= decTarget;    
+                  decodeSource2    <= decSource2; 
+                  decodeShamt      <= decShamt;          
+                  decodeTarget     <= decTarget;   
+                  decodeRegAddr    <= decRD & "00";
                   
                   -- operand fetching
                   decodeValue1     <= unsigned(regs1_q_b);
@@ -377,7 +397,15 @@ begin
                   decodeUseImmidateValue2 <= '0';
                   decodeShiftSigned       <= '0';
                   decodeBranchType        <= BRANCH_OFF;
-
+                  decodeWriteEnable       <= '0';
+                  decode_break            <= '0';
+                  decodeReadEnable        <= '0';
+                  decodeSaveType          <= SAVETYPE_NONE;
+                  decodeReadRSPReg        <= '0';
+                  decodeReadRDPReg        <= '0';
+                  decodeWriteRSPReg       <= '0';
+                  decodeWriteRDPReg       <= '0';
+                      
                   -- decoding opcode specific
                   case (to_integer(decOP)) is
          
@@ -387,28 +415,34 @@ begin
                            when 16#00# => -- SLL
                               decodeResultMux         <= RESULTMUX_SHIFTLEFT;
                               decodeShiftAmountType   <= '0';
+                              decodeWriteEnable       <= '1';
                               
                            when 16#02# => -- SRL
                               decodeResultMux         <= RESULTMUX_SHIFTRIGHT;
                               decodeShiftAmountType   <= '0';
+                              decodeWriteEnable       <= '1';
                            
                            when 16#03# => -- SRA
                               decodeResultMux         <= RESULTMUX_SHIFTRIGHT; 
                               decodeShiftSigned       <= '1';
                               decodeShiftAmountType   <= '0';
+                              decodeWriteEnable       <= '1';
                               
                            when 16#04# => -- SLLV
                               decodeResultMux         <= RESULTMUX_SHIFTLEFT;
                               decodeShiftAmountType   <= '1';
+                              decodeWriteEnable       <= '1';
                               
                            when 16#06# => -- SRLV
                               decodeResultMux         <= RESULTMUX_SHIFTRIGHT;
                               decodeShiftAmountType   <= '1';
+                              decodeWriteEnable       <= '1';
                            
                            when 16#07# => -- SRAV
                               decodeResultMux         <= RESULTMUX_SHIFTRIGHT;
                               decodeShiftSigned       <= '1';
                               decodeShiftAmountType   <= '1';
+                              decodeWriteEnable       <= '1';
                               
                            when 16#08# => -- JR
                               decodeBranchType        <= BRANCH_ALWAYS_REG;
@@ -417,43 +451,58 @@ begin
                               decodeResultMux         <= RESULTMUX_PC;
                               decodeTarget            <= decRD;
                               decodeBranchType        <= BRANCH_ALWAYS_REG;
+                              decodeWriteEnable       <= '1';
                               
                            when 16#0D# => -- break
-                              null;
+                              decode_break            <= '1';
                            
                            when 16#20#| 16#21# => -- ADD/ADDU
                               decodeResultMux         <= RESULTMUX_ADD;
+                              decodeWriteEnable       <= '1';
                               
                            when 16#22# | 16#23# => -- SUB/SUBU
                               decodeResultMux         <= RESULTMUX_SUB;
+                              decodeWriteEnable       <= '1';
                            
                            when 16#24# => -- AND
                               decodeResultMux         <= RESULTMUX_AND;
+                              decodeWriteEnable       <= '1';
                            
                            when 16#25# => -- OR
                               decodeResultMux         <= RESULTMUX_OR;
+                              decodeWriteEnable       <= '1';
                               
                            when 16#26# => -- XOR
                               decodeResultMux         <= RESULTMUX_XOR;
+                              decodeWriteEnable       <= '1';
                               
                            when 16#27# => -- NOR
                               decodeResultMux         <= RESULTMUX_NOR;
+                              decodeWriteEnable       <= '1';
                               
                            when 16#2A# => -- SLT
                               decodeResultMux         <= RESULTMUX_BIT;
                               decodeBitFuncType       <= BITFUNC_SIGNED;
+                              decodeWriteEnable       <= '1';
                            
                            when 16#2B# => -- SLTU
                               decodeResultMux         <= RESULTMUX_BIT;
                               decodeBitFuncType       <= BITFUNC_UNSIGNED;
+                              decodeWriteEnable       <= '1';
 
-                           when others => null;
+                           when others =>
+                              -- synthesis translate_off
+                              report to_hstring(decFunct);
+                              -- synthesis translate_on
+                              --report "Unknown extended opcode" severity failure; 
+                              error_instr  <= '1';
                         end case;
   
                      when 16#01# => -- B: BLTZ, BGEZ
                         if (decSource2(4 downto 1) = "1000") then 
                            decodeResultMux      <= RESULTMUX_PC;
                            decodeTarget         <= to_unsigned(31, 5);
+                           decodeWriteEnable    <= '1';
                         end if;
                         if (decSource2(0) = '1') then
                            decodeBranchType     <= BRANCH_BRANCH_BGEZ;
@@ -468,6 +517,7 @@ begin
                         decodeResultMux         <= RESULTMUX_PC;
                         decodeTarget            <= to_unsigned(31, 5);
                         decodeBranchType        <= BRANCH_JUMPIMM;
+                        decodeWriteEnable       <= '1';
                         
                      when 16#04# => -- BEQ
                         decodeBranchType        <= BRANCH_BRANCH_BEQ;
@@ -484,47 +534,90 @@ begin
                      when 16#08# | 16#09#  => -- ADDI / ADDIU
                         decodeResultMux         <= RESULTMUX_ADD;
                         decodeUseImmidateValue2 <= '1';
+                        decodeWriteEnable       <= '1';
                         
                      when 16#0A# => -- SLTI
                         decodeResultMux         <= RESULTMUX_BIT;
                         decodeBitFuncType       <= BITFUNC_IMM_SIGNED;   
+                        decodeWriteEnable       <= '1';
                         
                      when 16#0B# => -- SLTIU
                         decodeResultMux         <= RESULTMUX_BIT;
                         decodeBitFuncType       <= BITFUNC_IMM_UNSIGNED; 
+                        decodeWriteEnable       <= '1';
                         
                      when 16#0C# => -- ANDI
                         decodeResultMux         <= RESULTMUX_AND;
                         decodeUseImmidateValue2 <= '1';
+                        decodeWriteEnable       <= '1';
                         
                      when 16#0D# => -- ORI
                         decodeResultMux         <= RESULTMUX_OR;
                         decodeUseImmidateValue2 <= '1';
+                        decodeWriteEnable       <= '1';
                         
                      when 16#0E# => -- XORI
                         decodeResultMux         <= RESULTMUX_XOR;
                         decodeUseImmidateValue2 <= '1';
+                        decodeWriteEnable       <= '1';
                         
                      when 16#0F# => -- LUI
                         decodeResultMux         <= RESULTMUX_LUI;
+                        decodeWriteEnable       <= '1';
                         
                      when 16#10# => -- COP0
-                        null;  
+                        if (decSource1 = 0) then
+                           if (decRD(3) = '1') then
+                              decodeReadRDPReg <= '1';
+                           else
+                              decodeReadRSPReg <= '1';
+                           end if;
+                        elsif (decSource1 = 4) then
+                           if (decRD(3) = '1') then
+                              decodeWriteRDPReg <= '1';
+                           else
+                              decodeWriteRSPReg <= '1';
+                           end if;
+                        end if;
+
+                     when 16#20# => -- LB
+                        decodeLoadType       <= LOADTYPE_SBYTE;
+                        decodeReadEnable     <= '1';
                         
-                     when 16#20# => null; -- LB
-                     when 16#21# => null; -- LH
-                     when 16#23# => null; -- LW
-                     when 16#24# => null; -- LBU
-                     when 16#25# => null; -- LHU
-                     when 16#27# => null; -- LWU
-                     when 16#28# => null; -- SB
-                     when 16#29# => null; -- SH
-                     when 16#2B# => null; -- SW
+                     when 16#21# => -- LH
+                        decodeLoadType       <= LOADTYPE_SWORD;
+                        decodeReadEnable     <= '1';
+                        
+                     when 16#23# | 16#27# => -- LW / LWU
+                        decodeLoadType       <= LOADTYPE_DWORD;
+                        decodeReadEnable     <= '1';
+         
+                     when 16#24# => -- LBU
+                        decodeLoadType       <= LOADTYPE_BYTE;
+                        decodeReadEnable     <= '1';
+         
+                     when 16#25# => -- LHU
+                        decodeLoadType       <= LOADTYPE_WORD;
+                        decodeReadEnable     <= '1';
+                     
+                     when 16#28# => -- SB
+                        decodeSaveType       <= SAVETYPE_BYTE;
+                     
+                     when 16#29# => -- SH
+                        decodeSaveType       <= SAVETYPE_WORD;
+                        
+                     when 16#2B# => -- SW
+                        decodeSaveType       <= SAVETYPE_DWORD;
                      
                      when 16#32# => null; -- LWC2
                      when 16#3A# => null; -- SWC2
                           
-                     when others => null;   
+                     when others =>
+                        -- synthesis translate_off
+                        report to_hstring(decOP);
+                        -- synthesis translate_on
+                        --report "Unknown opcode" severity failure; 
+                        error_instr  <= '1';                     
                      
                   end case;
                   
@@ -596,7 +689,7 @@ begin
    
    ---------------------- branching ------------------
    PCnext       <= PC + 4;
-   PCnextBranch <= PC + unsigned((resize(signed(decodeImmData), 10) & "00"));
+   PCnextBranch <= ("000000" & PC) + (decodeImmData & "00");
    
    cmpEqual    <= '1' when (value1 = value2) else '0';
    cmpNegative <= value1(31);
@@ -606,12 +699,12 @@ begin
                   PCnext                              when (decodeNew = '0') else
                   value1(11 downto 0)                 when (decodeBranchType = BRANCH_ALWAYS_REG) else
                   decodeJumpTarget(9 downto 0) & "00" when (decodeBranchType = BRANCH_JUMPIMM) else
-                  PCnextBranch                        when (decodeBranchType = BRANCH_BRANCH_BGEZ and (cmpZero = '1' or cmpNegative = '0'))  else
-                  PCnextBranch                        when (decodeBranchType = BRANCH_BRANCH_BLTZ and cmpNegative = '1')                     else
-                  PCnextBranch                        when (decodeBranchType = BRANCH_BRANCH_BEQ  and cmpEqual = '1')                        else
-                  PCnextBranch                        when (decodeBranchType = BRANCH_BRANCH_BNE  and cmpEqual = '0')                        else
-                  PCnextBranch                        when (decodeBranchType = BRANCH_BRANCH_BLEZ and (cmpZero = '1' or cmpNegative = '1'))  else
-                  PCnextBranch                        when (decodeBranchType = BRANCH_BRANCH_BGTZ and (cmpZero = '0' and cmpNegative = '0')) else
+                  PCnextBranch(11 downto 0)           when (decodeBranchType = BRANCH_BRANCH_BGEZ and (cmpZero = '1' or cmpNegative = '0'))  else
+                  PCnextBranch(11 downto 0)           when (decodeBranchType = BRANCH_BRANCH_BLTZ and cmpNegative = '1')                     else
+                  PCnextBranch(11 downto 0)           when (decodeBranchType = BRANCH_BRANCH_BEQ  and cmpEqual = '1')                        else
+                  PCnextBranch(11 downto 0)           when (decodeBranchType = BRANCH_BRANCH_BNE  and cmpEqual = '0')                        else
+                  PCnextBranch(11 downto 0)           when (decodeBranchType = BRANCH_BRANCH_BLEZ and (cmpZero = '1' or cmpNegative = '1'))  else
+                  PCnextBranch(11 downto 0)           when (decodeBranchType = BRANCH_BRANCH_BGTZ and (cmpZero = '0' and cmpNegative = '0')) else
                   PCnext;     
 
    ---------------------- result muxing ------------------
@@ -628,22 +721,25 @@ begin
                       unsigned(resize(signed(decodeImmData) & x"0000", 32)); -- (decodeResultMux = RESULTMUX_LUI);  
 
    
-   
-   process (decodeSource2, decodeOP, decodeFunct, stall3, stall, value2, decodeNew, calcMemAddr)
+   reg_addr      <= decodeRegAddr;
+   reg_dataWrite <= value2;
+
+   process (all)
       type trotatedData is array(0 to 3) of std_logic_vector(7 downto 0);
       variable rotatedData : trotatedData;
       variable rotateAddrMuxAdd : integer range 0 to 3;
    begin
    
-      EXEerror_instr          <= '0';
-   
-      stallNew3               <= stall3;
-      EXEresultWriteEnable    <= '0';  
-      break_out               <= '0';      
+      stallNew3         <= stall3;
+      break_out         <= '0';      
+      reg_RSP_read      <= '0';      
+      reg_RDP_read      <= '0';      
+      reg_RSP_write     <= '0';      
+      reg_RDP_write     <= '0';      
       
       -- DMEM muxing 
       rotateAddrMuxAdd := 0;
-      if (to_integer(decodeOP) = 16#28#) then -- SB
+      if (decodeSaveType = SAVETYPE_BYTE) then -- SB
          case (calcMemAddr(1 downto 0)) is
             when "00" => rotateAddrMuxAdd := 3;
             when "01" => rotateAddrMuxAdd := 2;
@@ -651,7 +747,7 @@ begin
             when "11" => rotateAddrMuxAdd := 0;
             when others => null;
          end case;
-      elsif (to_integer(decodeOP) = 16#29#) then -- SH
+      elsif (decodeSaveType = SAVETYPE_WORD) then -- SH
          case (calcMemAddr(1 downto 0)) is
             when "00" => rotateAddrMuxAdd := 2;
             when "01" => rotateAddrMuxAdd := 1;
@@ -674,9 +770,6 @@ begin
       rotatedData(2) := std_logic_vector(value2(15 downto  8));
       rotatedData(3) := std_logic_vector(value2( 7 downto  0));
       
-      EXELoadType             <= LOADTYPE_DWORD;
-      EXEReadEnable           <= '0';
-      
       for i in 0 to 15 loop
          if (calcMemAddr(3 downto 0) > i) then
             dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4) + 1);
@@ -689,153 +782,26 @@ begin
 
       
       if (stall = 0 and decodeNew = '1') then
+      
+         break_out     <= decode_break;
+         
+         reg_RSP_read  <= decodeReadRSPReg; 
+         reg_RDP_read  <= decodeReadRDPReg; 
+         reg_RSP_write <= decodeWriteRSPReg;
+         reg_RDP_write <= decodeWriteRDPReg;
              
-         case (to_integer(decodeOP)) is
-         
-            when 16#00# =>
-               case (to_integer(decodeFunct)) is
-         
-                  when 16#00# | 16#04# => -- SLL | SLLV
-                     EXEresultWriteEnable <= '1';
-
-                  when 16#02# | 16#03# | 16#06# | 16#07# => -- SRL | SRA | SRLV | SRAV
-                     EXEresultWriteEnable <= '1';               
-                    
-                  when 16#08# => -- JR        
-                     null;
-                    
-                  when 16#09# => -- JALR        
-                     EXEresultWriteEnable <= '1';
-
-                  when 16#0D# => -- BREAK
-                     break_out <= '1';
-                     
-                  when 16#20# | 16#21# => -- ADD / ADDU        
-                     EXEresultWriteEnable <= '1';
-                    
-                  when 16#22# |16#23# => -- SUB | SUBU       
-                     EXEresultWriteEnable <= '1';
-                  
-                  when 16#24# => -- AND
-                     EXEresultWriteEnable <= '1';
-                    
-                  when 16#25# => -- OR
-                     EXEresultWriteEnable <= '1';
-                     
-                  when 16#26# => -- XOR
-                     EXEresultWriteEnable <= '1';
-                     
-                  when 16#27# => -- NOR
-                     EXEresultWriteEnable <= '1';
-                  
-                  when 16#2A# => -- SLT
-                     EXEresultWriteEnable <= '1'; 
-                   
-                  when 16#2B# => -- SLTU
-                     EXEresultWriteEnable <= '1';
-                 
-                  when others => 
-                  -- synthesis translate_off
-                     report to_hstring(decodeFunct);
-                  -- synthesis translate_on
-                     --report "Unknown extended opcode" severity failure; 
-                     EXEerror_instr  <= '1';
-                     
-               end case;
-               
-            when 16#01# => 
-               if (decodeSource2(4 downto 1) = "1000") then
-                  EXEresultWriteEnable <= '1';
-               end if;
-               
-            when 16#02# => -- J
-               null;            
-               
-            when 16#03# => -- JAL         
-               EXEresultWriteEnable <= '1';
-               
-            when 16#04# => -- BEQ
-               null;
-            
-            when 16#05# => -- BNE
-               null;
-            
-            when 16#06# => -- BLEZ
-               null;
-               
-            when 16#07# => -- BGTZ
-               null;
-            
-            when 16#08# | 16#09# => -- ADDI | ADDIU           
-               EXEresultWriteEnable <= '1';
-               
-            when 16#0A# => -- SLTI
-               EXEresultWriteEnable <= '1';
-               
-            when 16#0B# => -- SLTIU
-               EXEresultWriteEnable <= '1';
-
-            when 16#0C# => -- ANDI
-               EXEresultWriteEnable <= '1';
-               
-            when 16#0D# => -- ORI
-               EXEresultWriteEnable <= '1';
-               
-            when 16#0E# => -- XORI
-               EXEresultWriteEnable <= '1';
-               
-            when 16#0F# => -- LUI
-               EXEresultWriteEnable <= '1';
-               
-            when 16#10# => -- COP0
-               null;
-               
-            when 16#20# => -- LB
-               EXELoadType   <= LOADTYPE_SBYTE;
-               EXEReadEnable <= '1';
-               
-            when 16#21# => -- LH
-               EXELoadType <= LOADTYPE_SWORD;
-               EXEReadEnable <= '1';
-               
-            when 16#23# | 16#27# => -- LW / LWU
-               EXELoadType <= LOADTYPE_DWORD;
-               EXEReadEnable <= '1';
-
-            when 16#24# => -- LBU
-               EXELoadType <= LOADTYPE_BYTE;
-               EXEReadEnable <= '1';
-
-            when 16#25# => -- LHU
-               EXELoadType <= LOADTYPE_WORD;
-               EXEReadEnable <= '1';
-
-            when 16#28# => -- SB
+         case (decodeSaveType) is
+            when SAVETYPE_BYTE =>
                dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0))) <= '1';
-
-            when 16#29# => -- SH
+            when SAVETYPE_WORD => 
                dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 0)) <= '1';
                dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 1)) <= '1';
-               
-            when 16#2B# => -- SW
+            when SAVETYPE_DWORD =>
                dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 0)) <= '1';
                dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 1)) <= '1';
                dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 2)) <= '1';
                dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 3)) <= '1';
-           
-            when 16#32# => -- LWC2
-               null;
-               
-            when 16#3A# => -- SWC2
-               null;
-          
-            when others => 
-               -- synthesis translate_off
-               report to_hstring(decodeOP);
-               -- synthesis translate_on
-               --report "Unknown opcode" severity failure; 
-               EXEerror_instr  <= '1';
-         
+            when others => null;
          end case;
              
       end if;
@@ -846,8 +812,6 @@ begin
    process (clk1x)
    begin
       if (rising_edge(clk1x)) then
-      
-         error_instr <= '0';
       
          if (ce_1x = '0') then
          
@@ -882,8 +846,6 @@ begin
                if (decodeNew = '1') then     
                
                   executeNew           <= '1';
-                  
-                  error_instr          <= EXEerror_instr;
                
 -- synthesis translate_off
                   pcOld2               <= pcOld1;  
@@ -896,14 +858,17 @@ begin
                   if (decodeTarget = 0) then
                      resultWriteEnable <= '0';
                   else
-                     resultWriteEnable <= EXEresultWriteEnable;
+                     resultWriteEnable <= decodeWriteEnable;
                   end if;
                         
-                  executeLoadType               <= EXELoadType;   
-                  executeMemReadEnable          <= EXEReadEnable; 
-                  executeLoadAddr               <= calcMemAddr(11 downto 0); 
+                  executeLoadType      <= decodeLoadType;   
+                  executeMemReadEnable <= decodeReadEnable; 
+                  executeLoadAddr      <= calcMemAddr(11 downto 0); 
+                  
+                  executeReadRSPReg    <= decodeReadRSPReg;
+                  executeReadRDPReg    <= decodeReadRDPReg;
 
-                  if (EXEReadEnable = '1') then
+                  if (decodeReadEnable = '1' or decodeReadRSPReg = '1' or decodeReadRDPReg = '1') then
                      stall3              <= '1';
                      executeStallFromMEM <= '1';
                   end if;
@@ -946,12 +911,13 @@ begin
    begin
       if (rising_edge(clk1x)) then
       
+         writebackWriteEnable <= '0';
+      
          if (ce_1x = '0') then
          
             stall4                           <= '0';
             writebackNew                     <= '0';
             writebackStallFromMEM            <= '0';                  
-            writebackWriteEnable             <= '0';
             
          else
          
@@ -993,6 +959,20 @@ begin
                      end case; 
 
                   end if;
+                  
+                  if (executeReadRSPReg = '1') then
+                     if (resultTarget > 0) then
+                        writebackWriteEnable <= '1';
+                     end if;
+                     writebackData <= reg_RSP_dataRead;
+                  end if;
+                  
+                  if (executeReadRDPReg = '1') then
+                     if (resultTarget > 0) then
+                        writebackWriteEnable <= '1';
+                     end if;
+                     writebackData <= reg_RDP_dataRead;
+                  end if;
 
                end if;
                
@@ -1025,14 +1005,12 @@ begin
                pcOld4               <= pcOld3;
                opcode4              <= opcode3;
                
-               if (writebackWriteEnable = '1') then 
-                  if (writebackTarget > 0) then
-                     regs(to_integer(writebackTarget)) <= writebackData;
-                  end if;
-               end if;
-               
             end if;
              
+         end if;
+         
+         if (writebackWriteEnable = '1') then 
+            regs(to_integer(writebackTarget)) <= writebackData;
          end if;
 -- synthesis translate_on
          

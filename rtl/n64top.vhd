@@ -107,7 +107,7 @@ architecture arch of n64top is
    
    -- error codes
    signal errorEna               : std_logic;
-   signal errorCode              : unsigned(7 downto 0) := (others => '0');
+   signal errorCode              : unsigned(11 downto 0) := (others => '0');
    
    signal errorMEMMUX            : std_logic;
    signal errorCPU_instr         : std_logic;
@@ -117,6 +117,8 @@ architecture arch of n64top is
    signal error_PI               : std_logic;
    signal errorCPU_exception     : std_logic;
    signal error_pif              : std_logic;
+   signal errorRSP_instr         : std_logic;
+   signal errorRSP_stall         : std_logic;
    
    -- irq
    signal irqRequest             : std_logic;
@@ -233,6 +235,13 @@ architecture arch of n64top is
    signal SIPIF_readProc         : std_logic;
    signal SIPIF_ProcDone         : std_logic;
    
+   -- RSP/RDP
+   signal RSP_RDP_reg_addr       : unsigned(6 downto 0);
+   signal RSP_RDP_reg_dataOut    : unsigned(31 downto 0);
+   signal RSP_RDP_reg_read       : std_logic;
+   signal RSP_RDP_reg_write      : std_logic;
+   signal RSP_RDP_reg_dataIn     : unsigned(31 downto 0);
+   
    -- cpu
    signal ce_intern              : std_logic := '0';
    
@@ -313,12 +322,16 @@ begin
    process (reset_intern_1x, error_PI          ) begin if (error_PI           = '1') then errorCode(5) <= '1'; elsif (reset_intern_1x = '1') then errorCode(5) <= '0'; end if; end process;
    process (reset_intern_1x, errorCPU_exception) begin if (errorCPU_exception = '1') then errorCode(6) <= '1'; elsif (reset_intern_1x = '1') then errorCode(6) <= '0'; end if; end process;
    process (reset_intern_1x, error_pif         ) begin if (error_pif          = '1') then errorCode(7) <= '1'; elsif (reset_intern_1x = '1') then errorCode(7) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRSP_instr    ) begin if (errorRSP_instr     = '1') then errorCode(8) <= '1'; elsif (reset_intern_1x = '1') then errorCode(8) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRSP_stall    ) begin if (errorRSP_stall     = '1') then errorCode(9) <= '1'; elsif (reset_intern_1x = '1') then errorCode(9) <= '0'; end if; end process;
+   
+   errorCode(11 downto 10) <= "00";
    
    process (clk1x)
    begin
       if rising_edge(clk1x) then
          errorEna <= '0';
-         if (errorCode /= x"00") then
+         if (errorCode /= x"000") then
             errorEna <= '1'; 
          end if;
       end if;
@@ -336,6 +349,9 @@ begin
       reset                => reset_intern_1x, 
 
       irq_out              => irqVector(0),
+      
+      error_instr          => errorRSP_instr,
+      error_stall          => errorRSP_stall,
                            
       bus_addr             => bus_RSP_addr,     
       bus_dataWrite        => bus_RSP_dataWrite,
@@ -353,6 +369,12 @@ begin
       rdram_done           => rdram_done(DDR3MUX_RSP),   
       ddr3_DOUT            => ddr3_DOUT,       
       ddr3_DOUT_READY      => ddr3_DOUT_READY,
+      
+      RSP_RDP_reg_addr     => RSP_RDP_reg_addr,   
+      RSP_RDP_reg_dataOut  => RSP_RDP_reg_dataOut,
+      RSP_RDP_reg_read     => RSP_RDP_reg_read,   
+      RSP_RDP_reg_write    => RSP_RDP_reg_write,  
+      RSP_RDP_reg_dataIn   => RSP_RDP_reg_dataIn, 
       
       fifoout_reset        => rspfifo_reset,   
       fifoout_Din          => rspfifo_Din,     
@@ -390,6 +412,12 @@ begin
       rdram_done           => rdram_done(DDR3MUX_RDP),   
       ddr3_DOUT            => ddr3_DOUT,       
       ddr3_DOUT_READY      => ddr3_DOUT_READY, 
+      
+      RSP_RDP_reg_addr     => RSP_RDP_reg_addr,   
+      RSP_RDP_reg_dataOut  => RSP_RDP_reg_dataOut,
+      RSP_RDP_reg_read     => RSP_RDP_reg_read,   
+      RSP_RDP_reg_write    => RSP_RDP_reg_write,  
+      RSP_RDP_reg_dataIn   => RSP_RDP_reg_dataIn, 
       
       SS_reset             => SS_reset,
       SS_DataWrite         => SS_DataWrite,

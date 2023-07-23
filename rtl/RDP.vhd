@@ -10,38 +10,44 @@ use work.pRDP.all;
 entity RDP is
    port 
    (
-      clk1x            : in  std_logic;
-      clk2x            : in  std_logic;
-      ce               : in  std_logic;
-      reset            : in  std_logic;
+      clk1x                : in  std_logic;
+      clk2x                : in  std_logic;
+      ce                   : in  std_logic;
+      reset                : in  std_logic;
+            
+      irq_out              : out std_logic := '0';
+            
+      bus_addr             : in  unsigned(19 downto 0); 
+      bus_dataWrite        : in  std_logic_vector(31 downto 0);
+      bus_read             : in  std_logic;
+      bus_write            : in  std_logic;
+      bus_dataRead         : out std_logic_vector(31 downto 0) := (others => '0');
+      bus_done             : out std_logic := '0';
+            
+      rdram_request        : out std_logic := '0';
+      rdram_rnw            : out std_logic := '0'; 
+      rdram_address        : out unsigned(27 downto 0):= (others => '0');
+      rdram_burstcount     : out unsigned(9 downto 0):= (others => '0');
+      rdram_writeMask      : out std_logic_vector(7 downto 0) := (others => '0'); 
+      rdram_dataWrite      : out std_logic_vector(63 downto 0) := (others => '0');
+      rdram_granted        : in  std_logic;
+      rdram_done           : in  std_logic;
+      ddr3_DOUT            : in  std_logic_vector(63 downto 0);
+      ddr3_DOUT_READY      : in  std_logic;
+            
+      RSP_RDP_reg_addr     : in  unsigned(6 downto 0);
+      RSP_RDP_reg_dataOut  : in  unsigned(31 downto 0);
+      RSP_RDP_reg_read     : in  std_logic;
+      RSP_RDP_reg_write    : in  std_logic;
+      RSP_RDP_reg_dataIn   : out unsigned(31 downto 0);
       
-      irq_out          : out std_logic := '0';
-      
-      bus_addr         : in  unsigned(19 downto 0); 
-      bus_dataWrite    : in  std_logic_vector(31 downto 0);
-      bus_read         : in  std_logic;
-      bus_write        : in  std_logic;
-      bus_dataRead     : out std_logic_vector(31 downto 0) := (others => '0');
-      bus_done         : out std_logic := '0';
-      
-      rdram_request    : out std_logic := '0';
-      rdram_rnw        : out std_logic := '0'; 
-      rdram_address    : out unsigned(27 downto 0):= (others => '0');
-      rdram_burstcount : out unsigned(9 downto 0):= (others => '0');
-      rdram_writeMask  : out std_logic_vector(7 downto 0) := (others => '0'); 
-      rdram_dataWrite  : out std_logic_vector(63 downto 0) := (others => '0');
-      rdram_granted    : in  std_logic;
-      rdram_done       : in  std_logic;
-      ddr3_DOUT        : in  std_logic_vector(63 downto 0);
-      ddr3_DOUT_READY  : in  std_logic;
-      
-      SS_reset         : in  std_logic;
-      SS_DataWrite     : in  std_logic_vector(63 downto 0);
-      SS_Adr           : in  unsigned(0 downto 0);
-      SS_wren          : in  std_logic;
-      SS_rden          : in  std_logic;
-      SS_DataRead      : out std_logic_vector(63 downto 0);
-      SS_idle          : out std_logic
+      SS_reset             : in  std_logic;
+      SS_DataWrite         : in  std_logic_vector(63 downto 0);
+      SS_Adr               : in  unsigned(0 downto 0);
+      SS_wren              : in  std_logic;
+      SS_rden              : in  std_logic;
+      SS_DataRead          : out std_logic_vector(63 downto 0);
+      SS_idle              : out std_logic
    );
 end entity;
 
@@ -63,7 +69,11 @@ architecture arch of RDP is
    signal DPC_PIPEBUSY              : unsigned(23 downto 0); -- 0x04100018 (R): [23:0] clock counter
    signal DPC_TMEM                  : unsigned(23 downto 0); -- 0x0410001C (R): [23:0] clock counter
 
+   -- bus/mem multiplexing
+   signal bus_read_latched          : std_logic := '0';
    signal bus_write_latched         : std_logic := '0';
+   signal reg_addr                  : unsigned(19 downto 0); 
+   signal reg_dataWrite             : std_logic_vector(31 downto 0);
 
    -- Command RAM
    signal DPC_END                   : unsigned(23 downto 0);
@@ -139,7 +149,11 @@ architecture arch of RDP is
 
 begin 
 
+   reg_addr      <= 13x"0" & RSP_RDP_reg_addr when (RSP_RDP_reg_read = '1' or RSP_RDP_reg_write = '1') else bus_addr;     
+   reg_dataWrite <= std_logic_vector(RSP_RDP_reg_dataOut) when (RSP_RDP_reg_write = '1') else bus_dataWrite;
+
    process (clk1x)
+      variable var_dataRead : std_logic_vector(31 downto 0) := (others => '0');
    begin
       if rising_edge(clk1x) then
       
@@ -166,6 +180,7 @@ begin
             DPC_PIPEBUSY             <= (others => '0');
             DPC_TMEM                 <= (others => '0');
             
+            bus_read_latched         <= '0';
             bus_write_latched        <= '0';
             
             DPC_END                  <= ss_in(0)(47 downto 24); --(others => '0');
@@ -180,93 +195,111 @@ begin
    
                -- bus read
                if (bus_read = '1') then
-                  bus_done <= '1';
-                  case (bus_addr(19 downto 0)) is   
-                     when x"00000" => bus_dataRead(23 downto 0) <= std_logic_vector(DPC_START_NEXT);  
-                     when x"00004" => bus_dataRead(23 downto 0) <= std_logic_vector(DPC_END_NEXT);
-                     when x"00008" => bus_dataRead(23 downto 0) <= std_logic_vector(DPC_CURRENT);
-                     when x"0000C" =>
-                        bus_dataRead(0)  <= DPC_STATUS_xbus_dmem_dma;
-                        bus_dataRead(1)  <= DPC_STATUS_freeze;
-                        bus_dataRead(2)  <= DPC_STATUS_flush;
-                        bus_dataRead(3)  <= DPC_STATUS_start_gclk;
-                        if (DPC_TMEM > 0) then bus_dataRead(4)      <= '1'; end if;
-                        if (DPC_PIPEBUSY > 0) then bus_dataRead(5)  <= '1'; end if;
-                        --if (DPC_BUFBUSY > 0) then bus_dataRead(6)  <= '1'; end if;
-                        bus_dataRead(7)  <= DPC_STATUS_cbuf_ready;
-                        bus_dataRead(8)  <= DPC_STATUS_dma_busy;
-                        bus_dataRead(9)  <= DPC_STATUS_end_pending;
-                        bus_dataRead(10) <= DPC_STATUS_start_pending;
-                     
-                     when x"00010" => bus_dataRead(23 downto 0) <= std_logic_vector(DPC_CLOCK);  
-                     when x"00014" => bus_dataRead(23 downto 0) <= std_logic_vector(DPC_BUFBUSY);  
-                     when x"00018" => bus_dataRead(23 downto 0) <= std_logic_vector(DPC_PIPEBUSY);  
-                     when x"0001C" => bus_dataRead(23 downto 0) <= std_logic_vector(DPC_TMEM);  
-                     when others   => null;             
-                  end case;
+                  bus_read_latched <= '1';
                end if;
                
+               var_dataRead := (others => '0');
+               case (reg_addr(19 downto 0)) is   
+                  when x"00000" => var_dataRead(23 downto 0) := std_logic_vector(DPC_START_NEXT);  
+                  when x"00004" => var_dataRead(23 downto 0) := std_logic_vector(DPC_END_NEXT);
+                  when x"00008" => var_dataRead(23 downto 0) := std_logic_vector(DPC_CURRENT);
+                  when x"0000C" =>
+                     var_dataRead(0)  := DPC_STATUS_xbus_dmem_dma;
+                     var_dataRead(1)  := DPC_STATUS_freeze;
+                     var_dataRead(2)  := DPC_STATUS_flush;
+                     var_dataRead(3)  := DPC_STATUS_start_gclk;
+                     if (DPC_TMEM > 0) then var_dataRead(4)      := '1'; end if;
+                     if (DPC_PIPEBUSY > 0) then var_dataRead(5)  := '1'; end if;
+                     --if (DPC_BUFBUSY > 0) then var_dataRead(6)  := '1'; end if;
+                     var_dataRead(7)  := DPC_STATUS_cbuf_ready;
+                     var_dataRead(8)  := DPC_STATUS_dma_busy;
+                     var_dataRead(9)  := DPC_STATUS_end_pending;
+                     var_dataRead(10) := DPC_STATUS_start_pending;
+                  
+                  when x"00010" => var_dataRead(23 downto 0) := std_logic_vector(DPC_CLOCK);  
+                  when x"00014" => var_dataRead(23 downto 0) := std_logic_vector(DPC_BUFBUSY);  
+                  when x"00018" => var_dataRead(23 downto 0) := std_logic_vector(DPC_PIPEBUSY);  
+                  when x"0001C" => var_dataRead(23 downto 0) := std_logic_vector(DPC_TMEM);  
+                  when others   => null;             
+               end case;
+               
+               if (bus_read_latched = '1' and RSP_RDP_reg_read = '0') then
+                  bus_done         <= '1';
+                  bus_dataRead     <= var_dataRead;
+                  bus_read_latched <= '0';
+               end if;
+               
+               RSP_RDP_reg_dataIn <= unsigned(var_dataRead);
+               
+               -- bus write
                if (bus_write = '1') then
                   bus_write_latched <= '1';
                end if;
                
                if (commandWordDone = '1') then
                   DPC_CURRENT   <= DPC_CURRENT + 8;
-                  if (DPC_CURRENT + 8 = DPC_END) then
-                     if (DPC_STATUS_end_pending = '1') then
-                        DPC_STATUS_end_pending <= '0';
-                        DPC_CURRENT            <= DPC_START_NEXT;
-                        DPC_END                <= DPC_END_NEXT;
-                     else
-                        DPC_STATUS_dma_busy <= '0';
-                     end if;
+               end if;
+               
+               if (bus_write_latched = '1' or RSP_RDP_reg_write = '1') then
+               
+                  if (bus_write_latched = '1' and RSP_RDP_reg_write = '0') then
+                     bus_write_latched <= '0';
+                     bus_done          <= '1';
                   end if;
-               elsif (bus_write_latched = '1') then
-                  bus_write_latched <= '0';
-                  bus_done          <= '1';
                   
-                  case (bus_addr(19 downto 0)) is
+                  case (reg_addr(19 downto 0)) is
                      when x"00000" =>
                         --if (DPC_STATUS_start_valid = '0') then -- wrong according to n64brew, should always update
-                           DPC_START_NEXT <= unsigned(bus_dataWrite(23 downto 3)) & "000";
+                           DPC_START_NEXT <= unsigned(reg_dataWrite(23 downto 3)) & "000";
                         --end if;
                         DPC_STATUS_start_pending <= '1';
                      
                      when x"00004" => 
-                        DPC_END_NEXT <= unsigned(bus_dataWrite(23 downto 3)) & "000";
+                        DPC_END_NEXT <= unsigned(reg_dataWrite(23 downto 3)) & "000";
                         
                         if (DPC_STATUS_start_pending = '0') then
                            DPC_STATUS_dma_busy <= '1';
-                           DPC_END             <= unsigned(bus_dataWrite(23 downto 3)) & "000";
+                           DPC_END             <= unsigned(reg_dataWrite(23 downto 3)) & "000";
                         else
                            if (DPC_STATUS_dma_busy = '0') then
                               DPC_STATUS_start_pending <= '0';
                               DPC_STATUS_dma_busy      <= '1';
                               DPC_CURRENT              <= DPC_START_NEXT;
-                              DPC_END                  <= unsigned(bus_dataWrite(23 downto 3)) & "000";
+                              DPC_END                  <= unsigned(reg_dataWrite(23 downto 3)) & "000";
                            else
                               DPC_STATUS_end_pending <= '1';
                            end if;
                         end if;
                      
                      when x"0000C" => 
-                        if (bus_dataWrite(0) = '1') then DPC_STATUS_xbus_dmem_dma <= '0'; end if;
-                        if (bus_dataWrite(1) = '1') then DPC_STATUS_xbus_dmem_dma <= '1'; end if;
-                        if (bus_dataWrite(2) = '1') then 
+                        if (reg_dataWrite(0) = '1') then DPC_STATUS_xbus_dmem_dma <= '0'; end if;
+                        if (reg_dataWrite(1) = '1') then DPC_STATUS_xbus_dmem_dma <= '1'; end if;
+                        if (reg_dataWrite(2) = '1') then 
                            DPC_STATUS_freeze <= '0'; 
                         end if;
-                        if (bus_dataWrite(3) = '1') then DPC_STATUS_freeze        <= '1'; end if;
-                        if (bus_dataWrite(4) = '1') then DPC_STATUS_flush         <= '0'; end if;
-                        if (bus_dataWrite(5) = '1') then DPC_STATUS_flush         <= '1'; end if;
-                        if (bus_dataWrite(6) = '1') then DPC_TMEM     <= (others => '0'); end if;
-                        if (bus_dataWrite(7) = '1') then DPC_PIPEBUSY <= (others => '0'); end if;
-                        if (bus_dataWrite(8) = '1') then DPC_BUFBUSY  <= (others => '0'); end if;
-                        if (bus_dataWrite(9) = '1') then DPC_CLOCK    <= (others => '0'); end if;
+                        if (reg_dataWrite(3) = '1') then DPC_STATUS_freeze        <= '1'; end if;
+                        if (reg_dataWrite(4) = '1') then DPC_STATUS_flush         <= '0'; end if;
+                        if (reg_dataWrite(5) = '1') then DPC_STATUS_flush         <= '1'; end if;
+                        if (reg_dataWrite(6) = '1') then DPC_TMEM     <= (others => '0'); end if;
+                        if (reg_dataWrite(7) = '1') then DPC_PIPEBUSY <= (others => '0'); end if;
+                        if (reg_dataWrite(8) = '1') then DPC_BUFBUSY  <= (others => '0'); end if;
+                        if (reg_dataWrite(9) = '1') then DPC_CLOCK    <= (others => '0'); end if;
                      
-                     when others   => null;                  
+                     when others   => null; 
+
                   end case;
                   
-               end if; -- bus_write_latched
+               elsif (DPC_STATUS_dma_busy = '1' and DPC_CURRENT = DPC_END) then
+               
+                  if (DPC_STATUS_end_pending = '1') then
+                     DPC_STATUS_end_pending <= '0';
+                     DPC_CURRENT            <= DPC_START_NEXT;
+                     DPC_END                <= DPC_END_NEXT;
+                  else
+                     DPC_STATUS_dma_busy <= '0';
+                  end if;
+                  
+               end if;
 
             end if; -- ce
          
@@ -285,20 +318,22 @@ begin
                   rdram_dataWrite   <= fifoOut_Dout(63 downto 0);
                   rdram_burstcount  <= to_unsigned(1, 10);
                elsif (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1') then
-                  memState          <= WAITCOMMANDDATA;
-                  rdram_request     <= '1';
-                  rdram_rnw         <= '1';
-                  rdram_address     <= x"0" & DPC_CURRENT;
-                  if ((DPC_END(23 downto 3) - DPC_CURRENT(23 downto 3)) > 22) then
-                     commandCntNext    <= to_unsigned(22, 5);
-                     rdram_burstcount  <= to_unsigned(22, 10); -- max length for tri with all options on
-                  else
-                     commandCntNext    <= resize(DPC_END(23 downto 3) - DPC_CURRENT(23 downto 3), 5);
-                     rdram_burstcount  <= "00000" & resize(DPC_END(23 downto 3) - DPC_CURRENT(23 downto 3), 5);
+                  if (DPC_CURRENT < DPC_END) then
+                     memState          <= WAITCOMMANDDATA;
+                     rdram_request     <= '1';
+                     rdram_rnw         <= '1';
+                     rdram_address     <= x"0" & DPC_CURRENT;
+                     if ((DPC_END(23 downto 3) - DPC_CURRENT(23 downto 3)) > 22) then
+                        commandCntNext    <= to_unsigned(22, 5);
+                        rdram_burstcount  <= to_unsigned(22, 10); -- max length for tri with all options on
+                     else
+                        commandCntNext    <= resize(DPC_END(23 downto 3) - DPC_CURRENT(23 downto 3), 5);
+                        rdram_burstcount  <= "00000" & resize(DPC_END(23 downto 3) - DPC_CURRENT(23 downto 3), 5);
+                     end if;
+                     -- synthesis translate_off
+                     export_command_array.addr <= x"00" & DPC_CURRENT;
+                     -- synthesis translate_on
                   end if;
-                  -- synthesis translate_off
-                  export_command_array.addr <= x"00" & DPC_CURRENT;
-                  -- synthesis translate_on
                end if;
                
             when WAITCOMMANDDATA =>

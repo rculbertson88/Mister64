@@ -23,6 +23,8 @@ List of Errors:
 - Bit 5 - PI error
 - Bit 6 - critical Exception occured (heuristic, typically games crash when that happens, but can be false positive)
 - Bit 7 - PIF used up all 64 bytes for external communication or EEPROM command have unusual length
+- Bit 8 - RSP Instruction not implemented
+- Bit 9 - RSP stall timeout
   
 ## Status
 
