@@ -52,18 +52,25 @@ architecture arch of RSP_core is
    signal regs2_address_b              : std_logic_vector(4 downto 0);
    signal regs2_q_b                    : std_logic_vector(31 downto 0);  
    
+   -- vector regs
+   type t_vec_addr is array(0 to 7) of std_logic_vector(4 downto 0);
+   signal vec_addr_a                   : t_vec_addr;
+   signal vec_addr_b_1                 : t_vec_addr;
+   signal vec_addr_b_2                 : t_vec_addr;
+   
+   type t_vec_data is array(0 to 15) of std_logic_vector(7 downto 0);
+   signal vec_data_a                   : t_vec_data;
+   signal vec_data_b_1                 : t_vec_data;
+   signal vec_data_b_2                 : t_vec_data;
+   
+   signal vec_writeEna                 : std_logic_vector(15 downto 0);
+   
    -- other register
    signal PC                           : unsigned(11 downto 0) := (others => '0');               
    
-   signal stallNew2                    : std_logic := '0';
-   signal stallNew3                    : std_logic := '0';
-   signal stallNew4                    : std_logic := '0';
-               
    signal stall2                       : std_logic := '0';
    signal stall3                       : std_logic := '0';
-   signal stall4                       : std_logic := '0';
-   signal stall                        : unsigned(3 downto 1) := (others => '0');
-   signal stall4Masked                 : unsigned(3 downto 1) := (others => '0');             
+   signal stall                        : unsigned(2 downto 1) := (others => '0');           
                
 -- synthesis translate_off
    signal opcode1                      : unsigned(31 downto 0) := (others => '0');
@@ -101,7 +108,13 @@ architecture arch of RSP_core is
    signal decTarget                    : unsigned(4 downto 0);
    signal decJumpTarget                : unsigned(25 downto 0);
    
-   --regs      
+   signal decVectorElement             : unsigned(3 downto 0);
+   signal decVectorDestEle             : unsigned(2 downto 0);
+   signal decVectorMfcE                : unsigned(3 downto 0);
+   
+   --regs    
+   signal decodeStallcount             : integer range 0 to 2 := 0;
+   
    signal decodeNew                    : std_logic := '0';
    signal decodeImmData                : unsigned(15 downto 0) := (others => '0');
    signal decodeSource1                : unsigned(4 downto 0) := (others => '0');
@@ -109,6 +122,7 @@ architecture arch of RSP_core is
    signal decodeValue1                 : unsigned(31 downto 0) := (others => '0');
    signal decodeValue2                 : unsigned(31 downto 0) := (others => '0');
    signal decodeShamt                  : unsigned(4 downto 0) := (others => '0');
+   signal decodeRD                     : unsigned(4 downto 0) := (others => '0');
    signal decodeTarget                 : unsigned(4 downto 0) := (others => '0');
    signal decodeJumpTarget             : unsigned(25 downto 0) := (others => '0');
    signal decodeForwardValue1          : std_logic := '0';
@@ -124,6 +138,22 @@ architecture arch of RSP_core is
    signal decodeWriteRSPReg            : std_logic := '0';
    signal decodeWriteRDPReg            : std_logic := '0';
    signal decodeRegAddr                : unsigned(6 downto 0) := (others => '0');
+   signal decodeMemOffset              : signed(15 downto 0) := (others => '0');
+   
+   signal decodeVectorNew              : std_logic := '0';
+   signal decodeVectorValue1           : t_vec_data;
+   signal decodeVectorValue2           : t_vec_data;
+   signal decodeVectorWriteEnable      : std_logic := '0';
+   signal decodeVectorReadEnable       : std_logic := '0';
+   signal decodeVectorBE               : std_logic_vector(15 downto 0) := (others => '0');
+   signal decodeVectorElement          : unsigned(3 downto 0);
+   signal decodeVectorDestEle          : unsigned(2 downto 0);
+   signal decodeVectorMfcE             : unsigned(3 downto 0);
+   signal decodeVectorMTC2             : std_logic := '0';
+   signal decode_set_vco               : std_logic := '0';
+   signal decode_set_vcc               : std_logic := '0';
+   signal decode_set_vce               : std_logic := '0';
+   signal decodeVectorCalcType         : VECTOR_CALCTYPE; 
    
    type t_decodeBitFuncType is
    (
@@ -160,7 +190,11 @@ architecture arch of RSP_core is
       RESULTMUX_XOR,       
       RESULTMUX_NOR,       
       RESULTMUX_BIT,   
-      RESULTMUX_LUI
+      RESULTMUX_LUI,
+      RESULTMUX_VCO,
+      RESULTMUX_VCC,
+      RESULTMUX_VCE,
+      RESULTMUX_VECTOR
    );
    signal decodeResultMux : t_decodeResultMux;  
 
@@ -181,7 +215,7 @@ architecture arch of RSP_core is
       SAVETYPE_BYTE,
       SAVETYPE_WORD
    );
-   signal decodeSaveType               : CPU_SAVETYPE;   
+   signal decodeSaveType               : CPU_SAVETYPE;     
             
    -- stage 3   
    signal value2_muxedSigned           : unsigned(31 downto 0);
@@ -214,6 +248,11 @@ architecture arch of RSP_core is
    
    signal resultDataMuxed              : unsigned(31 downto 0);
    
+   signal vco                          : unsigned(15 downto 0);
+   signal vcc                          : unsigned(15 downto 0);
+   signal vce                          : unsigned(7 downto 0);
+   signal MFC2_value                   : std_logic_vector(15 downto 0);
+   
    --regs         
    signal executeNew                   : std_logic := '0';
    signal executeStallFromMEM          : std_logic := '0';
@@ -225,6 +264,18 @@ architecture arch of RSP_core is
    signal executeLoadAddr              : unsigned(11 downto 0);
    signal executeReadRSPReg            : std_logic := '0';
    signal executeReadRDPReg            : std_logic := '0';
+   
+   signal executeVectorNew             : std_logic := '0';
+   signal executeVectorTarget          : unsigned(4 downto 0) := (others => '0');
+   signal executeVectorReadEnable      : std_logic := '0';
+   signal executeVectorBE              : std_logic_vector(15 downto 0) := (others => '0');
+   signal executeVectorReadTarget      : unsigned(4 downto 0) := (others => '0');
+   signal executeVectorWritebackEna    : std_logic_vector(7 downto 0);
+   type texecuteVectorWritebackData is array(0 to 7) of std_logic_vector(15 downto 0);
+   signal executeVectorWritebackData   : texecuteVectorWritebackData;
+   signal executeVectorMfcE            : unsigned(3 downto 0) := (others => '0');
+   signal executeVectorMTC2            : std_logic := '0';
+   signal executeVectorMTC2Data        : std_logic_vector(15 downto 0) := (others => '0');
    
    -- stage 4 
    -- reg      
@@ -242,6 +293,16 @@ architecture arch of RSP_core is
    type tRegs is array(0 to 31) of unsigned(31 downto 0);
    signal regs                         : tRegs := (others => (others => '0'));
    
+   type tVregs is array(0 to 31, 0 to 7) of unsigned(15 downto 0);
+   signal Vregs : tVregs :=  (others => (others => (others => '0')));   
+   
+   type tAccu is array(0 to 7) of unsigned(47 downto 0);
+   signal accu : tAccu :=  (others => (others => '0'));
+   
+   signal export_vco : unsigned(15 downto 0);
+   signal export_vcc : unsigned(15 downto 0);
+   signal export_vce : unsigned(7 downto 0);
+   
    signal ce_1x_1                      : std_logic := '0';
    signal writeDoneNew                 : std_logic := '0';
 -- synthesis translate_on
@@ -249,7 +310,7 @@ architecture arch of RSP_core is
 begin 
 
    -- common
-   stall        <= stall4 & stall3 & stall2;
+   stall        <= stall3 & stall2;
 
 --##############################################################
 --############################### register file
@@ -257,8 +318,8 @@ begin
    iregisterfile1 : entity mem.RamMLAB
 	GENERIC MAP 
    (
-      width                               => 32,
-      widthad                             => 5
+      width      => 32,
+      widthad    => 5
 	)
 	PORT MAP (
       inclock    => clk1x,
@@ -281,8 +342,8 @@ begin
    iregisterfile2 : entity mem.RamMLAB
 	GENERIC MAP 
    (
-      width                               => 32,
-      widthad                             => 5
+      width      => 32,
+      widthad    => 5
 	)
 	PORT MAP (
       inclock    => clk1x,
@@ -292,6 +353,74 @@ begin
       rdaddress  => regs2_address_b,
       q          => regs2_q_b
 	);
+   
+--##############################################################
+--############################### vector regs
+--##############################################################
+
+   gVectorRegs : for i in 0 to 7 generate
+   begin
+      iregisterfile1_hi : entity mem.RamMLAB
+      GENERIC MAP 
+      (
+         width      => 8,
+         widthad    => 5
+      )
+      PORT MAP (
+         inclock    => clk1x,
+         wren       => vec_writeEna((i * 2) + 1),
+         data       => vec_data_a((i * 2) + 1),
+         wraddress  => vec_addr_a(i),
+         rdaddress  => vec_addr_b_1(i),
+         q          => vec_data_b_1((i * 2) + 1)
+      );
+      
+      iregisterfile1_lo : entity mem.RamMLAB
+      GENERIC MAP 
+      (
+         width      => 8,
+         widthad    => 5
+      )
+      PORT MAP (
+         inclock    => clk1x,
+         wren       => vec_writeEna(i * 2),
+         data       => vec_data_a(i * 2),
+         wraddress  => vec_addr_a(i),
+         rdaddress  => vec_addr_b_1(i),
+         q          => vec_data_b_1(i * 2)
+      );
+      
+      iregisterfile2_hi : entity mem.RamMLAB
+      GENERIC MAP 
+      (
+         width      => 8,
+         widthad    => 5
+      )
+      PORT MAP (
+         inclock    => clk1x,
+         wren       => vec_writeEna((i * 2) + 1),
+         data       => vec_data_a((i * 2) + 1),
+         wraddress  => vec_addr_a(i),
+         rdaddress  => vec_addr_b_2(i),
+         q          => vec_data_b_2((i * 2) + 1)
+      );
+      
+      iregisterfile2_lo : entity mem.RamMLAB
+      GENERIC MAP 
+      (
+         width      => 8,
+         widthad    => 5
+      )
+      PORT MAP (
+         inclock    => clk1x,
+         wren       => vec_writeEna(i * 2),
+         data       => vec_data_a(i * 2),
+         wraddress  => vec_addr_a(i),
+         rdaddress  => vec_addr_b_2(i),
+         q          => vec_data_b_2(i * 2)
+      );
+      
+   end generate;
    
 --##############################################################
 --############################### stage 1
@@ -332,50 +461,89 @@ begin
    
    opcodeCacheMuxed <= byteswap32(unsigned(imem_dataRead));     
                        
-   decImmData    <= opcodeCacheMuxed(15 downto 0);
-   decJumpTarget <= opcodeCacheMuxed(25 downto 0);
-   decSource1    <= opcodeCacheMuxed(25 downto 21);
-   decSource2    <= opcodeCacheMuxed(20 downto 16);
-   decOP         <= opcodeCacheMuxed(31 downto 26);
-   decFunct      <= opcodeCacheMuxed(5 downto 0);
-   decShamt      <= opcodeCacheMuxed(10 downto 6);
-   decRD         <= opcodeCacheMuxed(15 downto 11);
-   decTarget     <= opcodeCacheMuxed(20 downto 16) when (opcodeCacheMuxed(31 downto 26) > 0) else opcodeCacheMuxed(15 downto 11);                  
+   decImmData       <= opcodeCacheMuxed(15 downto 0);
+   decJumpTarget    <= opcodeCacheMuxed(25 downto 0);
+   decSource1       <= opcodeCacheMuxed(25 downto 21);
+   decSource2       <= opcodeCacheMuxed(20 downto 16);
+   decOP            <= opcodeCacheMuxed(31 downto 26);
+   decFunct         <= opcodeCacheMuxed(5 downto 0);
+   decShamt         <= opcodeCacheMuxed(10 downto 6);
+   decRD            <= opcodeCacheMuxed(15 downto 11);
+   decTarget        <= opcodeCacheMuxed(20 downto 16) when (opcodeCacheMuxed(31 downto 26) > 0) else opcodeCacheMuxed(15 downto 11);                  
+   decVectorElement <= opcodeCacheMuxed(24 downto 21);
+   decVectorDestEle <= opcodeCacheMuxed(13 downto 11);
+   decVectorMfcE    <= opcodeCacheMuxed(10 downto 7);
+
+   -- fetch vector
+   process (all)
+   begin
+   
+      for i in 0 to 7 loop
+         
+         vec_addr_b_1(i) <= std_logic_vector(opcodeCacheMuxed(15 downto 11));
+         vec_addr_b_2(i) <= std_logic_vector(opcodeCacheMuxed(20 downto 16));
+      
+      end loop;
+   
+   end process;
+   
 
    process (clk1x)
+      variable decVectorUpdate : std_logic := '0';
    begin
       if (rising_edge(clk1x)) then
       
-         error_instr <= '0';
+         error_instr     <= '0';
+         decVectorUpdate := '0';
+         
+         if (stall3 = '0') then
+            decodeNew       <= '0';
+            decodeVectorNew <= '0';
+            decode_set_vco  <= '0';
+            decode_set_vcc  <= '0';
+            decode_set_vce  <= '0';
+         end if;
       
          if (ce_1x = '0') then
          
             stall2           <= '0';
-            decodeNew        <= '0';
             decodeBranchType <= BRANCH_OFF;
             
          else
          
+            if (stall2 = '1') then
+               if (decodeStallcount > 0) then
+                  decodeStallcount <= decodeStallcount - 1;
+               else
+                  decVectorUpdate := '1';
+                  stall2          <= '0';
+               end if;
+            end if;
+         
             if (stall = 0) then
-            
-               decodeNew <= '0';
             
                if (fetchNew = '1') then
                
-                  decodeNew        <= not break_out; 
-               
--- synthesis translate_off
-                  pcOld1           <= PC;
-                  opcode1          <= opcodeCacheMuxed;
--- synthesis translate_on
-                                    
-                  decodeImmData    <= decImmData;   
-                  decodeJumpTarget <= decJumpTarget;
-                  decodeSource1    <= decSource1;
-                  decodeSource2    <= decSource2; 
-                  decodeShamt      <= decShamt;          
-                  decodeTarget     <= decTarget;   
-                  decodeRegAddr    <= decRD & "00";
+                  decodeNew            <= '1'; 
+                  decVectorUpdate      := '1';
+                     
+-- synthesis translate_off    
+                  pcOld1               <= PC;
+                  opcode1              <= opcodeCacheMuxed;
+-- synthesis translate_on     
+                                          
+                  decodeImmData        <= decImmData;   
+                  decodeJumpTarget     <= decJumpTarget;
+                  decodeSource1        <= decSource1;
+                  decodeSource2        <= decSource2; 
+                  decodeShamt          <= decShamt;          
+                  decodeRD             <= decRd;          
+                  decodeTarget         <= decTarget;   
+                  decodeRegAddr        <= decRD & "00";
+                  
+                  decodeVectorElement  <= decVectorElement;
+                  decodeVectorDestEle  <= decVectorDestEle;
+                  decodeVectorMfcE     <= decVectorMfcE;
                   
                   -- operand fetching
                   decodeValue1     <= unsigned(regs1_q_b);
@@ -405,6 +573,14 @@ begin
                   decodeReadRDPReg        <= '0';
                   decodeWriteRSPReg       <= '0';
                   decodeWriteRDPReg       <= '0';
+                          
+                  decodeMemOffset         <= signed(decImmData);
+                  decodeVectorReadEnable  <= '0';
+                  decodeVectorWriteEnable <= '0';
+                  decodeVectorMTC2        <= '0';
+                  decode_set_vco          <= '0';
+                  decode_set_vcc          <= '0';
+                  decode_set_vce          <= '0';
                       
                   -- decoding opcode specific
                   case (to_integer(decOP)) is
@@ -579,6 +755,65 @@ begin
                               decodeWriteRSPReg <= '1';
                            end if;
                         end if;
+                        
+                     when 16#12# => -- COP2/vector
+                        if (decSource1(4) = '0') then 
+                           case (decSource1(3 downto 0)) is
+                              
+                              when x"0" => --mfc2
+                                 decodeWriteEnable    <= '1';
+                                 decodeResultMux      <= RESULTMUX_VECTOR;
+                              
+                              when x"2" => --cfc2
+                                 decodeWriteEnable       <= '1';
+                                 case (decRd(1 downto 0)) is
+                                    when "00"   => decodeResultMux <= RESULTMUX_VCO;
+                                    when "01"   => decodeResultMux <= RESULTMUX_VCC;
+                                    when others => decodeResultMux <= RESULTMUX_VCE;
+                                 end case;
+                              
+                              when x"4" => --mtc2
+                                 decodeVectorMTC2 <= '1';
+                                 stall2           <= '1';
+                                 decodeStallcount <= 2;
+                              
+                              when x"6" => --ctc2
+                                 case (decRd(1 downto 0)) is
+                                    when "00"   => decode_set_vco <= '1';
+                                    when "01"   => decode_set_vcc <= '1';
+                                    when others => decode_set_vce <= '1';
+                                 end case;
+                              
+                              when others =>
+                                 -- synthesis translate_off
+                                 report to_hstring(decOP);
+                                 -- synthesis translate_on
+                                 error_instr  <= '1';    
+                              
+                           end case;
+                        else 
+                        
+                           decodeVectorNew  <= '1';
+                           stall2           <= '1';
+                           decodeStallcount <= 2;
+                        
+                           case (to_integer(decFunct)) is
+
+                              when 16#13# => decodeVectorCalcType <= VCALC_VABS; -- VABS
+                              
+                              when 16#1D# => decodeVectorCalcType <= VCALC_VSAR; -- VSAR
+                              
+                              when 16#33# => decodeVectorCalcType <= VCALC_VMOV; -- VMOV 
+
+                              when others =>
+                                 -- synthesis translate_off
+                                 report to_hstring(decOP);
+                                 -- synthesis translate_on
+                                 error_instr  <= '1'; 
+
+                           end case;
+                        
+                        end if;
 
                      when 16#20# => -- LB
                         decodeLoadType       <= LOADTYPE_SBYTE;
@@ -609,8 +844,39 @@ begin
                      when 16#2B# => -- SW
                         decodeSaveType       <= SAVETYPE_DWORD;
                      
-                     when 16#32# => null; -- LWC2
-                     when 16#3A# => null; -- SWC2
+                     when 16#32# => -- LWC2
+                        stall2           <= '1';
+                        decodeStallcount <= 2;
+                     
+                        case (to_integer(decRD)) is
+                        
+                           when 16#04# =>
+                              decodeVectorReadEnable <= '1';
+                              decodeMemOffset        <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorBE         <= x"FFFF"; -- todo : (0xFFFF >> (execute_VectorAddr & 0xF)) << execute_readVectorElement;
+                        
+                           when others =>
+                              -- synthesis translate_off
+                              report to_hstring(decOP);
+                              -- synthesis translate_on
+                              error_instr  <= '1';    
+                           
+                        end case;
+                     
+                     when 16#3A# => -- SWC2
+                        case (to_integer(decRD)) is
+                        
+                           when 16#04# =>
+                              decodeVectorWriteEnable <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                        
+                           when others =>
+                              -- synthesis translate_off
+                              report to_hstring(decOP);
+                              -- synthesis translate_on
+                              error_instr  <= '1';    
+                           
+                        end case;
                           
                      when others =>
                         -- synthesis translate_off
@@ -630,8 +896,22 @@ begin
                if (decodeSource2 > 0 and writebackTarget = decodeSource2 and writebackWriteEnable = '1') then decodeValue2 <= writebackData; end if;
       
             end if; -- stall
+            
+            -- vector operand fetching
+            if (decVectorUpdate = '1') then
+               for i in 0 to 15 loop
+                  decodeVectorValue1(i) <= vec_data_b_1(i);
+                  decodeVectorValue2(i) <= vec_data_b_2(i);
+               end loop;
+            end if;
 
          end if; -- ce
+         
+         if (break_out = '1') then
+            decodeNew       <= '0';
+            decodeVectorNew <= '0';
+         end if;
+         
       end if; -- clk
    end process;
    
@@ -649,7 +929,7 @@ begin
    value2_muxedSigned <= unsigned(resize(signed(decodeImmData), 32)) when (decodeUseImmidateValue2) else value2;
    calcResult_add     <= value1 + value2_muxedSigned;
    
-   calcMemAddr        <= value1 + unsigned(resize(signed(decodeImmData), 32));
+   calcMemAddr        <= value1 + unsigned(resize(decodeMemOffset, 32));
    
    ---------------------- Shifter ------------------
    -- multiplex immidiate and register based shift amount, so both types can use the same shifters
@@ -706,20 +986,29 @@ begin
                   PCnextBranch(11 downto 0)           when (decodeBranchType = BRANCH_BRANCH_BLEZ and (cmpZero = '1' or cmpNegative = '1'))  else
                   PCnextBranch(11 downto 0)           when (decodeBranchType = BRANCH_BRANCH_BGTZ and (cmpZero = '0' and cmpNegative = '0')) else
                   PCnext;     
-
+  
+   ---------------------- MFC2 muxing ------------------
+   
+   MFC2_value <= decodeVectorValue1(14) & decodeVectorValue1(1) when (decodeVectorMfcE = x"F") else
+                 decodeVectorValue1(to_integer(decodeVectorMfcE) - 1) & decodeVectorValue1(to_integer(decodeVectorMfcE) + 2) when (decodeVectorMfcE(0) = '1') else 
+                 decodeVectorValue1(to_integer(decodeVectorMfcE) + 1) & decodeVectorValue1(to_integer(decodeVectorMfcE));
+ 
    ---------------------- result muxing ------------------
-   resultDataMuxed <= calcResult_shiftL when (decodeResultMux = RESULTMUX_SHIFTLEFT)  else
-                      calcResult_shiftR when (decodeResultMux = RESULTMUX_SHIFTRIGHT) else
-                      calcResult_add    when (decodeResultMux = RESULTMUX_ADD)        else
-                      20x"0" & PCnext   when (decodeResultMux = RESULTMUX_PC)         else
-                      calcResult_sub    when (decodeResultMux = RESULTMUX_SUB)        else
-                      calcResult_and    when (decodeResultMux = RESULTMUX_AND)        else
-                      calcResult_or     when (decodeResultMux = RESULTMUX_OR )        else
-                      calcResult_xor    when (decodeResultMux = RESULTMUX_XOR)        else
-                      calcResult_nor    when (decodeResultMux = RESULTMUX_NOR)        else
-                      calcResult_bit    when (decodeResultMux = RESULTMUX_BIT)        else
+   resultDataMuxed <= calcResult_shiftL                  when (decodeResultMux = RESULTMUX_SHIFTLEFT)  else
+                      calcResult_shiftR                  when (decodeResultMux = RESULTMUX_SHIFTRIGHT) else
+                      calcResult_add                     when (decodeResultMux = RESULTMUX_ADD)        else
+                      20x"0" & PCnext                    when (decodeResultMux = RESULTMUX_PC)         else
+                      calcResult_sub                     when (decodeResultMux = RESULTMUX_SUB)        else
+                      calcResult_and                     when (decodeResultMux = RESULTMUX_AND)        else
+                      calcResult_or                      when (decodeResultMux = RESULTMUX_OR )        else
+                      calcResult_xor                     when (decodeResultMux = RESULTMUX_XOR)        else
+                      calcResult_nor                     when (decodeResultMux = RESULTMUX_NOR)        else
+                      calcResult_bit                     when (decodeResultMux = RESULTMUX_BIT)        else
+                      unsigned(resize(signed(vco), 32))  when (decodeResultMux = RESULTMUX_VCO)        else
+                      unsigned(resize(signed(vcc), 32))  when (decodeResultMux = RESULTMUX_VCC)        else
+                      24x"0" & vce                       when (decodeResultMux = RESULTMUX_VCE)        else
+                      unsigned(resize(signed(MFC2_value), 32))  when (decodeResultMux = RESULTMUX_VECTOR)     else
                       unsigned(resize(signed(decodeImmData) & x"0000", 32)); -- (decodeResultMux = RESULTMUX_LUI);  
-
    
    reg_addr      <= decodeRegAddr;
    reg_dataWrite <= value2;
@@ -730,7 +1019,6 @@ begin
       variable rotateAddrMuxAdd : integer range 0 to 3;
    begin
    
-      stallNew3         <= stall3;
       break_out         <= '0';      
       reg_RSP_read      <= '0';      
       reg_RDP_read      <= '0';      
@@ -769,17 +1057,32 @@ begin
       rotatedData(1) := std_logic_vector(value2(23 downto 16));
       rotatedData(2) := std_logic_vector(value2(15 downto  8));
       rotatedData(3) := std_logic_vector(value2( 7 downto  0));
-      
-      for i in 0 to 15 loop
-         if (calcMemAddr(3 downto 0) > i) then
-            dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4) + 1);
-         else
-            dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4));
-         end if;
-         dmem_WriteEnable     <= (others => '0');   
-         dmem_dataWrite(i)    <= rotatedData((i + rotateAddrMuxAdd) mod 4);
-      end loop;
 
+      if (decodeVectorWriteEnable = '1') then
+      
+         for i in 0 to 15 loop
+            dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4));
+            dmem_WriteEnable  <= (others => '1');  
+         end loop;
+         
+         for i in 0 to 7 loop
+            dmem_dataWrite((i * 2) + 0) <= decodeVectorValue2((i * 2) + 1);
+            dmem_dataWrite((i * 2) + 1) <= decodeVectorValue2((i * 2) + 0);
+         end loop;
+      
+      else
+      
+         dmem_WriteEnable <= (others => '0'); 
+         for i in 0 to 15 loop
+            if (calcMemAddr(3 downto 0) > i) then
+               dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4) + 1);
+            else
+               dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4));
+            end if;
+            dmem_dataWrite(i)    <= rotatedData((i + rotateAddrMuxAdd) mod 4);
+         end loop;
+      
+      end if;
       
       if (stall = 0 and decodeNew = '1') then
       
@@ -813,10 +1116,13 @@ begin
    begin
       if (rising_edge(clk1x)) then
       
+         executeNew        <= '0';
+         executeVectorNew  <= '0';
+      
          if (ce_1x = '0') then
          
             stall3                        <= '0';
-            executeNew                    <= '0';
+            
             executeStallFromMEM           <= '0';
             resultWriteEnable             <= '0';
             
@@ -825,62 +1131,75 @@ begin
             -- load delay block
             if (stall3) then
             
-               if (stall = "010") then
-                  executeStallFromMEM <= '0';
-                  executeNew          <= '0';
-               end if;
-
+               executeStallFromMEM <= '0';
                if (writebackStallFromMEM = '1' and writebackNew = '1') then
                   stall3 <= '0';
                end if;
                
-            end if;
+            else
 
-            if (stall = 0) then
-            
-               executeNew <= '0';
-               
                resultData              <= resultDataMuxed;    
-               resultTarget            <= decodeTarget;                   
+               resultTarget            <= decodeTarget;   
+
+               executeVectorMfcE       <= decodeVectorMfcE; 
+               if (decodeVectorMfcE(0) = '1') then
+                  executeVectorMTC2Data   <= std_logic_vector(value2(7 downto 0)) & std_logic_vector(value2(15 downto 8));  
+               else
+                  executeVectorMTC2Data   <= std_logic_vector(value2(15 downto 0));  
+               end if;
             
                if (decodeNew = '1') then     
                
                   executeNew           <= '1';
                
 -- synthesis translate_off
-                  pcOld2               <= pcOld1;  
-                  opcode2              <= opcode1;
--- synthesis translate_on
-                        
-                  stall3               <= stallNew3;
+                  pcOld2                  <= pcOld1;  
+                  opcode2                 <= opcode1;
+-- synthesis translate_on  
                         
                   -- from calculation
                   if (decodeTarget = 0) then
-                     resultWriteEnable <= '0';
+                     resultWriteEnable    <= '0';
                   else
-                     resultWriteEnable <= decodeWriteEnable;
+                     resultWriteEnable    <= decodeWriteEnable;
                   end if;
                         
-                  executeLoadType      <= decodeLoadType;   
-                  executeMemReadEnable <= decodeReadEnable; 
-                  executeLoadAddr      <= calcMemAddr(11 downto 0); 
+                  executeLoadType         <= decodeLoadType;   
+                  executeMemReadEnable    <= decodeReadEnable; 
+                  executeLoadAddr         <= calcMemAddr(11 downto 0); 
+                     
+                  executeReadRSPReg       <= decodeReadRSPReg;
+                  executeReadRDPReg       <= decodeReadRDPReg;
                   
-                  executeReadRSPReg    <= decodeReadRSPReg;
-                  executeReadRDPReg    <= decodeReadRDPReg;
-
+                  -- vector unit forward
+                  executeVectorReadEnable <= decodeVectorReadEnable;    
+                  executeVectorBE         <= decodeVectorBE;  
+                  executeVectorReadTarget <= decodeSource2;
+                  
+                  -- stalling
                   if (decodeReadEnable = '1' or decodeReadRSPReg = '1' or decodeReadRDPReg = '1') then
                      stall3              <= '1';
                      executeStallFromMEM <= '1';
                   end if;
                   
+                  executeVectorMTC2     <= decodeVectorMTC2;
+                  if (decodeVectorMTC2 = '1') then
+                     executeVectorNew     <= '1';
+                     executeVectorTarget  <= decodeRD;
+                  end if;
+                  
                end if;
                
-               
-            end if;
+               if (decodeVectorNew = '1') then
+                  executeVectorNew      <= '1';
+                  executeVectorTarget  <= decodeShamt;
+               end if;
+                
+            end if; -- stall
 
-         end if;
+         end if; -- ce
          
-      end if;
+      end if; -- clock
    end process;
    
    
@@ -888,8 +1207,6 @@ begin
 --############################### stage 4
 --##############################################################
 
-   stall4Masked <= stall(3) & (stall(2) and (not executeStallFromMEM)) & stall(1);
-   
    dmem_dataRead32 <= dmem_dataRead(3 ) & dmem_dataRead(2 ) & dmem_dataRead(1 ) & dmem_dataRead(0 ) when (executeLoadAddr(3 downto 0) = x"0") else
                       dmem_dataRead(4 ) & dmem_dataRead(3 ) & dmem_dataRead(2 ) & dmem_dataRead(1 ) when (executeLoadAddr(3 downto 0) = x"1") else
                       dmem_dataRead(5 ) & dmem_dataRead(4 ) & dmem_dataRead(3 ) & dmem_dataRead(2 ) when (executeLoadAddr(3 downto 0) = x"2") else
@@ -912,68 +1229,108 @@ begin
       if (rising_edge(clk1x)) then
       
          writebackWriteEnable <= '0';
+         vec_writeEna         <= (others => '0');
       
          if (ce_1x = '0') then
          
-            stall4                           <= '0';
             writebackNew                     <= '0';
             writebackStallFromMEM            <= '0';                  
             
          else
-         
-            stall4                  <= '0';
-
-            if (stall4Masked = 0) then
             
-               writebackNew   <= '0';
+            writebackNew   <= '0';
             
-               if (executeNew = '1') then
+            if (executeNew = '1') then
+            
+               writebackNew                 <= '1';
+            
+               writebackStallFromMEM        <= executeStallFromMEM;
+            
+            -- synthesis translate_off
+            pcOld3                       <= pcOld2;
+            opcode3                      <= opcode2;
+            -- synthesis translate_on
                
-                  writebackNew                 <= '1';
+               writebackTarget              <= resultTarget;
+               writebackData                <= resultData;
+               writebackWriteEnable         <= resultWriteEnable;
                
-                  writebackStallFromMEM        <= executeStallFromMEM;
+               if (executeMemReadEnable = '1') then
                
--- synthesis translate_off
-                  pcOld3                       <= pcOld2;
-                  opcode3                      <= opcode2;
--- synthesis translate_on
-               
-                  writebackTarget              <= resultTarget;
-                  writebackData                <= resultData;
-                  writebackWriteEnable         <= resultWriteEnable;
+                  if (resultTarget > 0) then
+                     writebackWriteEnable <= '1';
+                  end if;
                   
-                  if (executeMemReadEnable = '1') then
-                  
-                     if (resultTarget > 0) then
-                        writebackWriteEnable <= '1';
-                     end if;
+                  case (executeLoadType) is
                      
-                     case (executeLoadType) is
+                     when LOADTYPE_SBYTE => null; writebackData <= unsigned(resize(signed(dmem_dataRead32(7 downto 0)), 32));
+                     when LOADTYPE_SWORD => null; writebackData <= unsigned(resize(signed(byteswap16(dmem_dataRead32(15 downto 0))), 32));     
+                     when LOADTYPE_DWORD => null; writebackData <= unsigned(resize(signed(byteswap32(dmem_dataRead32(31 downto 0))), 32));
+                     when LOADTYPE_BYTE  => null; writebackData <= x"000000" & unsigned(dmem_dataRead32(7 downto 0));
+                     when LOADTYPE_WORD  => null; writebackData <= x"0000" & unsigned(byteswap16(dmem_dataRead32(15 downto 0)));
                         
-                        when LOADTYPE_SBYTE => null; writebackData <= unsigned(resize(signed(dmem_dataRead32(7 downto 0)), 32));
-                        when LOADTYPE_SWORD => null; writebackData <= unsigned(resize(signed(byteswap16(dmem_dataRead32(15 downto 0))), 32));     
-                        when LOADTYPE_DWORD => null; writebackData <= unsigned(resize(signed(byteswap32(dmem_dataRead32(31 downto 0))), 32));
-                        when LOADTYPE_BYTE  => null; writebackData <= x"000000" & unsigned(dmem_dataRead32(7 downto 0));
-                        when LOADTYPE_WORD  => null; writebackData <= x"0000" & unsigned(byteswap16(dmem_dataRead32(15 downto 0)));
-                           
-                     end case; 
+                  end case; 
 
+               end if;
+               
+               if (executeReadRSPReg = '1') then
+                  if (resultTarget > 0) then
+                     writebackWriteEnable <= '1';
                   end if;
+                  writebackData <= reg_RSP_dataRead;
+               end if;
+               
+               if (executeReadRDPReg = '1') then
+                  if (resultTarget > 0) then
+                     writebackWriteEnable <= '1';
+                  end if;
+                  writebackData <= reg_RDP_dataRead;
+               end if;
+               
+               -- vector writeback
+               if (executeVectorReadEnable = '1') then
                   
-                  if (executeReadRSPReg = '1') then
-                     if (resultTarget > 0) then
-                        writebackWriteEnable <= '1';
-                     end if;
-                     writebackData <= reg_RSP_dataRead;
-                  end if;
+                  vec_writeEna <= executeVectorBE;
+               
+                  for i in 0 to 7 loop
+                     vec_addr_a(i) <= std_logic_vector(executeVectorReadTarget);
+                  end loop;
                   
-                  if (executeReadRDPReg = '1') then
-                     if (resultTarget > 0) then
-                        writebackWriteEnable <= '1';
-                     end if;
-                     writebackData <= reg_RDP_dataRead;
-                  end if;
+                  for i in 0 to 7 loop
+                     vec_data_a((i * 2) + 0) <= dmem_dataRead((i * 2) + 1);
+                     vec_data_a((i * 2) + 1) <= dmem_dataRead((i * 2) + 0);
+                  end loop;
+                  
+               end if;
 
+            end if; -- executeNew
+            
+            if (executeVectorNew = '1') then
+               
+               for i in 0 to 7 loop
+                  vec_addr_a(i)             <= std_logic_vector(executeVectorTarget);
+                  vec_writeEna((i * 2) + 0) <= executeVectorWritebackEna(i);
+                  vec_writeEna((i * 2) + 1) <= executeVectorWritebackEna(i);
+                  vec_data_a((i * 2) + 0)   <= executeVectorWritebackData(i)( 7 downto 0);
+                  vec_data_a((i * 2) + 1)   <= executeVectorWritebackData(i)(15 downto 8);
+               end loop;
+               
+               if (executeVectorMTC2 = '1') then
+                  
+                  for i in 0 to 7 loop
+                     vec_data_a((i * 2) + 0) <= executeVectorMTC2Data(7 downto 0);
+                     vec_data_a((i * 2) + 1) <= executeVectorMTC2Data(15 downto 8);
+                  end loop;
+               
+                  if (executeVectorMfcE(0) = '1') then
+                     vec_writeEna(to_integer(executeVectorMfcE) - 1) <= '1';
+                     if (executeVectorMfcE < 15) then 
+                        vec_writeEna(to_integer(executeVectorMfcE) + 2) <= '1';
+                     end if;
+                  else
+                     vec_writeEna(to_integer(executeVectorMfcE))     <= '1';
+                     vec_writeEna(to_integer(executeVectorMfcE) + 1) <= '1';
+                  end if;
                end if;
                
             end if;
@@ -998,7 +1355,7 @@ begin
          
          if (ce_1x = '1' or ce_1x_1 = '1') then
             
-            if (stall4Masked = 0 and writebackNew = '1') then
+            if (writebackNew = '1') then
 
                writeDoneNew         <= '1';
 
@@ -1012,6 +1369,24 @@ begin
          if (writebackWriteEnable = '1') then 
             regs(to_integer(writebackTarget)) <= writebackData;
          end if;
+         
+         if (vec_writeEna(0 ) = '1') then Vregs(to_integer(unsigned(vec_addr_a(0))), 0)( 7 downto 0) <= unsigned(vec_data_a(0 )); end if;
+         if (vec_writeEna(1 ) = '1') then Vregs(to_integer(unsigned(vec_addr_a(0))), 0)(15 downto 8) <= unsigned(vec_data_a(1 )); end if;
+         if (vec_writeEna(2 ) = '1') then Vregs(to_integer(unsigned(vec_addr_a(1))), 1)( 7 downto 0) <= unsigned(vec_data_a(2 )); end if;
+         if (vec_writeEna(3 ) = '1') then Vregs(to_integer(unsigned(vec_addr_a(1))), 1)(15 downto 8) <= unsigned(vec_data_a(3 )); end if;
+         if (vec_writeEna(4 ) = '1') then Vregs(to_integer(unsigned(vec_addr_a(2))), 2)( 7 downto 0) <= unsigned(vec_data_a(4 )); end if;
+         if (vec_writeEna(5 ) = '1') then Vregs(to_integer(unsigned(vec_addr_a(2))), 2)(15 downto 8) <= unsigned(vec_data_a(5 )); end if;
+         if (vec_writeEna(6 ) = '1') then Vregs(to_integer(unsigned(vec_addr_a(3))), 3)( 7 downto 0) <= unsigned(vec_data_a(6 )); end if;
+         if (vec_writeEna(7 ) = '1') then Vregs(to_integer(unsigned(vec_addr_a(3))), 3)(15 downto 8) <= unsigned(vec_data_a(7 )); end if;
+         if (vec_writeEna(8 ) = '1') then Vregs(to_integer(unsigned(vec_addr_a(4))), 4)( 7 downto 0) <= unsigned(vec_data_a(8 )); end if;
+         if (vec_writeEna(9 ) = '1') then Vregs(to_integer(unsigned(vec_addr_a(4))), 4)(15 downto 8) <= unsigned(vec_data_a(9 )); end if;
+         if (vec_writeEna(10) = '1') then Vregs(to_integer(unsigned(vec_addr_a(5))), 5)( 7 downto 0) <= unsigned(vec_data_a(10)); end if;
+         if (vec_writeEna(11) = '1') then Vregs(to_integer(unsigned(vec_addr_a(5))), 5)(15 downto 8) <= unsigned(vec_data_a(11)); end if;
+         if (vec_writeEna(12) = '1') then Vregs(to_integer(unsigned(vec_addr_a(6))), 6)( 7 downto 0) <= unsigned(vec_data_a(12)); end if;
+         if (vec_writeEna(13) = '1') then Vregs(to_integer(unsigned(vec_addr_a(6))), 6)(15 downto 8) <= unsigned(vec_data_a(13)); end if;
+         if (vec_writeEna(14) = '1') then Vregs(to_integer(unsigned(vec_addr_a(7))), 7)( 7 downto 0) <= unsigned(vec_data_a(14)); end if;
+         if (vec_writeEna(15) = '1') then Vregs(to_integer(unsigned(vec_addr_a(7))), 7)(15 downto 8) <= unsigned(vec_data_a(15)); end if;
+         
 -- synthesis translate_on
          
       end if;
@@ -1021,7 +1396,54 @@ begin
 --############################### submodules
 --##############################################################
    
-
+   gVectorUnits : for i in 0 to 7 generate
+   begin
+   
+      iRSP_vector : entity work.RSP_vector
+      generic map
+      (
+         V_INDEX => i
+      )
+      port map
+      (
+         clk1x                 => clk1x,
+         
+         CalcNew               => decodeVectorNew,
+         CalcType              => decodeVectorCalcType,
+         VectorValue1          => decodeVectorValue1((i * 2) + 1) & decodeVectorValue1(i * 2),
+         VectorValue2          => decodeVectorValue2((i * 2) + 1) & decodeVectorValue2(i * 2),
+         element               => decodeVectorElement,
+         destElement           => decodeVectorDestEle,
+         
+         set_vco               => decode_set_vco,
+         set_vcc               => decode_set_vcc,
+         set_vce               => decode_set_vce,
+         vco_in_lo             => value2((i * 2) + 0),
+         vco_in_hi             => value2((i * 2) + 1),
+         vcc_in_lo             => value2((i * 2) + 0),
+         vcc_in_hi             => value2((i * 2) + 1),
+         vce_in                => value2(i),
+         
+         -- synthesis translate_off
+         export_accu           => accu(i),
+         export_vco_lo         => export_vco((i * 2) + 0),
+         export_vco_hi         => export_vco((i * 2) + 1),
+         export_vcc_lo         => export_vcc((i * 2) + 0),
+         export_vcc_hi         => export_vcc((i * 2) + 1),
+         export_vce            => export_vce(i),
+         -- synthesis translate_on
+         
+         writebackEna          => executeVectorWritebackEna(i),
+         writebackData         => executeVectorWritebackData(i),
+         
+         flag_vco_lo           => vco((i * 2) + 0),
+         flag_vco_hi           => vco((i * 2) + 1),
+         flag_vcc_lo           => vcc((i * 2) + 0),
+         flag_vcc_hi           => vcc((i * 2) + 1),
+         flag_vce              => vce(i)
+      );
+   
+   end generate;
  
 --##############################################################
 --############################### debug
@@ -1062,6 +1484,11 @@ begin
    goutput : if 1 = 1 generate
       signal out_count        : unsigned(31 downto 0) := (others => '0');
       signal regs_last        : tRegs := (others => (others => '0'));
+      signal Vregs_last       : tVRegs := (others => (others => (others => '0')));
+      signal accu_last        : tAccu := (others => (others => '0'));
+      signal export_vco_last  : unsigned(15 downto 0) := (others => '0');
+      signal export_vcc_last  : unsigned(15 downto 0) := (others => '0');
+      signal export_vce_last  : unsigned(7 downto 0) := (others => '0');
       signal firstExport      : std_logic := '0';
    begin
    
@@ -1117,9 +1544,52 @@ begin
                      write(line_out, string'(" "));
                      write(line_out, to_hstring(regs(i)) & " ");
                   end if;
+                  for j in 0 to 7 loop
+                     if (vregs(i,j) /= vregs_last(i,j) or firstExport = '1') then
+                        write(line_out, string'("V"));
+                        if (i < 10) then 
+                           write(line_out, string'("0"));
+                        end if;
+                        write(line_out, to_string(i));
+                        write(line_out, string'("|"));
+                        write(line_out, to_string(j));
+                        write(line_out, string'(" "));
+                        write(line_out, to_hstring(Vregs(i,j)) & " ");
+                     end if;
+                  end loop;
                end loop; 
-               regs_last <= regs;
+               regs_last   <= regs;
+               Vregs_last  <= Vregs;
                firstExport <= '0';
+               
+               for j in 0 to 7 loop
+                  if (accu(j) /= accu_last(j) or firstExport = '1') then
+                     write(line_out, string'("A"));
+                     write(line_out, to_string(j));
+                     write(line_out, string'(" "));
+                     write(line_out, to_hstring(accu(j)) & " ");
+                  end if;
+               end loop;
+               accu_last <= accu;
+               
+               if (export_vcc /= export_vcc_last or firstExport = '1') then
+                  write(line_out, string'("VCC "));
+                  write(line_out, to_hstring(export_vcc) & " ");
+               end if;
+               
+               if (export_vco /= export_vco_last or firstExport = '1') then
+                  write(line_out, string'("VCO "));
+                  write(line_out, to_hstring(export_vco) & " ");
+               end if;
+               
+               if (export_vce /= export_vce_last or firstExport = '1') then
+                  write(line_out, string'("VCE "));
+                  write(line_out, to_hstring(export_vce) & " ");
+               end if;
+               
+               export_vcc_last <= export_vcc;
+               export_vco_last <= export_vco;
+               export_vce_last <= export_vce;
                
                writeline(outfile, line_out);
                out_count <= out_count + 1;
