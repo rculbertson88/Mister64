@@ -143,9 +143,10 @@ architecture arch of RSP_core is
    signal decodeVectorNew              : std_logic := '0';
    signal decodeVectorValue1           : t_vec_data;
    signal decodeVectorValue2           : t_vec_data;
+   signal decodeVectorAddrWrap         : std_logic := '0';
    signal decodeVectorWriteEnable      : std_logic := '0';
    signal decodeVectorReadEnable       : std_logic := '0';
-   signal decodeVectorBE               : std_logic_vector(15 downto 0) := (others => '0');
+   signal decodeVectorShiftEnable      : unsigned(15 downto 0) := (others => '0');
    signal decodeVectorElement          : unsigned(3 downto 0);
    signal decodeVectorDestEle          : unsigned(2 downto 0);
    signal decodeVectorMfcE             : unsigned(3 downto 0);
@@ -216,6 +217,16 @@ architecture arch of RSP_core is
       SAVETYPE_WORD
    );
    signal decodeSaveType               : CPU_SAVETYPE;     
+   
+   type VECTOR_LOADTYPE is
+   (
+      VECTORLOADTYPE_LBV,
+      VECTORLOADTYPE_LSV,
+      VECTORLOADTYPE_LLV,
+      VECTORLOADTYPE_LDV,
+      VECTORLOADTYPE_LQV
+   );
+   signal decodeVectorLoadType         : VECTOR_LOADTYPE;   
             
    -- stage 3   
    signal value2_muxedSigned           : unsigned(31 downto 0);
@@ -276,6 +287,9 @@ architecture arch of RSP_core is
    signal executeVectorMfcE            : unsigned(3 downto 0) := (others => '0');
    signal executeVectorMTC2            : std_logic := '0';
    signal executeVectorMTC2Data        : std_logic_vector(15 downto 0) := (others => '0');
+   
+   type t_vec_mux is array(0 to 15) of unsigned(3 downto 0);
+   signal executeVectorReadMux : t_vec_mux;
    
    -- stage 4 
    -- reg      
@@ -576,6 +590,7 @@ begin
                           
                   decodeMemOffset         <= signed(decImmData);
                   decodeVectorReadEnable  <= '0';
+                  decodeVectorAddrWrap    <= '0';
                   decodeVectorWriteEnable <= '0';
                   decodeVectorMTC2        <= '0';
                   decode_set_vco          <= '0';
@@ -850,10 +865,36 @@ begin
                      
                         case (to_integer(decRD)) is
                         
+                           when 16#00# =>
+                              decodeVectorLoadType    <= VECTORLOADTYPE_LBV;
+                              decodeVectorReadEnable  <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)), 16);
+                              decodeVectorShiftEnable <= x"0001";  
+                              
+                           when 16#01# =>
+                              decodeVectorLoadType    <= VECTORLOADTYPE_LSV;
+                              decodeVectorReadEnable  <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0", 16);
+                              decodeVectorShiftEnable <= x"0003";  
+                              
+                           when 16#02# =>
+                              decodeVectorLoadType    <= VECTORLOADTYPE_LLV;
+                              decodeVectorReadEnable  <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "00", 16);
+                              decodeVectorShiftEnable <= x"000F";  
+                        
+                           when 16#03# =>
+                              decodeVectorLoadType    <= VECTORLOADTYPE_LDV;
+                              decodeVectorReadEnable  <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "000", 16);
+                              decodeVectorShiftEnable <= x"00FF";                           
+                              
                            when 16#04# =>
-                              decodeVectorReadEnable <= '1';
-                              decodeMemOffset        <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
-                              decodeVectorBE         <= x"FFFF"; -- todo : (0xFFFF >> (execute_VectorAddr & 0xF)) << execute_readVectorElement;
+                              decodeVectorLoadType    <= VECTORLOADTYPE_LQV;
+                              decodeVectorReadEnable  <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorAddrWrap    <= '1';
+                              decodeVectorShiftEnable <= x"FFFF";
                         
                            when others =>
                               -- synthesis translate_off
@@ -868,6 +909,7 @@ begin
                         
                            when 16#04# =>
                               decodeVectorWriteEnable <= '1';
+                              decodeVectorAddrWrap    <= '1';
                               decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
                         
                            when others =>
@@ -1057,11 +1099,25 @@ begin
       rotatedData(1) := std_logic_vector(value2(23 downto 16));
       rotatedData(2) := std_logic_vector(value2(15 downto  8));
       rotatedData(3) := std_logic_vector(value2( 7 downto  0));
+      
+      if (decodeVectorAddrWrap = '1') then
+         for i in 0 to 15 loop
+            dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4));
+         end loop;
+      else
+         for i in 0 to 15 loop
+            if (calcMemAddr(3 downto 0) > i) then
+               dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4) + 1);
+            else
+               dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4));
+            end if;
+         end loop;
+      end if;
 
+      dmem_WriteEnable <= (others => '0'); 
       if (decodeVectorWriteEnable = '1') then
       
          for i in 0 to 15 loop
-            dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4));
             dmem_WriteEnable  <= (others => '1');  
          end loop;
          
@@ -1072,14 +1128,8 @@ begin
       
       else
       
-         dmem_WriteEnable <= (others => '0'); 
          for i in 0 to 15 loop
-            if (calcMemAddr(3 downto 0) > i) then
-               dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4) + 1);
-            else
-               dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4));
-            end if;
-            dmem_dataWrite(i)    <= rotatedData((i + rotateAddrMuxAdd) mod 4);
+            dmem_dataWrite(i) <= rotatedData((i + rotateAddrMuxAdd) mod 4);
          end loop;
       
       end if;
@@ -1113,6 +1163,7 @@ begin
    
    
    process (clk1x)
+      variable vectorAddrEleAdd : unsigned(3 downto 0);
    begin
       if (rising_edge(clk1x)) then
       
@@ -1147,6 +1198,28 @@ begin
                else
                   executeVectorMTC2Data   <= std_logic_vector(value2(15 downto 0));  
                end if;
+               
+               -- vector load write enable
+               case (decodeVectorLoadType) is
+               
+                  when VECTORLOADTYPE_LBV | VECTORLOADTYPE_LSV | VECTORLOADTYPE_LLV | VECTORLOADTYPE_LDV =>
+                     executeVectorBE <= std_logic_vector(decodeVectorShiftEnable sll to_integer(decodeVectorMfcE));
+                  
+                  when VECTORLOADTYPE_LQV =>
+                     executeVectorBE <= std_logic_vector(shift_right(decodeVectorShiftEnable, to_integer(calcMemAddr(3 downto 0))) sll to_integer(decodeVectorMfcE));
+             
+               end case;
+               
+               -- vector load mux mapping
+               vectorAddrEleAdd := decodeVectorMfcE - calcMemAddr(3 downto 0);
+               case (decodeVectorLoadType) is
+               
+                  when VECTORLOADTYPE_LBV | VECTORLOADTYPE_LSV | VECTORLOADTYPE_LLV | VECTORLOADTYPE_LDV | VECTORLOADTYPE_LQV =>
+                     for i in 0 to 15 loop
+                        executeVectorReadMux(i) <= to_unsigned(i, 4) - vectorAddrEleAdd;
+                     end loop;
+                  
+               end case;
             
                if (decodeNew = '1') then     
                
@@ -1172,8 +1245,7 @@ begin
                   executeReadRDPReg       <= decodeReadRDPReg;
                   
                   -- vector unit forward
-                  executeVectorReadEnable <= decodeVectorReadEnable;    
-                  executeVectorBE         <= decodeVectorBE;  
+                  executeVectorReadEnable <= decodeVectorReadEnable;     
                   executeVectorReadTarget <= decodeSource2;
                   
                   -- stalling
@@ -1297,8 +1369,11 @@ begin
                   end loop;
                   
                   for i in 0 to 7 loop
-                     vec_data_a((i * 2) + 0) <= dmem_dataRead((i * 2) + 1);
-                     vec_data_a((i * 2) + 1) <= dmem_dataRead((i * 2) + 0);
+                     vec_writeEna((i * 2) + 1) <= executeVectorBE((i * 2) + 0);
+                     vec_writeEna((i * 2) + 0) <= executeVectorBE((i * 2) + 1);
+                  
+                     vec_data_a((i * 2) + 1) <= dmem_dataRead(to_integer(executeVectorReadMux((i * 2) + 0)));
+                     vec_data_a((i * 2) + 0) <= dmem_dataRead(to_integer(executeVectorReadMux((i * 2) + 1)));
                   end loop;
                   
                end if;
