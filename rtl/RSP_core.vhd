@@ -144,6 +144,7 @@ architecture arch of RSP_core is
    signal decodeVectorValue1           : t_vec_data;
    signal decodeVectorValue2           : t_vec_data;
    signal decodeVectorAddrWrap         : std_logic := '0';
+   signal decodeVectorAddrWrap8        : std_logic := '0';
    signal decodeVectorWriteEnable      : std_logic := '0';
    signal decodeVectorReadEnable       : std_logic := '0';
    signal decodeVectorShiftEnable      : unsigned(15 downto 0) := (others => '0');
@@ -224,7 +225,11 @@ architecture arch of RSP_core is
       VECTORLOADTYPE_LSV,
       VECTORLOADTYPE_LLV,
       VECTORLOADTYPE_LDV,
-      VECTORLOADTYPE_LQV
+      VECTORLOADTYPE_LQV,
+      VECTORLOADTYPE_LRV,
+      VECTORLOADTYPE_LPV,
+      VECTORLOADTYPE_LUV,
+      VECTORLOADTYPE_LHV
    );
    signal decodeVectorLoadType         : VECTOR_LOADTYPE;   
             
@@ -280,6 +285,8 @@ architecture arch of RSP_core is
    signal executeVectorTarget          : unsigned(4 downto 0) := (others => '0');
    signal executeVectorReadEnable      : std_logic := '0';
    signal executeVectorBE              : std_logic_vector(15 downto 0) := (others => '0');
+   signal executeVectorClearLower      : std_logic := '0';
+   signal executeVectorShiftDown       : std_logic := '0';
    signal executeVectorReadTarget      : unsigned(4 downto 0) := (others => '0');
    signal executeVectorWritebackEna    : std_logic_vector(7 downto 0);
    type texecuteVectorWritebackData is array(0 to 7) of std_logic_vector(15 downto 0);
@@ -591,6 +598,7 @@ begin
                   decodeMemOffset         <= signed(decImmData);
                   decodeVectorReadEnable  <= '0';
                   decodeVectorAddrWrap    <= '0';
+                  decodeVectorAddrWrap8   <= '0';
                   decodeVectorWriteEnable <= '0';
                   decodeVectorMTC2        <= '0';
                   decode_set_vco          <= '0';
@@ -894,7 +902,35 @@ begin
                               decodeVectorReadEnable  <= '1';
                               decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
                               decodeVectorAddrWrap    <= '1';
+                              decodeVectorShiftEnable <= x"FFFF";                           
+                              
+                           when 16#05# =>
+                              decodeVectorLoadType    <= VECTORLOADTYPE_LRV;
+                              decodeVectorReadEnable  <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorAddrWrap    <= '1';
                               decodeVectorShiftEnable <= x"FFFF";
+                           
+                           when 16#06# =>
+                              decodeVectorLoadType    <= VECTORLOADTYPE_LPV;
+                              decodeVectorReadEnable  <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "000", 16);
+                              decodeVectorAddrWrap8   <= '1';
+                              decodeVectorShiftEnable <= x"FFFF";
+
+                           when 16#07# =>
+                              decodeVectorLoadType    <= VECTORLOADTYPE_LUV;
+                              decodeVectorReadEnable  <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "000", 16);
+                              decodeVectorAddrWrap8   <= '1';
+                              decodeVectorShiftEnable <= x"FFFF";
+
+                           when 16#08# =>
+                              decodeVectorLoadType    <= VECTORLOADTYPE_LHV;
+                              decodeVectorReadEnable  <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorAddrWrap8   <= '1';
+                              decodeVectorShiftEnable <= x"FFFF";                              
                         
                            when others =>
                               -- synthesis translate_off
@@ -1106,7 +1142,8 @@ begin
          end loop;
       else
          for i in 0 to 15 loop
-            if (calcMemAddr(3 downto 0) > i) then
+            if ((decodeVectorAddrWrap8 = '1' and calcMemAddr(3) = '1' and i < 8) or 
+                (decodeVectorAddrWrap8 = '0' and calcMemAddr(3 downto 0) > i)) then
                dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4) + 1);
             else
                dmem_addr(i)      <= std_logic_vector(calcMemAddr(11 downto 4));
@@ -1163,7 +1200,8 @@ begin
    
    
    process (clk1x)
-      variable vectorAddrEleAdd : unsigned(3 downto 0);
+      variable vectorAddrEleAdd       : unsigned(3 downto 0);
+      variable vectorEnableRightshift : unsigned(15 downto 0);
    begin
       if (rising_edge(clk1x)) then
       
@@ -1199,14 +1237,32 @@ begin
                   executeVectorMTC2Data   <= std_logic_vector(value2(15 downto 0));  
                end if;
                
+               
                -- vector load write enable
+               executeVectorClearLower <= '0';
+               if (decodeVectorLoadType = VECTORLOADTYPE_LPV) then
+                  executeVectorClearLower <= '1';
+               end if;
+               
+               executeVectorShiftDown  <= '0';
+               if (decodeVectorLoadType = VECTORLOADTYPE_LUV or decodeVectorLoadType = VECTORLOADTYPE_LHV) then
+                  executeVectorShiftDown <= '1';
+               end if;
+               
+               vectorEnableRightshift := shift_right(decodeVectorShiftEnable, to_integer(calcMemAddr(3 downto 0)));
                case (decodeVectorLoadType) is
                
                   when VECTORLOADTYPE_LBV | VECTORLOADTYPE_LSV | VECTORLOADTYPE_LLV | VECTORLOADTYPE_LDV =>
                      executeVectorBE <= std_logic_vector(decodeVectorShiftEnable sll to_integer(decodeVectorMfcE));
                   
                   when VECTORLOADTYPE_LQV =>
-                     executeVectorBE <= std_logic_vector(shift_right(decodeVectorShiftEnable, to_integer(calcMemAddr(3 downto 0))) sll to_integer(decodeVectorMfcE));
+                     executeVectorBE <= std_logic_vector(vectorEnableRightshift sll to_integer(decodeVectorMfcE));
+                  
+                  when VECTORLOADTYPE_LRV =>
+                     executeVectorBE <= std_logic_vector((not vectorEnableRightshift) sll to_integer(decodeVectorMfcE));
+             
+                  when VECTORLOADTYPE_LPV | VECTORLOADTYPE_LUV | VECTORLOADTYPE_LHV =>
+                     executeVectorBE <= std_logic_vector(decodeVectorShiftEnable);
              
                end case;
                
@@ -1214,11 +1270,16 @@ begin
                vectorAddrEleAdd := decodeVectorMfcE - calcMemAddr(3 downto 0);
                case (decodeVectorLoadType) is
                
-                  when VECTORLOADTYPE_LBV | VECTORLOADTYPE_LSV | VECTORLOADTYPE_LLV | VECTORLOADTYPE_LDV | VECTORLOADTYPE_LQV =>
+                  when VECTORLOADTYPE_LBV | VECTORLOADTYPE_LSV | VECTORLOADTYPE_LLV | VECTORLOADTYPE_LDV | VECTORLOADTYPE_LQV | VECTORLOADTYPE_LRV | VECTORLOADTYPE_LHV =>
                      for i in 0 to 15 loop
                         executeVectorReadMux(i) <= to_unsigned(i, 4) - vectorAddrEleAdd;
                      end loop;
-                  
+                     
+                  when VECTORLOADTYPE_LPV | VECTORLOADTYPE_LUV =>
+                     for i in 0 to 7 loop
+                        executeVectorReadMux(i * 2) <= ('0' & to_unsigned(i, 3)) - vectorAddrEleAdd;
+                     end loop;
+                     
                end case;
             
                if (decodeNew = '1') then     
@@ -1372,8 +1433,17 @@ begin
                      vec_writeEna((i * 2) + 1) <= executeVectorBE((i * 2) + 0);
                      vec_writeEna((i * 2) + 0) <= executeVectorBE((i * 2) + 1);
                   
-                     vec_data_a((i * 2) + 1) <= dmem_dataRead(to_integer(executeVectorReadMux((i * 2) + 0)));
-                     vec_data_a((i * 2) + 0) <= dmem_dataRead(to_integer(executeVectorReadMux((i * 2) + 1)));
+                     if (executeVectorShiftDown = '1') then
+                        vec_data_a((i * 2) + 1) <= '0' & dmem_dataRead(to_integer(executeVectorReadMux((i * 2) + 0)))(7 downto 1);
+                        vec_data_a((i * 2) + 0) <= dmem_dataRead(to_integer(executeVectorReadMux((i * 2) + 0)))(0) & 7x"0";
+                     else
+                        vec_data_a((i * 2) + 1) <= dmem_dataRead(to_integer(executeVectorReadMux((i * 2) + 0)));
+                        vec_data_a((i * 2) + 0) <= dmem_dataRead(to_integer(executeVectorReadMux((i * 2) + 1)));
+                     end if;
+                        
+                     if (executeVectorClearLower = '1') then
+                        vec_data_a((i * 2) + 0) <= (others => '0');
+                     end if;
                   end loop;
                   
                end if;
