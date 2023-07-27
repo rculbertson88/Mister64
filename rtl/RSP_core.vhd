@@ -229,7 +229,9 @@ architecture arch of RSP_core is
       VECTORLOADTYPE_LRV,
       VECTORLOADTYPE_LPV,
       VECTORLOADTYPE_LUV,
-      VECTORLOADTYPE_LHV
+      VECTORLOADTYPE_LHV,
+      VECTORLOADTYPE_LFV,
+      VECTORLOADTYPE_LTV
    );
    signal decodeVectorLoadType         : VECTOR_LOADTYPE;   
             
@@ -287,6 +289,7 @@ architecture arch of RSP_core is
    signal executeVectorBE              : std_logic_vector(15 downto 0) := (others => '0');
    signal executeVectorClearLower      : std_logic := '0';
    signal executeVectorShiftDown       : std_logic := '0';
+   signal executeVectorTranspose       : std_logic := '0';
    signal executeVectorReadTarget      : unsigned(4 downto 0) := (others => '0');
    signal executeVectorWritebackEna    : std_logic_vector(7 downto 0);
    type texecuteVectorWritebackData is array(0 to 7) of std_logic_vector(15 downto 0);
@@ -930,6 +933,22 @@ begin
                               decodeVectorReadEnable  <= '1';
                               decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
                               decodeVectorAddrWrap8   <= '1';
+                              decodeVectorShiftEnable <= x"FFFF";                                 
+                              
+                           when 16#09# =>
+                              decodeVectorLoadType    <= VECTORLOADTYPE_LFV;
+                              decodeVectorReadEnable  <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorAddrWrap8   <= '1';
+                              decodeVectorShiftEnable <= x"00FF";                             
+
+                           when 16#0A# => null; -- LWV does not exist, but should not trigger any error flag
+                           
+                           when 16#0B# =>
+                              decodeVectorLoadType    <= VECTORLOADTYPE_LTV;
+                              decodeVectorReadEnable  <= '1';
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorAddrWrap8   <= '1';
                               decodeVectorShiftEnable <= x"FFFF";                              
                         
                            when others =>
@@ -1245,14 +1264,19 @@ begin
                end if;
                
                executeVectorShiftDown  <= '0';
-               if (decodeVectorLoadType = VECTORLOADTYPE_LUV or decodeVectorLoadType = VECTORLOADTYPE_LHV) then
+               if (decodeVectorLoadType = VECTORLOADTYPE_LUV or decodeVectorLoadType = VECTORLOADTYPE_LHV or decodeVectorLoadType = VECTORLOADTYPE_LFV) then
                   executeVectorShiftDown <= '1';
+               end if;
+               
+               executeVectorTranspose <= '0';
+               if (decodeVectorLoadType = VECTORLOADTYPE_LTV) then
+                  executeVectorTranspose <= '1';
                end if;
                
                vectorEnableRightshift := shift_right(decodeVectorShiftEnable, to_integer(calcMemAddr(3 downto 0)));
                case (decodeVectorLoadType) is
                
-                  when VECTORLOADTYPE_LBV | VECTORLOADTYPE_LSV | VECTORLOADTYPE_LLV | VECTORLOADTYPE_LDV =>
+                  when VECTORLOADTYPE_LBV | VECTORLOADTYPE_LSV | VECTORLOADTYPE_LLV | VECTORLOADTYPE_LDV | VECTORLOADTYPE_LFV =>
                      executeVectorBE <= std_logic_vector(decodeVectorShiftEnable sll to_integer(decodeVectorMfcE));
                   
                   when VECTORLOADTYPE_LQV =>
@@ -1261,7 +1285,7 @@ begin
                   when VECTORLOADTYPE_LRV =>
                      executeVectorBE <= std_logic_vector((not vectorEnableRightshift) sll to_integer(decodeVectorMfcE));
              
-                  when VECTORLOADTYPE_LPV | VECTORLOADTYPE_LUV | VECTORLOADTYPE_LHV =>
+                  when VECTORLOADTYPE_LPV | VECTORLOADTYPE_LUV | VECTORLOADTYPE_LHV | VECTORLOADTYPE_LTV =>
                      executeVectorBE <= std_logic_vector(decodeVectorShiftEnable);
              
                end case;
@@ -1278,6 +1302,19 @@ begin
                   when VECTORLOADTYPE_LPV | VECTORLOADTYPE_LUV =>
                      for i in 0 to 7 loop
                         executeVectorReadMux(i * 2) <= ('0' & to_unsigned(i, 3)) - vectorAddrEleAdd;
+                     end loop;
+                     
+                  when VECTORLOADTYPE_LFV =>
+                     for i in 0 to 3 loop
+                        executeVectorReadMux(i * 2) <= (to_unsigned(i, 2) & "00") - vectorAddrEleAdd;
+                     end loop;
+                     for i in 4 to 7 loop
+                        executeVectorReadMux(i * 2) <= x"8" + (to_unsigned(i, 2) & "00") - vectorAddrEleAdd;
+                     end loop;
+                     
+                  when VECTORLOADTYPE_LTV =>
+                     for i in 0 to 15 loop
+                        executeVectorReadMux(i) <= to_unsigned(i, 4) + decodeVectorMfcE;
                      end loop;
                      
                end case;
@@ -1426,7 +1463,12 @@ begin
                   vec_writeEna <= executeVectorBE;
                
                   for i in 0 to 7 loop
-                     vec_addr_a(i) <= std_logic_vector(executeVectorReadTarget);
+                     if (executeVectorTranspose = '1') then
+                        vec_addr_a(i)(4 downto 3) <= std_logic_vector(executeVectorReadTarget(4 downto 3));
+                        vec_addr_a(i)(2 downto 0) <= std_logic_vector(to_unsigned(i, 3) + executeVectorMfcE(3 downto 1));
+                     else
+                        vec_addr_a(i) <= std_logic_vector(executeVectorReadTarget);
+                     end if;
                   end loop;
                   
                   for i in 0 to 7 loop
