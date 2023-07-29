@@ -8,9 +8,17 @@ package pRSP is
 
    type VECTOR_CALCTYPE is
    (
+      VCALC_VMUDH,
+      VCALC_VMADN,
+      VCALC_VADD,
+      VCALC_VSUB,
+      VCALC_VADDC,
+      VCALC_VSUBC,
       VCALC_VABS,
       VCALC_VSAR,
-      VCALC_VMOV
+      VCALC_VMOV,
+      VCALC_VZERO,
+      VCALC_VNOP
    );
 
 end package;

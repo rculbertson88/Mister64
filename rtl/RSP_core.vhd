@@ -111,6 +111,7 @@ architecture arch of RSP_core is
    signal decVectorElement             : unsigned(3 downto 0);
    signal decVectorDestEle             : unsigned(2 downto 0);
    signal decVectorMfcE                : unsigned(3 downto 0);
+   signal decTransposeWrite            : std_logic;
    
    --regs    
    signal decodeStallcount             : integer range 0 to 2 := 0;
@@ -141,16 +142,21 @@ architecture arch of RSP_core is
    signal decodeMemOffset              : signed(15 downto 0) := (others => '0');
    
    signal decodeVectorNew              : std_logic := '0';
+   signal decodeVectorSign1            : std_logic := '0';
+   signal decodeVectorSign2            : std_logic := '0';
    signal decodeVectorValue1           : t_vec_data;
    signal decodeVectorValue2           : t_vec_data;
    signal decodeVectorAddrWrap         : std_logic := '0';
    signal decodeVectorAddrWrap8        : std_logic := '0';
    signal decodeVectorWriteEnable      : std_logic := '0';
+   signal decodeVectorWriteMux         : std_logic := '0';
    signal decodeVectorReadEnable       : std_logic := '0';
    signal decodeVectorShiftEnable      : unsigned(15 downto 0) := (others => '0');
    signal decodeVectorElement          : unsigned(3 downto 0);
+   signal decodeVectorSelect           : unsigned(3 downto 0);
    signal decodeVectorDestEle          : unsigned(2 downto 0);
    signal decodeVectorMfcE             : unsigned(3 downto 0);
+   signal decodeVectorSFVHigh          : std_logic := '0';
    signal decodeVectorMTC2             : std_logic := '0';
    signal decode_set_vco               : std_logic := '0';
    signal decode_set_vcc               : std_logic := '0';
@@ -234,7 +240,33 @@ architecture arch of RSP_core is
       VECTORLOADTYPE_LTV
    );
    signal decodeVectorLoadType         : VECTOR_LOADTYPE;   
-            
+   
+   type VECTORBETYPE is
+   (
+      VECTORBETYPE_DONTMODIFY,
+      VECTORBETYPE_ROTATELEFTADDR,
+      VECTORBETYPE_SHIFTLEFTADDR,
+      VECTORBETYPE_SHIFTLEFTADDRNOT
+   );
+   signal decodeVectorBEType          : VECTORBETYPE;   
+   
+   type VECTORMEMMUXTYPE is
+   (
+      VECTORMEMMUXTYPE_MOD_ADDR_E,
+      VECTORMEMMUXTYPE_MOD_ADDR_E2,
+      VECTORMEMMUXTYPE_MOD_ADDR_E3
+   );
+   signal decodeVectorMemMuxType      : VECTORMEMMUXTYPE;
+   
+   type VECTORSTORE7MODETYPE is
+   (
+      VECTORSTORE7MODETYPE_NONE,
+      VECTORSTORE7MODETYPE_HIGH,
+      VECTORSTORE7MODETYPE_LOW,
+      VECTORSTORE7MODETYPE_ALL
+   );
+   signal decodeVectorStore7Mode      : VECTORSTORE7MODETYPE;
+      
    -- stage 3   
    signal value2_muxedSigned           : unsigned(31 downto 0);
    signal value2_muxedLogical          : unsigned(31 downto 0);
@@ -271,6 +303,14 @@ architecture arch of RSP_core is
    signal vce                          : unsigned(7 downto 0);
    signal MFC2_value                   : std_logic_vector(15 downto 0);
    
+   -- precalc
+   type t_vec_mux is array(0 to 15) of unsigned(3 downto 0);
+   signal exeVectorMemMux              : t_vec_mux;
+   signal exeVectorBE                  : std_logic_vector(15 downto 0) := (others => '0');
+   signal exe_dmem_sort                : tDMEMarray;
+   signal exe_dmem_sort7               : tDMEMarray;
+   signal exeVectorStore7Bit           : unsigned(15 downto 0) := (others => '0');
+   
    --regs         
    signal executeNew                   : std_logic := '0';
    signal executeStallFromMEM          : std_logic := '0';
@@ -298,7 +338,6 @@ architecture arch of RSP_core is
    signal executeVectorMTC2            : std_logic := '0';
    signal executeVectorMTC2Data        : std_logic_vector(15 downto 0) := (others => '0');
    
-   type t_vec_mux is array(0 to 15) of unsigned(3 downto 0);
    signal executeVectorReadMux : t_vec_mux;
    
    -- stage 4 
@@ -322,13 +361,23 @@ architecture arch of RSP_core is
    
    type tAccu is array(0 to 7) of unsigned(47 downto 0);
    signal accu : tAccu :=  (others => (others => '0'));
+      
+   signal dmem_addr_1            : tDMEMarray;
+   signal dmem_addr_2            : tDMEMarray;
+   signal dmem_addr_3            : tDMEMarray;
+   signal dmem_dataWrite_1       : tDMEMarray;
+   signal dmem_dataWrite_2       : tDMEMarray;
+   signal dmem_dataWrite_3       : tDMEMarray;
+   signal dmem_WriteEnable_1     : std_logic_vector(15 downto 0);
+   signal dmem_WriteEnable_2     : std_logic_vector(15 downto 0);
+   signal dmem_WriteEnable_3     : std_logic_vector(15 downto 0);
    
-   signal export_vco : unsigned(15 downto 0);
-   signal export_vcc : unsigned(15 downto 0);
-   signal export_vce : unsigned(7 downto 0);
+   signal export_vco             : unsigned(15 downto 0);
+   signal export_vcc             : unsigned(15 downto 0);
+   signal export_vce             : unsigned(7 downto 0);
    
-   signal ce_1x_1                      : std_logic := '0';
-   signal writeDoneNew                 : std_logic := '0';
+   signal ce_1x_1                : std_logic := '0';
+   signal writeDoneNew           : std_logic := '0';
 -- synthesis translate_on
    
 begin 
@@ -498,6 +547,8 @@ begin
    decVectorDestEle <= opcodeCacheMuxed(13 downto 11);
    decVectorMfcE    <= opcodeCacheMuxed(10 downto 7);
 
+   decTransposeWrite <= '1' when (decOP = 16#3A# and decRD = 16#0B#) else '0';
+
    -- fetch vector
    process (all)
    begin
@@ -505,7 +556,12 @@ begin
       for i in 0 to 7 loop
          
          vec_addr_b_1(i) <= std_logic_vector(opcodeCacheMuxed(15 downto 11));
-         vec_addr_b_2(i) <= std_logic_vector(opcodeCacheMuxed(20 downto 16));
+         
+         if (decTransposeWrite = '1') then
+            vec_addr_b_2(i) <= std_logic_vector(opcodeCacheMuxed(20 downto 19)) & std_logic_vector(to_unsigned(i, 3) + decVectorMfcE(3 downto 1));
+         else
+            vec_addr_b_2(i) <= std_logic_vector(opcodeCacheMuxed(20 downto 16));
+         end if;
       
       end loop;
    
@@ -514,11 +570,13 @@ begin
 
    process (clk1x)
       variable decVectorUpdate : std_logic := '0';
+      variable decVectorSelect : unsigned(3 downto 0);
    begin
       if (rising_edge(clk1x)) then
       
          error_instr     <= '0';
          decVectorUpdate := '0';
+         decVectorSelect := decodeVectorSelect;
          
          if (stall3 = '0') then
             decodeNew       <= '0';
@@ -550,6 +608,7 @@ begin
                
                   decodeNew            <= '1'; 
                   decVectorUpdate      := '1';
+                  decVectorSelect      := x"0";
                      
 -- synthesis translate_off    
                   pcOld1               <= PC;
@@ -599,14 +658,18 @@ begin
                   decodeWriteRDPReg       <= '0';
                           
                   decodeMemOffset         <= signed(decImmData);
+                  decodeVectorSign1       <= '0';
+                  decodeVectorSign2       <= '0';
                   decodeVectorReadEnable  <= '0';
                   decodeVectorAddrWrap    <= '0';
                   decodeVectorAddrWrap8   <= '0';
                   decodeVectorWriteEnable <= '0';
+                  decodeVectorWriteMux    <= '0';
                   decodeVectorMTC2        <= '0';
                   decode_set_vco          <= '0';
                   decode_set_vcc          <= '0';
                   decode_set_vce          <= '0';
+                  decodeVectorStore7Mode  <= VECTORSTORE7MODETYPE_NONE;
                       
                   -- decoding opcode specific
                   case (to_integer(decOP)) is
@@ -819,17 +882,44 @@ begin
                            end case;
                         else 
                         
+                           decVectorSelect  := decVectorElement;
                            decodeVectorNew  <= '1';
                            stall2           <= '1';
                            decodeStallcount <= 2;
                         
                            case (to_integer(decFunct)) is
 
+                              when 16#07# =>  -- VMUDH
+                                 decodeVectorCalcType <= VCALC_VMUDH; 
+                                 decodeVectorSign1    <= '1';
+                                 decodeVectorSign2    <= '1';
+                              
+                              when 16#0E# => -- VMADN
+                                 decodeVectorCalcType <= VCALC_VMADN;
+                                 decodeVectorSign2    <= '1';
+                              
+                              when 16#10# => -- VADD
+                                 decodeVectorCalcType <= VCALC_VADD; 
+                                 decodeVectorSign1    <= '1';
+                                 decodeVectorSign2    <= '1';
+                              
+                              when 16#11# => -- VSUB
+                                 decodeVectorCalcType <= VCALC_VSUB; 
+                                 decodeVectorSign1    <= '1';
+                                 decodeVectorSign2    <= '1';
+                                 
                               when 16#13# => decodeVectorCalcType <= VCALC_VABS; -- VABS
+                              when 16#14# => decodeVectorCalcType <= VCALC_VADDC; -- VADDC
+                              when 16#15# => decodeVectorCalcType <= VCALC_VSUBC; -- VSUBC
                               
                               when 16#1D# => decodeVectorCalcType <= VCALC_VSAR; -- VSAR
                               
                               when 16#33# => decodeVectorCalcType <= VCALC_VMOV; -- VMOV 
+                              
+                              when 16#12# | 16#16# | 16#17# | 16#18# | 16#19# | 16#1A# | 16#1B# | 16#1C# | 16#1E# | 
+                                   16#1F# | 16#2E# | 16#2F# | 16#38# | 16#39# | 16#3A# | 16#3B# | 16#3C# | 16#3D# | 16#3E# => decodeVectorCalcType <= VCALC_VZERO;
+                              
+                              when 16#37# | 16#3F# => decodeVectorCalcType <= VCALC_VNOP; 
 
                               when others =>
                                  -- synthesis translate_off
@@ -962,10 +1052,129 @@ begin
                      when 16#3A# => -- SWC2
                         case (to_integer(decRD)) is
                         
-                           when 16#04# =>
+                           when 16#00# => -- SBV
+                              decodeVectorBEType      <= VECTORBETYPE_ROTATELEFTADDR;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E;
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)), 16);
+                              decodeVectorShiftEnable <= x"0001"; 
                               decodeVectorWriteEnable <= '1';
-                              decodeVectorAddrWrap    <= '1';
+                              decodeVectorWriteMux    <= '1';
+                              decodeVectorAddrWrap    <= '1';   
+                              
+                           when 16#01# => -- SSV
+                              decodeVectorBEType      <= VECTORBETYPE_ROTATELEFTADDR;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E;
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0", 16);
+                              decodeVectorShiftEnable <= x"0003"; 
+                              decodeVectorWriteEnable <= '1';                           
+                              decodeVectorWriteMux    <= '1';                           
+                              
+                           when 16#02# => -- SLV
+                              decodeVectorBEType      <= VECTORBETYPE_ROTATELEFTADDR;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E;
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "00", 16);
+                              decodeVectorShiftEnable <= x"000F"; 
+                              decodeVectorWriteEnable <= '1';                           
+                              decodeVectorWriteMux    <= '1';                           
+                              
+                           when 16#03# => -- SDV
+                              decodeVectorBEType      <= VECTORBETYPE_ROTATELEFTADDR;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E;
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "000", 16);
+                              decodeVectorShiftEnable <= x"00FF"; 
+                              decodeVectorWriteEnable <= '1';
+                              decodeVectorWriteMux    <= '1';
+                        
+                           when 16#04# => -- SQV
+                              decodeVectorBEType      <= VECTORBETYPE_SHIFTLEFTADDR;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E;
                               decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorShiftEnable <= x"FFFF"; 
+                              decodeVectorWriteEnable <= '1';                           
+                              decodeVectorWriteMux    <= '1';                           
+                              
+                           when 16#05# => -- SRV
+                              decodeVectorBEType      <= VECTORBETYPE_SHIFTLEFTADDRNOT;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E;
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorShiftEnable <= x"FFFF"; 
+                              decodeVectorWriteEnable <= '1';
+                              decodeVectorWriteMux    <= '1';
+                              decodeVectorAddrWrap    <= '1'; 
+                              
+                           when 16#06# => -- SPV
+                              decodeVectorBEType      <= VECTORBETYPE_ROTATELEFTADDR;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E2;
+                              decodeVectorStore7Mode  <= VECTORSTORE7MODETYPE_HIGH;
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "000", 16);
+                              decodeVectorShiftEnable <= x"00FF"; 
+                              decodeVectorWriteEnable <= '1';                           
+                              decodeVectorWriteMux    <= '1';                           
+                              
+                           when 16#07# => -- SUV
+                              decodeVectorBEType      <= VECTORBETYPE_ROTATELEFTADDR;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E2;
+                              decodeVectorStore7Mode  <= VECTORSTORE7MODETYPE_LOW;
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "000", 16);
+                              decodeVectorShiftEnable <= x"00FF"; 
+                              decodeVectorWriteEnable <= '1';                           
+                              decodeVectorWriteMux    <= '1';                           
+                              
+                           when 16#08# => -- SHV
+                              decodeVectorBEType      <= VECTORBETYPE_ROTATELEFTADDR;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E;
+                              decodeVectorStore7Mode  <= VECTORSTORE7MODETYPE_ALL;
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorShiftEnable <= x"5555"; 
+                              decodeVectorWriteEnable <= '1';
+                              decodeVectorWriteMux    <= '1';
+                              decodeVectorAddrWrap8   <= '1';                           
+                              
+                           when 16#09# => -- SFV
+                              decodeVectorBEType      <= VECTORBETYPE_ROTATELEFTADDR;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E3;
+                              decodeVectorStore7Mode  <= VECTORSTORE7MODETYPE_ALL;
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorShiftEnable <= x"1111"; 
+                              decodeVectorWriteEnable <= '1';
+                              decodeVectorWriteMux    <= '1';
+                              decodeVectorAddrWrap8   <= '1';
+                              decodeVectorMfcE(1 downto 0) <= "00";
+                              case (to_integer(decVectorMfcE)) is
+                                 when 0 | 15 => decodeVectorMfcE(3 downto 2) <= 2x"0"; decodeVectorSFVHigh <= '0';
+                                 when 1      => decodeVectorMfcE(3 downto 2) <= 2x"2"; decodeVectorSFVHigh <= '1';
+                                 when 4      => decodeVectorMfcE(3 downto 2) <= 2x"1"; decodeVectorSFVHigh <= '0';
+                                 when 5      => decodeVectorMfcE(3 downto 2) <= 2x"3"; decodeVectorSFVHigh <= '1';
+                                 when 8      => decodeVectorMfcE(3 downto 2) <= 2x"0"; decodeVectorSFVHigh <= '1';
+                                 when 11     => decodeVectorMfcE(3 downto 2) <= 2x"3"; decodeVectorSFVHigh <= '0';
+                                 when 12     => decodeVectorMfcE(3 downto 2) <= 2x"1"; decodeVectorSFVHigh <= '1';
+                                 when others => 
+                                    -- need to write zeros in these cases, so lets do a ressource saving hack:
+                                    -- feed dmem datamux via MFC2 data by hijacking the operand forward bus
+                                    decodeValue2         <= (others => '0');
+                                    decodeSource2        <= (others => '0');
+                                    decodeForwardValue2  <= '0';
+                                    decodeVectorWriteMux <= '0';
+                              end case;
+                              
+                           when 16#0A# => -- SWV
+                              decodeVectorBEType      <= VECTORBETYPE_ROTATELEFTADDR;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E;
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorShiftEnable <= x"FFFF"; 
+                              decodeVectorWriteEnable <= '1';                           
+                              decodeVectorWriteMux    <= '1'; 
+                              decodeVectorAddrWrap8   <= '1';
+                              
+                           when 16#0B# => -- STV
+                              decodeVectorBEType      <= VECTORBETYPE_ROTATELEFTADDR;
+                              decodeVectorMemMuxType  <= VECTORMEMMUXTYPE_MOD_ADDR_E;
+                              decodeMemOffset         <= resize(signed(decImmData(6 downto 0)) & "0000", 16);
+                              decodeVectorShiftEnable <= x"FFFF"; 
+                              decodeVectorWriteEnable <= '1';                           
+                              decodeVectorWriteMux    <= '1'; 
+                              decodeVectorAddrWrap8   <= '1';
+                              decodeVectorMfcE        <= x"0";
                         
                            when others =>
                               -- synthesis translate_off
@@ -984,6 +1193,8 @@ begin
                      
                   end case;
                   
+                  decodeVectorSelect <= decVectorSelect;
+                  
                end if; -- fetchReady
       
             else
@@ -996,10 +1207,58 @@ begin
             
             -- vector operand fetching
             if (decVectorUpdate = '1') then
+            
                for i in 0 to 15 loop
                   decodeVectorValue1(i) <= vec_data_b_1(i);
-                  decodeVectorValue2(i) <= vec_data_b_2(i);
                end loop;
+            
+               case (decVectorSelect) is -- broadcast
+               
+                  when x"0" | x"1" => -- 0,1,2,3,4,5,6,7
+                     for i in 0 to 15 loop
+                        decodeVectorValue2(i) <= vec_data_b_2(i);
+                     end loop;
+                     
+                  when x"2" => -- 0,0,2,2,4,4,6,6
+                     for i in 0 to 15 loop
+                        decodeVectorValue2(i) <= vec_data_b_2(to_integer(to_unsigned(i, 4) and "1101") + 0);
+                     end loop;
+                  
+                  when x"3" => -- 1,1,3,3,5,5,7,7
+                     for i in 0 to 15 loop
+                        decodeVectorValue2(i) <= vec_data_b_2(to_integer(to_unsigned(i, 4) and "1101") + 2);
+                     end loop;
+                  
+                  when x"4" => -- 0,0,0,0,4,4,4,4
+                     for i in 0 to 15 loop
+                        decodeVectorValue2(i) <= vec_data_b_2(to_integer(to_unsigned(i, 4) and "1001") + 0);
+                     end loop;
+                  
+                  when x"5" => -- 1,1,1,1,5,5,5,5
+                     for i in 0 to 15 loop
+                        decodeVectorValue2(i) <= vec_data_b_2(to_integer(to_unsigned(i, 4) and "1001") + 2);
+                     end loop;
+                  
+                  when x"6" => -- 2,2,2,2,6,6,6,6
+                     for i in 0 to 15 loop
+                        decodeVectorValue2(i) <= vec_data_b_2(to_integer(to_unsigned(i, 4) and "1001") + 4);
+                     end loop;
+                  
+                  when x"7" => -- 3,3,3,3,7,7,7,7
+                     for i in 0 to 15 loop
+                        decodeVectorValue2(i) <= vec_data_b_2(to_integer(to_unsigned(i, 4) and "1001") + 6);
+                     end loop;                  
+                  
+                  when x"8" | x"9" | x"A" | x"B" | x"C" | x"D" | x"E" | x"F" => -- single line for all units  
+                     for i in 0 to 7 loop
+                        decodeVectorValue2((i * 2) + 0) <= vec_data_b_2(to_integer(decVectorSelect(2 downto 0)) * 2 + 0);
+                        decodeVectorValue2((i * 2) + 1) <= vec_data_b_2(to_integer(decVectorSelect(2 downto 0)) * 2 + 1);
+                     end loop;
+               
+                  when others => null;
+               
+               end case;
+               
             end if;
 
          end if; -- ce
@@ -1110,19 +1369,102 @@ begin
    reg_addr      <= decodeRegAddr;
    reg_dataWrite <= value2;
 
+   -- DMEM mux precalc
+   process (all)
+      variable vectorAddrEleAdd       : unsigned(3 downto 0);
+      variable vectorAddrEleSum       : unsigned(3 downto 0);
+      variable vectorEnableLeftshift  : unsigned(15 downto 0);
+   begin
+   
+      for i in 0 to 7 loop
+         exe_dmem_sort((i * 2) + 1) <= decodeVectorValue2((i * 2) + 0);
+         exe_dmem_sort((i * 2) + 0) <= decodeVectorValue2((i * 2) + 1);         
+      end loop;
+      
+      exe_dmem_sort7(0 ) <= decodeVectorValue2(1 )(6 downto 0) & decodeVectorValue2(0 )(7);
+      exe_dmem_sort7(1 ) <= decodeVectorValue2(0 )(6 downto 0) & decodeVectorValue2(3 )(7);
+      exe_dmem_sort7(2 ) <= decodeVectorValue2(3 )(6 downto 0) & decodeVectorValue2(2 )(7);
+      exe_dmem_sort7(3 ) <= decodeVectorValue2(2 )(6 downto 0) & decodeVectorValue2(5 )(7);
+      exe_dmem_sort7(4 ) <= decodeVectorValue2(5 )(6 downto 0) & decodeVectorValue2(4 )(7);
+      exe_dmem_sort7(5 ) <= decodeVectorValue2(4 )(6 downto 0) & decodeVectorValue2(7 )(7);
+      exe_dmem_sort7(6 ) <= decodeVectorValue2(7 )(6 downto 0) & decodeVectorValue2(6 )(7);
+      exe_dmem_sort7(7 ) <= decodeVectorValue2(6 )(6 downto 0) & decodeVectorValue2(9 )(7);
+      exe_dmem_sort7(8 ) <= decodeVectorValue2(9 )(6 downto 0) & decodeVectorValue2(8 )(7);
+      exe_dmem_sort7(9 ) <= decodeVectorValue2(8 )(6 downto 0) & decodeVectorValue2(11)(7);
+      exe_dmem_sort7(10) <= decodeVectorValue2(11)(6 downto 0) & decodeVectorValue2(10)(7);
+      exe_dmem_sort7(11) <= decodeVectorValue2(10)(6 downto 0) & decodeVectorValue2(13)(7);
+      exe_dmem_sort7(12) <= decodeVectorValue2(13)(6 downto 0) & decodeVectorValue2(12)(7);
+      exe_dmem_sort7(13) <= decodeVectorValue2(12)(6 downto 0) & decodeVectorValue2(15)(7);
+      exe_dmem_sort7(14) <= decodeVectorValue2(15)(6 downto 0) & decodeVectorValue2(14)(7);
+      exe_dmem_sort7(15) <= decodeVectorValue2(14)(6 downto 0) & decodeVectorValue2(1 )(7);
+      
+      -- vector write enables
+      vectorEnableLeftshift := decodeVectorShiftEnable sll to_integer(calcMemAddr(3 downto 0));
+      case (decodeVectorBEType) is
+      
+         when VECTORBETYPE_DONTMODIFY =>
+            exeVectorBE <= std_logic_vector(decodeVectorShiftEnable);         
+            
+         when VECTORBETYPE_ROTATELEFTADDR =>
+            exeVectorBE <= std_logic_vector(decodeVectorShiftEnable rol to_integer(calcMemAddr(3 downto 0)));         
+            
+         when VECTORBETYPE_SHIFTLEFTADDR =>
+            exeVectorBE <= std_logic_vector(vectorEnableLeftshift);         
+            
+         when VECTORBETYPE_SHIFTLEFTADDRNOT =>
+            exeVectorBE <= std_logic_vector(not vectorEnableLeftshift);
+      
+      end case;
+      
+      -- vector load 7 bit mode select
+      vectorAddrEleAdd := decodeVectorMfcE - calcMemAddr(3 downto 0);
+      
+      exeVectorStore7Bit <= (others => '0');
+      case (decodeVectorStore7Mode) is
+         when VECTORSTORE7MODETYPE_NONE => null;
+         when VECTORSTORE7MODETYPE_HIGH =>
+            for i in 0 to 15 loop
+               if ((to_unsigned(i, 4) + vectorAddrEleAdd) > 7) then
+                  exeVectorStore7Bit(i) <= '1';
+               end if;               
+            end loop;
+         when VECTORSTORE7MODETYPE_LOW  =>
+            for i in 0 to 15 loop
+               if ((to_unsigned(i, 4) + vectorAddrEleAdd) < 8) then
+                  exeVectorStore7Bit(i) <= '1';
+               end if;               
+            end loop;
+         when VECTORSTORE7MODETYPE_ALL  => exeVectorStore7Bit <= (others => '1');
+      end case;
+      
+      -- vector load mux mapping
+      for i in 0 to 15 loop
+      
+         vectorAddrEleSum := to_unsigned(i, 4) + vectorAddrEleAdd;
+      
+         case (decodeVectorMemMuxType) is
+         
+            when VECTORMEMMUXTYPE_MOD_ADDR_E =>
+               exeVectorMemMux(i) <= vectorAddrEleSum;
+                     
+            when VECTORMEMMUXTYPE_MOD_ADDR_E2 =>          
+               exeVectorMemMux(i) <= vectorAddrEleSum(2 downto 0) & '0';             
+               
+            when VECTORMEMMUXTYPE_MOD_ADDR_E3 =>
+               exeVectorMemMux(i) <= decodeVectorSFVHigh & vectorAddrEleSum(3 downto 1);
+            
+         end case;
+      end loop;
+
+   end process;
+
+   -- DMEM address muxing 
    process (all)
       type trotatedData is array(0 to 3) of std_logic_vector(7 downto 0);
       variable rotatedData : trotatedData;
       variable rotateAddrMuxAdd : integer range 0 to 3;
-   begin
-   
-      break_out         <= '0';      
-      reg_RSP_read      <= '0';      
-      reg_RDP_read      <= '0';      
-      reg_RSP_write     <= '0';      
-      reg_RDP_write     <= '0';      
+   begin     
       
-      -- DMEM muxing 
       rotateAddrMuxAdd := 0;
       if (decodeSaveType = SAVETYPE_BYTE) then -- SB
          case (calcMemAddr(1 downto 0)) is
@@ -1171,15 +1513,14 @@ begin
       end if;
 
       dmem_WriteEnable <= (others => '0'); 
-      if (decodeVectorWriteEnable = '1') then
+      if (decodeVectorWriteMux = '1') then
       
          for i in 0 to 15 loop
-            dmem_WriteEnable  <= (others => '1');  
-         end loop;
-         
-         for i in 0 to 7 loop
-            dmem_dataWrite((i * 2) + 0) <= decodeVectorValue2((i * 2) + 1);
-            dmem_dataWrite((i * 2) + 1) <= decodeVectorValue2((i * 2) + 0);
+            if (exeVectorStore7Bit(i) = '1') then
+               dmem_dataWrite(i) <= exe_dmem_sort7(to_integer(exeVectorMemMux(i)));
+            else
+               dmem_dataWrite(i) <= exe_dmem_sort(to_integer(exeVectorMemMux(i)));
+            end if;
          end loop;
       
       else
@@ -1192,26 +1533,51 @@ begin
       
       if (stall = 0 and decodeNew = '1') then
       
+         if (decodeVectorWriteEnable = '1') then
+         
+            dmem_WriteEnable  <= exeVectorBE; 
+         
+         else
+       
+            case (decodeSaveType) is
+               when SAVETYPE_NONE => null;
+               when SAVETYPE_BYTE =>
+                  dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0))) <= '1';
+               when SAVETYPE_WORD => 
+                  dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 0)) <= '1';
+                  dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 1)) <= '1';
+               when SAVETYPE_DWORD =>
+                  dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 0)) <= '1';
+                  dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 1)) <= '1';
+                  dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 2)) <= '1';
+                  dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 3)) <= '1';
+            end case;
+            
+         end if;
+             
+      end if;
+      
+          
+   end process;  
+      
+   -- I/O bus
+   process (all)
+   begin
+   
+      break_out         <= '0';      
+      reg_RSP_read      <= '0';      
+      reg_RDP_read      <= '0';      
+      reg_RSP_write     <= '0';      
+      reg_RDP_write     <= '0';    
+      
+      if (stall = 0 and decodeNew = '1') then
+      
          break_out     <= decode_break;
          
          reg_RSP_read  <= decodeReadRSPReg; 
          reg_RDP_read  <= decodeReadRDPReg; 
          reg_RSP_write <= decodeWriteRSPReg;
          reg_RDP_write <= decodeWriteRDPReg;
-             
-         case (decodeSaveType) is
-            when SAVETYPE_BYTE =>
-               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0))) <= '1';
-            when SAVETYPE_WORD => 
-               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 0)) <= '1';
-               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 1)) <= '1';
-            when SAVETYPE_DWORD =>
-               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 0)) <= '1';
-               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 1)) <= '1';
-               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 2)) <= '1';
-               dmem_WriteEnable(to_integer(calcMemAddr(3 downto 0) + 3)) <= '1';
-            when others => null;
-         end case;
              
       end if;
       
@@ -1597,6 +1963,8 @@ begin
          
          CalcNew               => decodeVectorNew,
          CalcType              => decodeVectorCalcType,
+         CalcSign1             => decodeVectorSign1,
+         CalcSign2             => decodeVectorSign2,
          VectorValue1          => decodeVectorValue1((i * 2) + 1) & decodeVectorValue1(i * 2),
          VectorValue2          => decodeVectorValue2((i * 2) + 1) & decodeVectorValue2(i * 2),
          element               => decodeVectorElement,
@@ -1605,28 +1973,28 @@ begin
          set_vco               => decode_set_vco,
          set_vcc               => decode_set_vcc,
          set_vce               => decode_set_vce,
-         vco_in_lo             => value2((i * 2) + 0),
-         vco_in_hi             => value2((i * 2) + 1),
-         vcc_in_lo             => value2((i * 2) + 0),
-         vcc_in_hi             => value2((i * 2) + 1),
+         vco_in_lo             => value2(i),
+         vco_in_hi             => value2(i + 8),
+         vcc_in_lo             => value2(i),
+         vcc_in_hi             => value2(i + 8),
          vce_in                => value2(i),
          
          -- synthesis translate_off
          export_accu           => accu(i),
-         export_vco_lo         => export_vco((i * 2) + 0),
-         export_vco_hi         => export_vco((i * 2) + 1),
-         export_vcc_lo         => export_vcc((i * 2) + 0),
-         export_vcc_hi         => export_vcc((i * 2) + 1),
+         export_vco_lo         => export_vco(i),
+         export_vco_hi         => export_vco(i + 8),
+         export_vcc_lo         => export_vcc(i),
+         export_vcc_hi         => export_vcc(i + 8),
          export_vce            => export_vce(i),
          -- synthesis translate_on
          
          writebackEna          => executeVectorWritebackEna(i),
          writebackData         => executeVectorWritebackData(i),
          
-         flag_vco_lo           => vco((i * 2) + 0),
-         flag_vco_hi           => vco((i * 2) + 1),
-         flag_vcc_lo           => vcc((i * 2) + 0),
-         flag_vcc_hi           => vcc((i * 2) + 1),
+         flag_vco_lo           => vco(i),
+         flag_vco_hi           => vco(i + 8),
+         flag_vcc_lo           => vcc(i),
+         flag_vcc_hi           => vcc(i + 8),
          flag_vce              => vce(i)
       );
    
@@ -1709,6 +2077,16 @@ begin
                firstExport <= '1';
             end if;
             
+            dmem_addr_1        <= dmem_addr;       
+            dmem_addr_2        <= dmem_addr_1;           
+            dmem_addr_3        <= dmem_addr_2;           
+            dmem_dataWrite_1   <= dmem_dataWrite;  
+            dmem_dataWrite_2   <= dmem_dataWrite_1;  
+            dmem_dataWrite_3   <= dmem_dataWrite_2;  
+            dmem_WriteEnable_1 <= dmem_WriteEnable;
+            dmem_WriteEnable_2 <= dmem_WriteEnable_1;
+            dmem_WriteEnable_3 <= dmem_WriteEnable_2;
+            
             if (writeDoneNew = '1') then
                -- count
                write(line_out, string'("# ")); 
@@ -1777,6 +2155,17 @@ begin
                export_vcc_last <= export_vcc;
                export_vco_last <= export_vco;
                export_vce_last <= export_vce;
+               
+               for i in 0 to 15 loop
+                  if (dmem_WriteEnable_3(i) = '1') then
+                     write(line_out, string'("DM "));
+                     write(line_out, to_hstring(dmem_addr_3(i)));
+                     write(line_out, to_hstring(to_unsigned(i, 4)));
+                     write(line_out, string'("  "));
+                     write(line_out, to_hstring(dmem_dataWrite_3(i)));
+                     write(line_out, string'(" "));
+                  end if;
+               end loop;
                
                writeline(outfile, line_out);
                out_count <= out_count + 1;
