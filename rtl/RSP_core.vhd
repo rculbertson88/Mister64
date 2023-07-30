@@ -889,22 +889,22 @@ begin
                         
                            case (to_integer(decFunct)) is
 
-                              when 16#07# =>  -- VMUDH
-                                 decodeVectorCalcType <= VCALC_VMUDH; 
+                              when 16#00# => decodeVectorCalcType <= VCALC_VMULF; -- VMULF
+                                 decodeVectorSign1    <= '1';
+                                 decodeVectorSign2    <= '1';                              
+                                 
+                              when 16#07# => decodeVectorCalcType <= VCALC_VMUDH; -- VMUDH
                                  decodeVectorSign1    <= '1';
                                  decodeVectorSign2    <= '1';
                               
-                              when 16#0E# => -- VMADN
-                                 decodeVectorCalcType <= VCALC_VMADN;
+                              when 16#0E# => decodeVectorCalcType <= VCALC_VMADN; -- VMADN
                                  decodeVectorSign2    <= '1';
                               
-                              when 16#10# => -- VADD
-                                 decodeVectorCalcType <= VCALC_VADD; 
+                              when 16#10# => decodeVectorCalcType <= VCALC_VADD; -- VADD
                                  decodeVectorSign1    <= '1';
                                  decodeVectorSign2    <= '1';
                               
-                              when 16#11# => -- VSUB
-                                 decodeVectorCalcType <= VCALC_VSUB; 
+                              when 16#11# => decodeVectorCalcType <= VCALC_VSUB;  -- VSUB
                                  decodeVectorSign1    <= '1';
                                  decodeVectorSign2    <= '1';
                                  
@@ -914,6 +914,36 @@ begin
                               
                               when 16#1D# => decodeVectorCalcType <= VCALC_VSAR; -- VSAR
                               
+                              when 16#20# => decodeVectorCalcType <= VCALC_VLT;  -- VLT
+                                 decodeVectorSign1    <= '1';
+                                 decodeVectorSign2    <= '1';
+                              
+                              when 16#21# => decodeVectorCalcType <= VCALC_VEQ;  -- VEQ
+                              when 16#22# => decodeVectorCalcType <= VCALC_VNE;  -- VNE
+  
+                              when 16#23# => decodeVectorCalcType <= VCALC_VGE;  -- VGE
+                                 decodeVectorSign1    <= '1';
+                                 decodeVectorSign2    <= '1';
+                              
+                              when 16#24# => decodeVectorCalcType <= VCALC_VCL;  -- VCL
+                              
+                              when 16#25# => decodeVectorCalcType <= VCALC_VCH;  -- VCH
+                                 decodeVectorSign1    <= '1';
+                                 decodeVectorSign2    <= '1';
+                              
+                              when 16#26# => decodeVectorCalcType <= VCALC_VCR;  -- VCR
+                                 decodeVectorSign1    <= '1';
+                                 decodeVectorSign2    <= '1';
+                              
+                              when 16#27# => decodeVectorCalcType <= VCALC_VMRG; -- VMRG
+                              
+                              when 16#28# => decodeVectorCalcType <= VCALC_VAND; -- VAND
+                              when 16#29# => decodeVectorCalcType <= VCALC_VNAND;-- VNAND
+                              when 16#2A# => decodeVectorCalcType <= VCALC_VOR;  -- VOR
+                              when 16#2B# => decodeVectorCalcType <= VCALC_VNOR; -- VNOR
+                              when 16#2C# => decodeVectorCalcType <= VCALC_VXOR; -- VXOR
+                              when 16#2D# => decodeVectorCalcType <= VCALC_VNXOR;-- VNXOR
+                              
                               when 16#33# => decodeVectorCalcType <= VCALC_VMOV; -- VMOV 
                               
                               when 16#12# | 16#16# | 16#17# | 16#18# | 16#19# | 16#1A# | 16#1B# | 16#1C# | 16#1E# | 
@@ -922,6 +952,7 @@ begin
                               when 16#37# | 16#3F# => decodeVectorCalcType <= VCALC_VNOP; 
 
                               when others =>
+                                 decodeVectorNew  <= '0';
                                  -- synthesis translate_off
                                  report to_hstring(decOP);
                                  -- synthesis translate_on

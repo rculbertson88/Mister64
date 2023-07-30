@@ -59,12 +59,30 @@ architecture arch of RSP_vector is
    signal value_in1       : signed(16 downto 0);
    signal value_in2       : signed(16 downto 0);
    
+   signal value2Not       : std_logic_vector(15 downto 0);
+   
    signal carry_vector    : signed(16 downto 0);
    signal add_result      : signed(16 downto 0);
    signal sub_result      : signed(16 downto 0);
-
-   signal mul_result      : signed(33 downto 0);
    
+   signal and_result      : unsigned(15 downto 0);
+   signal or_result       : unsigned(15 downto 0);
+   signal xor_result      : unsigned(15 downto 0);
+   
+   signal AddIsZero       : std_logic;
+   signal SubIsZero       : std_logic;
+   signal AgreaterB       : std_logic;
+   signal AequalB         : std_logic;
+   signal AlesserB        : std_logic;
+   signal AequalNotB      : std_logic;
+   
+   signal value_in2mul    : signed(17 downto 0);
+   signal mul_result      : signed(34 downto 0);
+   signal mulAddValue     : signed(47 downto 0);
+   signal mulShifted      : signed(47 downto 0);
+   signal mac_result      : signed(47 downto 0);
+   
+   -- regs
    signal acc             : signed(47 downto 0) := (others => '0');
    alias acc_h              is acc(47 downto 32);
    alias acc_m              is acc(31 downto 16);
@@ -118,12 +136,42 @@ begin
    value_in1 <= resize(signed(VectorValue1), 17) when (CalcSign1 = '1') else '0' & signed(VectorValue1);
    value_in2 <= resize(signed(VectorValue2), 17) when (CalcSign2 = '1') else '0' & signed(VectorValue2);
    
+   value2Not <= not VectorValue2;
+   
    -- calc
-   carry_vector <= x"0000" & vco_lo when (CalcType = VCALC_VADD or CalcType = VCALC_VSUB) else (others => '0');
+   carry_vector <= x"0000" & vco_lo when (CalcType = VCALC_VADD or CalcType = VCALC_VSUB) else 
+                   17x"00001"       when (CalcType = VCALC_VCR and xor_result(15) = '1') else
+                  (others => '0');
    
    add_result <= value_in1 + value_in2 + carry_vector;
    sub_result <= value_in1 - value_in2 - carry_vector;
-   mul_result <= value_in1 * value_in2;
+   
+   and_result <= unsigned(VectorValue1) and unsigned(VectorValue2);
+   or_result  <= unsigned(VectorValue1) or unsigned(VectorValue2);
+   xor_result <= unsigned(VectorValue1) xor unsigned(VectorValue2);
+   
+   -- mul
+   value_in2mul <= value_in2 & '0' when (CalcType = VCALC_VMULF) else
+                   value_in2(16) & value_in2;
+   
+   mul_result   <= value_in1 * value_in2mul;
+   
+   mulAddValue  <= to_signed(16#8000#, 48) when (CalcType = VCALC_VMULF) else
+                   acc                     when (CalcType = VCALC_VMADN) else
+                   (others => '0');
+                   
+   mulShifted   <= mul_result(31 downto 0) & x"0000" when (CalcType = VCALC_VMUDH) else
+                   resize(mul_result, 48);
+                   
+   mac_result   <= mulShifted + mulAddValue;
+   
+   -- compares
+   AddIsZero  <= '1' when (add_result(15 downto 0) = 0) else '0';
+   SubIsZero  <= '1' when (sub_result = 0) else '0';
+   AgreaterB  <= not sub_result(16) and (not AequalB);
+   AequalB    <= SubIsZero;
+   AlesserB   <= sub_result(16) and (not AequalB);
+   AequalNotB <= '1' when (VectorValue1 = value2Not) else '0';
    
    process (all)
    begin
@@ -132,6 +180,8 @@ begin
    end process;
    
    process (clk1x)
+      variable vcc_lo_calc : std_logic;
+      variable vcc_hi_calc : std_logic;
    begin
       if (rising_edge(clk1x)) then
       
@@ -149,19 +199,27 @@ begin
          
          if (set_vce = '1') then
             vce <= vce_in;
-         end if;   
+         end if; 
+
+         vcc_lo_calc := vcc_lo;
+         vcc_hi_calc := vcc_hi;
       
          if (CalcNew = '1') then
          
             case (CalcType) is
          
+               when VCALC_VMULF =>
+                  acc            <= mac_result;
+                  writebackEna   <= '1';
+                  outputSelect   <= CLAMP_SIGNED;               
+                  
                when VCALC_VMUDH =>
-                  acc            <= mul_result(31 downto 0) & x"0000";
+                  acc            <= mac_result;
                   writebackEna   <= '1';
                   outputSelect   <= CLAMP_SIGNED;               
                   
                when VCALC_VMADN =>
-                  acc            <= acc + resize(mul_result, 48);
+                  acc            <= mac_result;
                   writebackEna   <= '1';
                   outputSelect   <= CLAMP_UNSIGNED;               
                   
@@ -195,8 +253,7 @@ begin
                   else
                      acc(15 downto 0) <= (others => '0');
                   end if;
-                  
-                   
+ 
                when VCALC_VADDC =>
                   acc(15 downto 0) <= add_result(15 downto 0);
                   writebackEna     <= '1';
@@ -209,7 +266,7 @@ begin
                   writebackEna     <= '1';
                   outputSelect     <= OUTPUT_ACCL;
                   vco_lo           <= sub_result(16);
-                  if (sub_result /= 0) then vco_hi <= '1'; else vco_hi <= '0'; end if;
+                  vco_hi           <= not SubIsZero;
                   
                when VCALC_VSAR => 
                   writebackEna     <= '1';
@@ -219,6 +276,184 @@ begin
                      when x"A"   => outputSelect <= OUTPUT_ACCL;
                      when others => outputSelect <= OUTPUT_ZERO;
                   end case;
+                  
+               when VCALC_VLT =>  
+                  writebackEna   <= '1';
+                  outputSelect   <= OUTPUT_ACCL;
+                  vco_lo         <= '0';
+                  vco_hi         <= '0';
+                  vcc_hi         <= '0';
+                  if (AlesserB = '1' or (AequalB = '1' and vco_lo = '1' and vco_hi = '1')) then 
+                     acc(15 downto 0) <= signed(VectorValue1);
+                     vcc_lo           <= '1';
+                  else
+                     acc(15 downto 0) <= signed(VectorValue2);
+                     vcc_lo           <= '0';
+                  end if;
+               
+               when VCALC_VEQ =>   
+                  writebackEna   <= '1';
+                  outputSelect   <= OUTPUT_ACCL;
+                  vco_lo         <= '0';
+                  vco_hi         <= '0';
+                  vcc_hi         <= '0';
+                  if (vco_hi = '0' and AequalB = '1') then 
+                     acc(15 downto 0) <= signed(VectorValue1);
+                     vcc_lo           <= '1';
+                  else
+                     acc(15 downto 0) <= signed(VectorValue2);
+                     vcc_lo           <= '0';
+                  end if;
+               
+               when VCALC_VNE => 
+                  writebackEna   <= '1';
+                  outputSelect   <= OUTPUT_ACCL;
+                  vco_lo         <= '0';
+                  vco_hi         <= '0';
+                  vcc_hi         <= '0';
+                  if (vco_hi = '1' or AequalB = '0') then 
+                     acc(15 downto 0) <= signed(VectorValue1);
+                     vcc_lo           <= '1';
+                  else
+                     acc(15 downto 0) <= signed(VectorValue2);
+                     vcc_lo           <= '0';
+                  end if;
+               
+               when VCALC_VGE => 
+                  writebackEna   <= '1';
+                  outputSelect   <= OUTPUT_ACCL;
+                  vco_lo         <= '0';
+                  vco_hi         <= '0';
+                  vcc_hi         <= '0';
+                  if (AgreaterB = '1' or (AequalB = '1' and (vco_lo = '0' or vco_hi = '0'))) then 
+                     acc(15 downto 0) <= signed(VectorValue1);
+                     vcc_lo           <= '1';
+                  else
+                     acc(15 downto 0) <= signed(VectorValue2);
+                     vcc_lo           <= '0';
+                  end if;
+               
+               when VCALC_VCL =>  
+                  writebackEna     <= '1';
+                  outputSelect     <= OUTPUT_ACCL;
+                  vco_lo           <= '0';
+                  vco_hi           <= '0';
+                  vce              <= '0';
+                  acc(15 downto 0) <= signed(VectorValue1); -- default, maybe overwritten
+                  if (vco_lo = '1') then
+                     if (vco_hi = '0') then
+                        if (vce = '1') then
+                           vcc_lo_calc := AddIsZero or (not add_result(16));
+                        else
+                           vcc_lo_calc := AddIsZero and (not add_result(16));
+                        end if;
+                     end if;
+                     vcc_lo <= vcc_lo_calc;
+                     if (vcc_lo_calc = '1') then
+                        acc(15 downto 0) <= -signed(VectorValue2);
+                     end if;
+                  else
+                     if (vco_hi = '0') then
+                        vcc_hi_calc := not sub_result(16);
+                     end if;
+                     vcc_hi <= vcc_hi_calc;
+                     if (vcc_hi_calc = '1') then
+                        acc(15 downto 0) <= signed(VectorValue2);
+                     end if;
+                  end if;
+               
+               when VCALC_VCH => 
+                  writebackEna     <= '1';
+                  outputSelect     <= OUTPUT_ACCL;
+                  vco_lo           <= '0';
+                  vco_hi           <= '0';
+                  vcc_lo           <= '0';
+                  vcc_hi           <= '0';
+                  vce              <= '0';
+                  acc(15 downto 0) <= signed(VectorValue1); -- default, maybe overwritten
+                  if (xor_result(15) = '1') then
+                     if (add_result(16) = '1' or AddIsZero = '1') then
+                        vcc_lo <= '1';
+                        acc(15 downto 0) <= -signed(VectorValue2);
+                     end if;
+                     vcc_hi <= VectorValue2(15);
+                     vco_lo <= '1';
+                     vco_hi <= (add_result(16) or (not AddIsZero)) and (not AequalNotB);
+                     if (add_result(15 downto 0) = x"FFFF") then
+                        vce <= '1';
+                     end if;
+                  else
+                     if (sub_result(16) = '0' or subIsZero = '1') then
+                        vcc_hi <= '1';
+                        acc(15 downto 0) <= signed(VectorValue2);
+                     end if;
+                     vcc_lo <= VectorValue2(15);
+                     vco_hi <= (not subIsZero) and (not AequalNotB);
+                  end if;
+               
+               when VCALC_VCR => 
+                  writebackEna     <= '1';
+                  outputSelect     <= OUTPUT_ACCL;
+                  vco_lo           <= '0';
+                  vco_hi           <= '0';
+                  vcc_lo           <= '0';
+                  vcc_hi           <= '0';
+                  vce              <= '0';
+                  acc(15 downto 0) <= signed(VectorValue1); -- default, maybe overwritten
+                  if (xor_result(15) = '1') then
+                     if (add_result(16) = '1' or AddIsZero = '1') then
+                        vcc_lo <= '1';
+                        acc(15 downto 0) <= signed(value2Not);
+                     end if;
+                     vcc_hi <= VectorValue2(15);
+                  else
+                     if (sub_result(16) = '0' or subIsZero = '1') then
+                        vcc_hi <= '1';
+                        acc(15 downto 0) <= signed(VectorValue2);
+                     end if;
+                     vcc_lo <= VectorValue2(15);
+                  end if;
+               
+               when VCALC_VMRG => 
+                  writebackEna   <= '1';
+                  outputSelect   <= OUTPUT_ACCL;
+                  vco_lo         <= '0';
+                  vco_hi         <= '0';
+                  if (vcc_lo = '1') then 
+                     acc(15 downto 0) <= signed(VectorValue1);
+                  else
+                     acc(15 downto 0) <= signed(VectorValue2);
+                  end if;
+                  
+               when VCALC_VAND =>
+                  writebackEna      <= '1';
+                  outputSelect      <= OUTPUT_ACCL;
+                  acc(15 downto 0)  <= signed(and_result);
+               
+               when VCALC_VNAND =>
+                  writebackEna      <= '1';
+                  outputSelect      <= OUTPUT_ACCL;
+                  acc(15 downto 0)  <= not signed(and_result);
+               
+               when VCALC_VOR =>
+                  writebackEna      <= '1';
+                  outputSelect      <= OUTPUT_ACCL;
+                  acc(15 downto 0)  <= signed(or_result);
+               
+               when VCALC_VNOR =>
+                  writebackEna      <= '1';
+                  outputSelect      <= OUTPUT_ACCL;
+                  acc(15 downto 0)  <= not signed(or_result);
+               
+               when VCALC_VXOR =>
+                  writebackEna      <= '1';
+                  outputSelect      <= OUTPUT_ACCL;
+                  acc(15 downto 0)  <= signed(xor_result);
+               
+               when VCALC_VNXOR =>
+                  writebackEna      <= '1';
+                  outputSelect      <= OUTPUT_ACCL;
+                  acc(15 downto 0)  <= not signed(xor_result);
                   
                when VCALC_VMOV =>
                   if (destElement = V_INDEX) then
