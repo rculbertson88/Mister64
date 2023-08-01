@@ -35,6 +35,12 @@ entity RDP is
       ddr3_DOUT            : in  std_logic_vector(63 downto 0);
       ddr3_DOUT_READY      : in  std_logic;
             
+      fifoout_reset        : out std_logic := '0'; 
+      fifoout_Din          : out std_logic_vector(91 downto 0) := (others => '0'); -- 64bit data + 20 bit address + 8 byte enables
+      fifoout_Wr           : out std_logic := '0';  
+      fifoout_nearfull     : in  std_logic;   
+      fifoout_empty        : in  std_logic;  
+            
       RSP_RDP_reg_addr     : in  unsigned(6 downto 0);
       RSP_RDP_reg_dataOut  : in  unsigned(31 downto 0);
       RSP_RDP_reg_read     : in  std_logic;
@@ -124,14 +130,6 @@ architecture arch of RDP is
    signal pixel64addr               : std_logic_vector(19 downto 0) := (others => '0');
    signal pixel64filled             : std_logic := '0';
    signal pixel64timeout            : integer range 0 to 15;
-
-   signal fifoOut_Din               : std_logic_vector(91 downto 0);
-   signal fifoOut_Wr                : std_logic; 
-   signal fifoOut_Wr_1              : std_logic; 
-   signal fifoOut_NearFull          : std_logic;
-   signal fifoOut_Dout              : std_logic_vector(91 downto 0);
-   signal fifoOut_Rd                : std_logic := '0';
-   signal fifoOut_Empty             : std_logic;
 
    -- savestates
    type t_ssarray is array(0 to 1) of unsigned(63 downto 0);
@@ -309,15 +307,7 @@ begin
          case (memState) is
          
             when MEMIDLE =>
-               if (fifoOut_Empty = '0') then
-                  memState          <= WAITWRITEPIXEL;
-                  rdram_request     <= '1';
-                  rdram_rnw         <= '0';
-                  rdram_address     <= 5x"0" & unsigned(fifoOut_Dout(83 downto 64)) & "000";
-                  rdram_writeMask   <= fifoOut_Dout(91 downto 84);
-                  rdram_dataWrite   <= fifoOut_Dout(63 downto 0);
-                  rdram_burstcount  <= to_unsigned(1, 10);
-               elsif (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1') then
+               if (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1') then
                   if (DPC_CURRENT < DPC_END) then
                      memState          <= WAITCOMMANDDATA;
                      rdram_request     <= '1';
@@ -455,7 +445,7 @@ begin
    begin
       if rising_edge(clk1x) then
       
-         fifoOut_Wr_1 <= fifoOut_Wr; -- fifoOut_Wr_1 used for idle test
+         --fifoOut_Wr_1 <= fifoOut_Wr; -- fifoOut_Wr_1 used for idle test
       
          fifoOut_Wr   <= '0';
          fifoOut_Din  <= pixel64BE & pixel64Addr & pixel64data;
@@ -532,29 +522,6 @@ begin
 
       end if;
    end process;
-   
-   -- pixel writing fifo
-   fifoOut_Rd <= '1' when (memState = MEMIDLE and fifoOut_Empty = '0') else '0';
-   
-   iSyncFifo_OUT: entity mem.SyncFifoFallThrough
-   generic map
-   (
-      SIZE             => 256,
-      DATAWIDTH        => 64 + 20 + 8,  -- 64bit data + 20 bit address + 8 bit byte enable
-      NEARFULLDISTANCE => 250
-   )
-   port map
-   ( 
-      clk      => clk1x,
-      reset    => reset,  
-      Din      => fifoOut_Din,     
-      Wr       => fifoOut_Wr,      
-      Full     => open,    
-      NearFull => fifoOut_NearFull,
-      Dout     => fifoOut_Dout,    
-      Rd       => fifoOut_Rd,      
-      Empty    => fifoOut_Empty   
-   );
    
 --##############################################################
 --############################### savestates

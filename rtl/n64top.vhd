@@ -142,6 +142,12 @@ architecture arch of n64top is
    signal rspfifo_nearfull       : std_logic;    
    signal rspfifo_empty          : std_logic;    
    
+   signal rdpfifo_reset          : std_logic; 
+   signal rdpfifo_Din            : std_logic_vector(91 downto 0);
+   signal rdpfifo_Wr             : std_logic;  
+   signal rdpfifo_nearfull       : std_logic;    
+   signal rdpfifo_empty          : std_logic;    
+   
    -- Memory mux
    signal mem_request            : std_logic;
    signal mem_rnw                : std_logic; 
@@ -412,6 +418,12 @@ begin
       rdram_done           => rdram_done(DDR3MUX_RDP),   
       ddr3_DOUT            => ddr3_DOUT,       
       ddr3_DOUT_READY      => ddr3_DOUT_READY, 
+      
+      fifoout_reset        => rdpfifo_reset,   
+      fifoout_Din          => rdpfifo_Din,     
+      fifoout_Wr           => rdpfifo_Wr,      
+      fifoout_nearfull     => rdpfifo_nearfull,
+      fifoout_empty        => rdpfifo_empty,
       
       RSP_RDP_reg_addr     => RSP_RDP_reg_addr,   
       RSP_RDP_reg_dataOut  => RSP_RDP_reg_dataOut,
@@ -735,7 +747,13 @@ begin
       rspfifo_Din      => rspfifo_Din,     
       rspfifo_Wr       => rspfifo_Wr,      
       rspfifo_nearfull => rspfifo_nearfull,
-      rspfifo_empty    => rspfifo_empty
+      rspfifo_empty    => rspfifo_empty,
+      
+      rdpfifo_reset    => rdpfifo_reset,   
+      rdpfifo_Din      => rdpfifo_Din,     
+      rdpfifo_Wr       => rdpfifo_Wr,      
+      rdpfifo_nearfull => rdpfifo_nearfull,
+      rdpfifo_empty    => rdpfifo_empty
    );
    
    imemorymux : entity work.memorymux

@@ -72,7 +72,13 @@ entity DDR3Mux is
       rspfifo_Din      : in  std_logic_vector(84 downto 0); -- 64bit data + 21 bit address
       rspfifo_Wr       : in  std_logic;  
       rspfifo_nearfull : out std_logic;  
-      rspfifo_empty    : out std_logic   
+      rspfifo_empty    : out std_logic;
+      
+      rdpfifo_reset    : in  std_logic; 
+      rdpfifo_Din      : in  std_logic_vector(91 downto 0); -- 64bit data + 20 bit address + 8 byte enables
+      rdpfifo_Wr       : in  std_logic;  
+      rdpfifo_nearfull : out std_logic;  
+      rdpfifo_empty    : out std_logic  
    );
 end entity;
 
@@ -100,7 +106,11 @@ architecture arch of DDR3Mux is
    
    -- rsp fifo
    signal rspfifo_Dout     : std_logic_vector(84 downto 0);
-   signal rspfifo_Rd       : std_logic := '0';    
+   signal rspfifo_Rd       : std_logic := '0';      
+   
+   -- rdp fifo
+   signal rdpfifo_Dout     : std_logic_vector(91 downto 0);
+   signal rdpfifo_Rd       : std_logic := '0';    
 
 begin 
 
@@ -114,6 +124,7 @@ begin
       
          error      <= '0';
          rspfifo_Rd <= '0';
+         rdpfifo_Rd <= '0';
       
          if (ddr3_BUSY = '0') then
             ddr3_WE <= '0';
@@ -192,6 +203,15 @@ begin
                      ddr3_DIN   <= rspfifo_Dout(63 downto 0);      
                      ddr3_BE    <= (others => '1');       
                      ddr3_ADDR(24 downto 0) <= "0000" & rspfifo_Dout(84 downto 64);
+                     ddr3_BURSTCNT <= x"01";                  
+                     
+                  elsif (rdpfifo_empty = '0' and rdpfifo_rd = '0') then
+                  
+                     rdpfifo_rd <= '1';
+                     ddr3_WE    <= '1';
+                     ddr3_DIN   <= rdpfifo_Dout(63 downto 0);      
+                     ddr3_BE    <= rdpfifo_Dout(91 downto 84);       
+                     ddr3_ADDR(24 downto 0) <= "00000" & rdpfifo_Dout(83 downto 64);
                      ddr3_BURSTCNT <= x"01";
                   
                   end if;   
@@ -258,6 +278,26 @@ begin
       Dout     => rspfifo_Dout,    
       Rd       => rspfifo_rd,      
       Empty    => rspfifo_empty   
+   );   
+   
+   iRDPFifo: entity mem.SyncFifoFallThrough
+   generic map
+   (
+      SIZE             => 256,
+      DATAWIDTH        => 64 + 20 + 8, -- 64bit data + 20 bit address + 8 byte enables
+      NEARFULLDISTANCE => 240
+   )
+   port map
+   ( 
+      clk      => clk2x,
+      reset    => rdpfifo_reset,  
+      Din      => rdpfifo_Din,     
+      Wr       => (rdpfifo_Wr and clk2xIndex),
+      Full     => open,    
+      NearFull => rdpfifo_nearfull,
+      Dout     => rdpfifo_Dout,    
+      Rd       => rdpfifo_rd,      
+      Empty    => rdpfifo_empty   
    );
 
 end architecture;

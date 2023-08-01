@@ -146,6 +146,7 @@ architecture arch of RSP_core is
    signal decodeVectorSign2            : std_logic := '0';
    signal decodeVectorValue1           : t_vec_data;
    signal decodeVectorValue2           : t_vec_data;
+   signal decodeVectorValueDiv         : std_logic_vector(15 downto 0) := (others => '0');
    signal decodeVectorAddrWrap         : std_logic := '0';
    signal decodeVectorAddrWrap8        : std_logic := '0';
    signal decodeVectorWriteEnable      : std_logic := '0';
@@ -162,6 +163,8 @@ architecture arch of RSP_core is
    signal decode_set_vcc               : std_logic := '0';
    signal decode_set_vce               : std_logic := '0';
    signal decodeVectorCalcType         : VECTOR_CALCTYPE; 
+   signal decodeVectorOutputSelect     : toutputSelect;
+   signal decodeVectorStoreMACHigh     : std_logic := '0';
    
    type t_decodeBitFuncType is
    (
@@ -337,6 +340,9 @@ architecture arch of RSP_core is
    signal executeVectorMfcE            : unsigned(3 downto 0) := (others => '0');
    signal executeVectorMTC2            : std_logic := '0';
    signal executeVectorMTC2Data        : std_logic_vector(15 downto 0) := (others => '0');
+   signal executeDivSqrtWritebackEna   : std_logic := '0';
+   signal executeDivSqrtWritebackData  : std_logic_vector(15 downto 0) := (others => '0');
+   
    
    signal executeVectorReadMux : t_vec_mux;
    
@@ -645,31 +651,32 @@ begin
                   if (decSource2 > 0 and decodeTarget = decSource2) then decodeForwardValue2 <= '1'; end if;
 
                   -- decoding default
-                  decodeUseImmidateValue2 <= '0';
-                  decodeShiftSigned       <= '0';
-                  decodeBranchType        <= BRANCH_OFF;
-                  decodeWriteEnable       <= '0';
-                  decode_break            <= '0';
-                  decodeReadEnable        <= '0';
-                  decodeSaveType          <= SAVETYPE_NONE;
-                  decodeReadRSPReg        <= '0';
-                  decodeReadRDPReg        <= '0';
-                  decodeWriteRSPReg       <= '0';
-                  decodeWriteRDPReg       <= '0';
-                          
-                  decodeMemOffset         <= signed(decImmData);
-                  decodeVectorSign1       <= '0';
-                  decodeVectorSign2       <= '0';
-                  decodeVectorReadEnable  <= '0';
-                  decodeVectorAddrWrap    <= '0';
-                  decodeVectorAddrWrap8   <= '0';
-                  decodeVectorWriteEnable <= '0';
-                  decodeVectorWriteMux    <= '0';
-                  decodeVectorMTC2        <= '0';
-                  decode_set_vco          <= '0';
-                  decode_set_vcc          <= '0';
-                  decode_set_vce          <= '0';
-                  decodeVectorStore7Mode  <= VECTORSTORE7MODETYPE_NONE;
+                  decodeUseImmidateValue2    <= '0';
+                  decodeShiftSigned          <= '0';
+                  decodeBranchType           <= BRANCH_OFF;
+                  decodeWriteEnable          <= '0';
+                  decode_break               <= '0';
+                  decodeReadEnable           <= '0';
+                  decodeSaveType             <= SAVETYPE_NONE;
+                  decodeReadRSPReg           <= '0';
+                  decodeReadRDPReg           <= '0';
+                  decodeWriteRSPReg          <= '0';
+                  decodeWriteRDPReg          <= '0';
+                           
+                  decodeMemOffset            <= signed(decImmData);
+                  decodeVectorSign1          <= '0';
+                  decodeVectorSign2          <= '0';
+                  decodeVectorReadEnable     <= '0';
+                  decodeVectorAddrWrap       <= '0';
+                  decodeVectorAddrWrap8      <= '0';
+                  decodeVectorWriteEnable    <= '0';
+                  decodeVectorWriteMux       <= '0';
+                  decodeVectorMTC2           <= '0';
+                  decode_set_vco             <= '0';
+                  decode_set_vcc             <= '0';
+                  decode_set_vce             <= '0';
+                  decodeVectorStore7Mode     <= VECTORSTORE7MODETYPE_NONE;
+                  decodeVectorStoreMACHigh   <= '0';
                       
                   -- decoding opcode specific
                   case (to_integer(decOP)) is
@@ -886,73 +893,190 @@ begin
                            decodeVectorNew  <= '1';
                            stall2           <= '1';
                            decodeStallcount <= 2;
-                        
+                           
                            case (to_integer(decFunct)) is
 
                               when 16#00# => decodeVectorCalcType <= VCALC_VMULF; -- VMULF
-                                 decodeVectorSign1    <= '1';
-                                 decodeVectorSign2    <= '1';                              
+                                 decodeVectorOutputSelect   <= CLAMP_SIGNED;  
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
                                  
+                              when 16#01# => decodeVectorCalcType <= VCALC_VMULU; -- VMULU
+                                 decodeVectorOutputSelect   <= CLAMP_VMACU; 
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
+                                 
+                              when 16#02# => decodeVectorCalcType <= VCALC_VRNDP; -- VRNDP 
+                                 decodeVectorOutputSelect   <= CLAMP_RND;
+                                 decodeVectorSign2          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
+                              
+                              when 16#03# => decodeVectorCalcType <= VCALC_VMULQ; -- VMULQ
+                                 decodeVectorOutputSelect   <= CLAMP_MPEG; 
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
+                              
+                              when 16#04# => decodeVectorCalcType <= VCALC_VMUDL; -- VMUDL
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL; 
+                                 decodeVectorStoreMACHigh   <= '1';
+                              
+                              when 16#05# => decodeVectorCalcType <= VCALC_VMUDM; -- VMUDM
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCM;
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
+                                 
+                              when 16#06# => decodeVectorCalcType <= VCALC_VMUDN; -- VMUDN
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                                 decodeVectorSign2          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
+                              
                               when 16#07# => decodeVectorCalcType <= VCALC_VMUDH; -- VMUDH
-                                 decodeVectorSign1    <= '1';
-                                 decodeVectorSign2    <= '1';
+                                 decodeVectorOutputSelect   <= CLAMP_SIGNED;
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
+                                 
+                              when 16#08# => decodeVectorCalcType <= VCALC_VMACF; -- VMACF
+                                 decodeVectorOutputSelect   <= CLAMP_SIGNED;
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
+                                 
+                              when 16#09# => decodeVectorCalcType <= VCALC_VMACU; -- VMACU
+                                 decodeVectorOutputSelect   <= CLAMP_VMACU;
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
+                                 
+                              when 16#0A# => decodeVectorCalcType <= VCALC_VRNDN; -- VRNDN
+                                 decodeVectorOutputSelect   <= CLAMP_RND; 
+                                 decodeVectorSign2          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
+                              
+                              when 16#0B# => decodeVectorCalcType <= VCALC_VMACQ; -- VMACQ  
+                                 decodeVectorOutputSelect   <= CLAMP_MPEG;
+                                 decodeVectorStoreMACHigh   <= '1';
+                              
+                              when 16#0C# => decodeVectorCalcType <= VCALC_VMADL; -- VMADL
+                                 decodeVectorOutputSelect   <= CLAMP_UNSIGNED;
+                                 decodeVectorStoreMACHigh   <= '1';
+                              
+                              when 16#0D# => decodeVectorCalcType <= VCALC_VMADM; -- VMADM
+                                 decodeVectorOutputSelect   <= CLAMP_SIGNED; 
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
                               
                               when 16#0E# => decodeVectorCalcType <= VCALC_VMADN; -- VMADN
-                                 decodeVectorSign2    <= '1';
+                                 decodeVectorOutputSelect   <= CLAMP_UNSIGNED; 
+                                 decodeVectorSign2          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
+                                 
+                              when 16#0F# => decodeVectorCalcType <= VCALC_VMADH; -- VMADH
+                                 decodeVectorOutputSelect   <= CLAMP_SIGNED;
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
+                                 decodeVectorStoreMACHigh   <= '1';
                               
                               when 16#10# => decodeVectorCalcType <= VCALC_VADD; -- VADD
-                                 decodeVectorSign1    <= '1';
-                                 decodeVectorSign2    <= '1';
+                                 decodeVectorOutputSelect   <= CLAMP_ADDSUB;
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
                               
                               when 16#11# => decodeVectorCalcType <= VCALC_VSUB;  -- VSUB
-                                 decodeVectorSign1    <= '1';
-                                 decodeVectorSign2    <= '1';
+                                 decodeVectorOutputSelect   <= CLAMP_ADDSUB;
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
                                  
                               when 16#13# => decodeVectorCalcType <= VCALC_VABS; -- VABS
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                              
                               when 16#14# => decodeVectorCalcType <= VCALC_VADDC; -- VADDC
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                              
                               when 16#15# => decodeVectorCalcType <= VCALC_VSUBC; -- VSUBC
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
                               
                               when 16#1D# => decodeVectorCalcType <= VCALC_VSAR; -- VSAR
+                                 case (decVectorElement) is
+                                    when x"8"   => decodeVectorOutputSelect <= OUTPUT_ACCH;
+                                    when x"9"   => decodeVectorOutputSelect <= OUTPUT_ACCM;
+                                    when x"A"   => decodeVectorOutputSelect <= OUTPUT_ACCL;
+                                    when others => decodeVectorOutputSelect <= OUTPUT_ZERO;
+                                 end case;
                               
                               when 16#20# => decodeVectorCalcType <= VCALC_VLT;  -- VLT
-                                 decodeVectorSign1    <= '1';
-                                 decodeVectorSign2    <= '1';
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
                               
                               when 16#21# => decodeVectorCalcType <= VCALC_VEQ;  -- VEQ
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                                 
                               when 16#22# => decodeVectorCalcType <= VCALC_VNE;  -- VNE
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
   
                               when 16#23# => decodeVectorCalcType <= VCALC_VGE;  -- VGE
-                                 decodeVectorSign1    <= '1';
-                                 decodeVectorSign2    <= '1';
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
                               
                               when 16#24# => decodeVectorCalcType <= VCALC_VCL;  -- VCL
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
                               
                               when 16#25# => decodeVectorCalcType <= VCALC_VCH;  -- VCH
-                                 decodeVectorSign1    <= '1';
-                                 decodeVectorSign2    <= '1';
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
                               
                               when 16#26# => decodeVectorCalcType <= VCALC_VCR;  -- VCR
-                                 decodeVectorSign1    <= '1';
-                                 decodeVectorSign2    <= '1';
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                                 decodeVectorSign1          <= '1';
+                                 decodeVectorSign2          <= '1';
                               
                               when 16#27# => decodeVectorCalcType <= VCALC_VMRG; -- VMRG
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
                               
                               when 16#28# => decodeVectorCalcType <= VCALC_VAND; -- VAND
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                                 
                               when 16#29# => decodeVectorCalcType <= VCALC_VNAND;-- VNAND
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                                 
                               when 16#2A# => decodeVectorCalcType <= VCALC_VOR;  -- VOR
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                                 
                               when 16#2B# => decodeVectorCalcType <= VCALC_VNOR; -- VNOR
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                                 
                               when 16#2C# => decodeVectorCalcType <= VCALC_VXOR; -- VXOR
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                                 
                               when 16#2D# => decodeVectorCalcType <= VCALC_VNXOR;-- VNXOR
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
                               
-                              when 16#33# => decodeVectorCalcType <= VCALC_VMOV; -- VMOV 
+                              when 16#30# => decodeVectorCalcType <= VCALC_VRCP;  -- VRCP
+                              when 16#31# => decodeVectorCalcType <= VCALC_VRCPL; -- VRCPL
+                              when 16#32# => decodeVectorCalcType <= VCALC_VRCPH; -- VRCPH
+
+                              when 16#33# => decodeVectorCalcType <= VCALC_VMOV; -- VMOV
+                                 decodeVectorOutputSelect   <= OUTPUT_ACCL;
+                              
+                              when 16#34# => decodeVectorCalcType <= VCALC_VSRQ;  -- VSRQ
+                              when 16#35# => decodeVectorCalcType <= VCALC_VSRQL; -- VSRQL
+                              when 16#36# => decodeVectorCalcType <= VCALC_VRSQH; -- VRSQH
                               
                               when 16#12# | 16#16# | 16#17# | 16#18# | 16#19# | 16#1A# | 16#1B# | 16#1C# | 16#1E# | 
-                                   16#1F# | 16#2E# | 16#2F# | 16#38# | 16#39# | 16#3A# | 16#3B# | 16#3C# | 16#3D# | 16#3E# => decodeVectorCalcType <= VCALC_VZERO;
+                                   16#1F# | 16#2E# | 16#2F# | 16#38# | 16#39# | 16#3A# | 16#3B# | 16#3C# | 16#3D# | 16#3E# => 
+                                 decodeVectorCalcType       <= VCALC_VZERO;
+                                 decodeVectorOutputSelect   <= OUTPUT_ZERO;
                               
                               when 16#37# | 16#3F# => decodeVectorCalcType <= VCALC_VNOP; 
-
-                              when others =>
                                  decodeVectorNew  <= '0';
+
+                              when others => -- all coses covered above, should never trigger
                                  -- synthesis translate_off
                                  report to_hstring(decOP);
                                  -- synthesis translate_on
@@ -1238,6 +1362,9 @@ begin
             
             -- vector operand fetching
             if (decVectorUpdate = '1') then
+            
+               decodeVectorValueDiv( 7 downto 0) <= vec_data_b_2(to_integer(decVectorSelect(2 downto 0)) * 2 + 0);
+               decodeVectorValueDiv(15 downto 8) <= vec_data_b_2(to_integer(decVectorSelect(2 downto 0)) * 2 + 1);
             
                for i in 0 to 15 loop
                   decodeVectorValue1(i) <= vec_data_b_1(i);
@@ -1759,7 +1886,7 @@ begin
                
                if (decodeVectorNew = '1') then
                   executeVectorNew      <= '1';
-                  executeVectorTarget  <= decodeShamt;
+                  executeVectorTarget   <= decodeShamt;
                end if;
                 
             end if; -- stall
@@ -1899,6 +2026,13 @@ begin
                   vec_data_a((i * 2) + 1)   <= executeVectorWritebackData(i)(15 downto 8);
                end loop;
                
+               if (executeDivSqrtWritebackEna = '1') then
+                  for i in 0 to 7 loop
+                     vec_data_a((i * 2) + 0) <= executeDivSqrtWritebackData(7 downto 0);
+                     vec_data_a((i * 2) + 1) <= executeDivSqrtWritebackData(15 downto 8);
+                  end loop;
+               end if;
+               
                if (executeVectorMTC2 = '1') then
                   
                   for i in 0 to 7 loop
@@ -2000,6 +2134,9 @@ begin
          VectorValue2          => decodeVectorValue2((i * 2) + 1) & decodeVectorValue2(i * 2),
          element               => decodeVectorElement,
          destElement           => decodeVectorDestEle,
+         rdBit0                => decodeRD(0),
+         outputSelect_in       => decodeVectorOutputSelect,
+         storeMACHigh          => decodeVectorStoreMACHigh,
          
          set_vco               => decode_set_vco,
          set_vcc               => decode_set_vcc,
@@ -2030,6 +2167,19 @@ begin
       );
    
    end generate;
+   
+   iRSP_divsqrt : entity work.RSP_divsqrt
+   port map
+   (
+      clk1x           => clk1x,
+                     
+      CalcNew         => decodeVectorNew,
+      CalcType        => decodeVectorCalcType,
+      CalcValue       => decodeVectorValueDiv,
+                     
+      writebackEna    => executeDivSqrtWritebackEna,
+      writebackData   => executeDivSqrtWritebackData
+   );
  
 --##############################################################
 --############################### debug

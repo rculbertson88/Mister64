@@ -494,8 +494,8 @@ begin
                dma_startnext           <= '0';
                fifoin_reset            <= '1';
                fifoout_reset           <= '1';
-               SP_STATUS_dmabusy   <= '1';
-               SP_STATUS_dmafull   <= '0';
+               SP_STATUS_dmabusy       <= '1';
+               SP_STATUS_dmafull       <= '0';
                dma_isWrite             <= dma_next_isWrite;
                SP_DMA_CURRENT_SPADDR   <= SP_DMA_SPADDR;
                SP_DMA_CURRENT_RAMADDR  <= SP_DMA_RAMADDR;

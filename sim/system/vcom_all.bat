@@ -42,6 +42,8 @@ src/tb/cpu_mul.vhd ^
 ../../rtl/pifrom_ntsc_fast.vhd ^
 ../../rtl/PIF.vhd ^
 ../../rtl/RSP_package.vhd ^
+../../rtl/RSP_divtable.vhd ^
+../../rtl/RSP_divsqrt.vhd ^
 ../../rtl/RSP_vector.vhd ^
 ../../rtl/RSP_core.vhd ^
 ../../rtl/RSP.vhd ^
