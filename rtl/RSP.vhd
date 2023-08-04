@@ -17,8 +17,8 @@ entity RSP is
       
       irq_out              : out std_logic := '0';
       
-      error_instr           : out std_logic;
-      error_stall           : out std_logic;
+      error_instr          : out std_logic;
+      error_stall          : out std_logic;
       
       bus_addr             : in  unsigned(19 downto 0); 
       bus_dataWrite        : in  std_logic_vector(31 downto 0);
@@ -42,6 +42,14 @@ entity RSP is
       RSP_RDP_reg_read     : out std_logic;
       RSP_RDP_reg_write    : out std_logic;
       RSP_RDP_reg_dataIn   : in  unsigned(31 downto 0);
+      
+      RSP2RDP_rdaddr       : in  unsigned(11 downto 0); 
+      RSP2RDP_len          : in  unsigned(4 downto 0); 
+      RSP2RDP_req          : in  std_logic;
+      RSP2RDP_wraddr       : out unsigned(4 downto 0) := (others => '0');
+      RSP2RDP_data         : out std_logic_vector(63 downto 0) := (others => '0');
+      RSP2RDP_we           : out std_logic := '0';
+      RSP2RDP_done         : out std_logic := '0';
       
       fifoout_reset        : out std_logic := '0'; 
       fifoout_Din          : out std_logic_vector(84 downto 0) := (others => '0'); -- 64bit data + 21 bit address
@@ -90,7 +98,7 @@ architecture arch of RSP is
    signal SP_DMA_CURRENT_COUNT      : unsigned(7 downto 0)  := (others => '0');
    signal SP_DMA_CURRENT_SKIP       : unsigned(11 downto 3) := (others => '0');
    signal SP_DMA_CURRENT_WORKLEN    : unsigned(9 downto 0) := (others => '0');
-   signal SP_DMA_CURRENT_FETCHLEN   : integer range 0 to 16;
+   signal SP_DMA_CURRENT_FETCHLEN   : integer range 0 to 31;
       
    signal dma_next_isWrite          : std_logic := '0';
    signal dma_isWrite               : std_logic := '0';
@@ -100,6 +108,8 @@ architecture arch of RSP is
    signal imem_wren_bus             : std_logic := '0';
    signal dmem_wren_bus             : std_logic := '0';
    
+   signal RSP2RDP_req_latched       : std_logic := '0';
+   
    type tMEMSTATE is
    (
       MEM_IDLE,
@@ -108,7 +118,9 @@ architecture arch of RSP is
       MEM_BUS_WAIT_DMEM,
       MEM_READ_DMEM,
       MEM_STARTDMA,
-      MEM_RUNDMA
+      MEM_RUNDMA,      
+      MEM_STARTDMA_RDP,
+      MEM_RUNDMA_RDP
    );
    signal MEMSTATE : tMEMSTATE := MEM_IDLE;
    
@@ -188,6 +200,9 @@ begin
          
          rdram_request  <= '0';
          
+         RSP2RDP_we     <= '0';
+         RSP2RDP_done   <= '0';
+         
          mem_address_a_1 <= mem_address_a;
       
          if (reset = '1') then
@@ -232,6 +247,8 @@ begin
             dmem_rden_bus              <= '0';
             imem_wren_bus              <= '0';
             dmem_wren_bus              <= '0';
+            
+            RSP2RDP_req_latched        <= '0';
             
             MEMSTATE                   <= MEM_IDLE;
             
@@ -328,6 +345,10 @@ begin
             if (bus_reg_req_write = '1' and core_reg_RSP_write = '0') then
                bus_done          <= '1';
                bus_reg_req_write <= '0';
+            end if;
+            
+            if (RSP2RDP_req = '1') then
+               RSP2RDP_req_latched <= '1';
             end if;
             
             PC_trigger <= '0';
@@ -438,6 +459,13 @@ begin
                         SP_DMA_CURRENT_FETCHLEN <= to_integer(SP_DMA_CURRENT_WORKLEN(3 downto 0));
                      end if;
                      
+                  elsif (RSP2RDP_req_latched = '1') then
+                     RSP2RDP_req_latched     <= '0';
+                     MEMSTATE                <= MEM_STARTDMA_RDP;
+                     mem_address_a           <= std_logic_vector(RSP2RDP_rdaddr(11 downto 3));
+                     RSP2RDP_wraddr          <= (others => '0');
+                     SP_DMA_CURRENT_FETCHLEN <= to_integer(RSP2RDP_len);
+                     
                   end if;
                   
                when MEM_BUS_WAIT_IMEM =>
@@ -486,6 +514,23 @@ begin
                   end if;
                   fifoout_Wr <= '1';
                   SP_DMA_CURRENT_RAMADDR <= SP_DMA_CURRENT_RAMADDR + 1;
+                  
+               when MEM_STARTDMA_RDP =>
+                  MEMSTATE      <= MEM_RUNDMA_RDP;
+                  mem_address_a <= std_logic_vector(unsigned(mem_address_a) + 1);
+                  
+               when MEM_RUNDMA_RDP =>
+                  mem_address_a <= std_logic_vector(unsigned(mem_address_a) + 1);
+                  if (SP_DMA_CURRENT_FETCHLEN < 2) then
+                     MEMSTATE     <= MEM_IDLE;
+                     RSP2RDP_done <= '1';
+                  end if;
+                  SP_DMA_CURRENT_FETCHLEN <= SP_DMA_CURRENT_FETCHLEN - 1;
+                  RSP2RDP_we   <= '1';
+                  RSP2RDP_data <= byteswap64(dmem_q_a);
+                  if (RSP2RDP_we = '1') then
+                     RSP2RDP_wraddr <= RSP2RDP_wraddr + 1;
+                  end if;
             
             end case;
             

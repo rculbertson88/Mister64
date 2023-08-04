@@ -119,6 +119,7 @@ architecture arch of n64top is
    signal error_pif              : std_logic;
    signal errorRSP_instr         : std_logic;
    signal errorRSP_stall         : std_logic;
+   signal errorRDP_command       : std_logic;
    
    -- irq
    signal irqRequest             : std_logic;
@@ -248,6 +249,14 @@ architecture arch of n64top is
    signal RSP_RDP_reg_write      : std_logic;
    signal RSP_RDP_reg_dataIn     : unsigned(31 downto 0);
    
+   signal RSP2RDP_rdaddr         : unsigned(11 downto 0); 
+   signal RSP2RDP_len            : unsigned(4 downto 0); 
+   signal RSP2RDP_req            : std_logic;
+   signal RSP2RDP_wraddr         : unsigned(4 downto 0);
+   signal RSP2RDP_data           : std_logic_vector(63 downto 0);
+   signal RSP2RDP_we             : std_logic;
+   signal RSP2RDP_done           : std_logic;
+   
    -- cpu
    signal ce_intern              : std_logic := '0';
    
@@ -320,18 +329,19 @@ begin
    end process;
    
    -- error codes
-   process (reset_intern_1x, errorMEMMUX       ) begin if (errorMEMMUX        = '1') then errorCode(0) <= '1'; elsif (reset_intern_1x = '1') then errorCode(0) <= '0'; end if; end process;
-   process (reset_intern_1x, errorCPU_instr    ) begin if (errorCPU_instr     = '1') then errorCode(1) <= '1'; elsif (reset_intern_1x = '1') then errorCode(1) <= '0'; end if; end process;
-   process (reset_intern_1x, errorCPU_stall    ) begin if (errorCPU_stall     = '1') then errorCode(2) <= '1'; elsif (reset_intern_1x = '1') then errorCode(2) <= '0'; end if; end process;
-   process (reset_intern_1x, errorDDR3         ) begin if (errorDDR3          = '1') then errorCode(3) <= '1'; elsif (reset_intern_1x = '1') then errorCode(3) <= '0'; end if; end process;
-   process (reset_intern_1x, errorCPU_FPU      ) begin if (errorCPU_FPU       = '1') then errorCode(4) <= '1'; elsif (reset_intern_1x = '1') then errorCode(4) <= '0'; end if; end process;
-   process (reset_intern_1x, error_PI          ) begin if (error_PI           = '1') then errorCode(5) <= '1'; elsif (reset_intern_1x = '1') then errorCode(5) <= '0'; end if; end process;
-   process (reset_intern_1x, errorCPU_exception) begin if (errorCPU_exception = '1') then errorCode(6) <= '1'; elsif (reset_intern_1x = '1') then errorCode(6) <= '0'; end if; end process;
-   process (reset_intern_1x, error_pif         ) begin if (error_pif          = '1') then errorCode(7) <= '1'; elsif (reset_intern_1x = '1') then errorCode(7) <= '0'; end if; end process;
-   process (reset_intern_1x, errorRSP_instr    ) begin if (errorRSP_instr     = '1') then errorCode(8) <= '1'; elsif (reset_intern_1x = '1') then errorCode(8) <= '0'; end if; end process;
-   process (reset_intern_1x, errorRSP_stall    ) begin if (errorRSP_stall     = '1') then errorCode(9) <= '1'; elsif (reset_intern_1x = '1') then errorCode(9) <= '0'; end if; end process;
+   process (reset_intern_1x, errorMEMMUX       ) begin if (errorMEMMUX        = '1') then errorCode( 0) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 0) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_instr    ) begin if (errorCPU_instr     = '1') then errorCode( 1) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 1) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_stall    ) begin if (errorCPU_stall     = '1') then errorCode( 2) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 2) <= '0'; end if; end process;
+   process (reset_intern_1x, errorDDR3         ) begin if (errorDDR3          = '1') then errorCode( 3) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 3) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_FPU      ) begin if (errorCPU_FPU       = '1') then errorCode( 4) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 4) <= '0'; end if; end process;
+   process (reset_intern_1x, error_PI          ) begin if (error_PI           = '1') then errorCode( 5) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 5) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_exception) begin if (errorCPU_exception = '1') then errorCode( 6) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 6) <= '0'; end if; end process;
+   process (reset_intern_1x, error_pif         ) begin if (error_pif          = '1') then errorCode( 7) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 7) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRSP_instr    ) begin if (errorRSP_instr     = '1') then errorCode( 8) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 8) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRSP_stall    ) begin if (errorRSP_stall     = '1') then errorCode( 9) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 9) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRDP_command  ) begin if (errorRDP_command   = '1') then errorCode(10) <= '1'; elsif (reset_intern_1x = '1') then errorCode(10) <= '0'; end if; end process;
    
-   errorCode(11 downto 10) <= "00";
+   errorCode(11 downto 11) <= "0";
    
    process (clk1x)
    begin
@@ -382,6 +392,14 @@ begin
       RSP_RDP_reg_write    => RSP_RDP_reg_write,  
       RSP_RDP_reg_dataIn   => RSP_RDP_reg_dataIn, 
       
+      RSP2RDP_rdaddr       => RSP2RDP_rdaddr, 
+      RSP2RDP_len          => RSP2RDP_len,    
+      RSP2RDP_req          => RSP2RDP_req,    
+      RSP2RDP_wraddr       => RSP2RDP_wraddr,
+      RSP2RDP_data         => RSP2RDP_data,
+      RSP2RDP_we           => RSP2RDP_we,  
+      RSP2RDP_done         => RSP2RDP_done, 
+      
       fifoout_reset        => rspfifo_reset,   
       fifoout_Din          => rspfifo_Din,     
       fifoout_Wr           => rspfifo_Wr,      
@@ -398,6 +416,8 @@ begin
       clk2x                => clk2x,        
       ce                   => ce_1x,           
       reset                => reset_intern_1x, 
+      
+      command_error        => errorRDP_command,
 
       irq_out              => irqVector(5),
                            
@@ -430,6 +450,14 @@ begin
       RSP_RDP_reg_read     => RSP_RDP_reg_read,   
       RSP_RDP_reg_write    => RSP_RDP_reg_write,  
       RSP_RDP_reg_dataIn   => RSP_RDP_reg_dataIn, 
+      
+      RSP2RDP_rdaddr       => RSP2RDP_rdaddr, 
+      RSP2RDP_len          => RSP2RDP_len,    
+      RSP2RDP_req          => RSP2RDP_req,    
+      RSP2RDP_wraddr       => RSP2RDP_wraddr,
+      RSP2RDP_data         => RSP2RDP_data,
+      RSP2RDP_we           => RSP2RDP_we,  
+      RSP2RDP_done         => RSP2RDP_done, 
       
       SS_reset             => SS_reset,
       SS_DataWrite         => SS_DataWrite,

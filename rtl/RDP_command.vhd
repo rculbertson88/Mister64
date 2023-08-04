@@ -9,6 +9,8 @@ entity RDP_command is
    (
       clk1x                : in  std_logic;
       reset                : in  std_logic;
+      
+      error                : out std_logic := '0';
             
       commandRAMReady      : in  std_logic;
       CommandData          : in  unsigned(63 downto 0);
@@ -21,6 +23,7 @@ entity RDP_command is
       poly_done            : in  std_logic;
       settings_poly        : out tsettings_poly := SETTINGSPOLYINIT;
       poly_start           : out std_logic := '0';
+      sync_full            : out std_logic := '0';  
       
       -- synthesis translate_off
       export_command_done  : out std_logic := '0'; 
@@ -28,8 +31,8 @@ entity RDP_command is
       
       settings_scissor     : out tsettings_scissor := SETTINGSSCISSORINIT;
       settings_otherModes  : out tsettings_otherModes;
-      settings_fillcolor   : out tsettings_fillcolor;
-      settings_blendcolor  : out tsettings_blendcolor;
+      settings_fillcolor   : out tsettings_fillcolor := (others => (others => '0'));
+      settings_blendcolor  : out tsettings_blendcolor := (others => (others => '0'));
       settings_combineMode : out tsettings_combineMode;
       settings_colorImage  : out tsettings_colorImage := (others => (others => '0'))
    );
@@ -67,8 +70,10 @@ begin
    begin
       if rising_edge(clk1x) then
       
+         error           <= '0';
          commandWordDone <= '0';
          poly_start      <= '0';
+         sync_full       <= '0';
       
          if (reset = '1') then
             
@@ -118,6 +123,11 @@ begin
                         
                      when 6x"27" => -- sync pipe
                         commandWordDone <= '1';
+                        -- todo                     
+                        
+                     when 6x"29" => -- sync full
+                        commandWordDone <= '1';
+                        sync_full       <= '1';
                         -- todo
                   
                      when 6x"2D" => -- set scissor
@@ -227,6 +237,7 @@ begin
                         settings_colorImage.FB_format    <= CommandData(55 downto 53);
                      
                      when others => 
+                        error <= '1';
                         commandWordDone <= '1';
                         -- synthesis translate_off
                         report to_hstring(CommandData(61 downto 56));

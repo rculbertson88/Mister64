@@ -14,6 +14,8 @@ entity RDP is
       clk2x                : in  std_logic;
       ce                   : in  std_logic;
       reset                : in  std_logic;
+      
+      command_error        : out std_logic;
             
       irq_out              : out std_logic := '0';
             
@@ -45,7 +47,19 @@ entity RDP is
       RSP_RDP_reg_dataOut  : in  unsigned(31 downto 0);
       RSP_RDP_reg_read     : in  std_logic;
       RSP_RDP_reg_write    : in  std_logic;
-      RSP_RDP_reg_dataIn   : out unsigned(31 downto 0);
+      RSP_RDP_reg_dataIn   : out unsigned(31 downto 0) := (others => '0'); 
+      
+      RSP2RDP_rdaddr       : out unsigned(11 downto 0) := (others => '0'); 
+      RSP2RDP_len          : out unsigned(4 downto 0) := (others => '0'); 
+      RSP2RDP_req          : out std_logic := '0';
+      RSP2RDP_wraddr       : in  unsigned(4 downto 0);
+      RSP2RDP_data         : in  std_logic_vector(63 downto 0);
+      RSP2RDP_we           : in  std_logic;
+      RSP2RDP_done         : in  std_logic;
+      
+      -- synthesis translate_off
+      commandIsIdle_out    : out std_logic;
+      -- synthesis translate_on
       
       SS_reset             : in  std_logic;
       SS_DataWrite         : in  std_logic_vector(63 downto 0);
@@ -88,17 +102,20 @@ architecture arch of RDP is
    signal store                     : std_logic := '0';
 
    signal commandRAMReady           : std_logic := '0';
+   signal commandRAMMux             : std_logic := '0';
+   signal CommandData_RAM           : std_logic_vector(63 downto 0);
+   signal CommandData_RSP           : std_logic_vector(63 downto 0);
    signal CommandData               : std_logic_vector(63 downto 0);
    signal commandCntNext            : unsigned(4 downto 0) := (others => '0');
    signal commandRAMPtr             : unsigned(4 downto 0);
    signal commandIsIdle             : std_logic;
    signal commandWordDone           : std_logic;
+   signal commandSyncFull           : std_logic;
    
    type tmemState is 
    (  
       MEMIDLE, 
-      WAITCOMMANDDATA,
-      WAITWRITEPIXEL
+      WAITCOMMANDDATA
    ); 
    signal memState  : tmemState := MEMIDLE;
 
@@ -155,12 +172,13 @@ begin
    begin
       if rising_edge(clk1x) then
       
+         irq_out          <= '0';
+         RSP2RDP_req      <= '0';
          rdram_request    <= '0';
       
          if (reset = '1') then
             
-            bus_done             <= '0';
-            irq_out              <= '0';
+            bus_done                 <= '0';
             
             DPC_START_NEXT           <= ss_in(0)(23 downto 0); --(others => '0');
             DPC_END_NEXT             <= ss_in(0)(47 downto 24); --(others => '0');
@@ -190,6 +208,14 @@ begin
          
                bus_done     <= '0';
                bus_dataRead <= (others => '0');
+   
+               if (commandSyncFull = '1') then
+                  irq_out               <= '1';
+                  DPC_BUFBUSY           <= (others => '0');
+                  DPC_PIPEBUSY          <= (others => '0');
+                  DPC_STATUS_start_gclk <= '0';
+               end if;
+   
    
                -- bus read
                if (bus_read = '1') then
@@ -268,12 +294,21 @@ begin
                               DPC_STATUS_end_pending <= '1';
                            end if;
                         end if;
+                        
+                        if (DPC_STATUS_freeze = '0') then
+                           DPC_STATUS_start_gclk <= '1';
+                           DPC_BUFBUSY           <= x"000001"; -- hack
+                           DPC_PIPEBUSY          <= x"000001"; -- hack
+                        end if;
                      
                      when x"0000C" => 
                         if (reg_dataWrite(0) = '1') then DPC_STATUS_xbus_dmem_dma <= '0'; end if;
                         if (reg_dataWrite(1) = '1') then DPC_STATUS_xbus_dmem_dma <= '1'; end if;
                         if (reg_dataWrite(2) = '1') then 
-                           DPC_STATUS_freeze <= '0'; 
+                           DPC_STATUS_freeze     <= '0'; 
+                           DPC_STATUS_start_gclk <= '1';
+                           DPC_BUFBUSY           <= x"000001"; -- hack
+                           DPC_PIPEBUSY          <= x"000001"; -- hack
                         end if;
                         if (reg_dataWrite(3) = '1') then DPC_STATUS_freeze        <= '1'; end if;
                         if (reg_dataWrite(4) = '1') then DPC_STATUS_flush         <= '0'; end if;
@@ -310,8 +345,11 @@ begin
                if (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1') then
                   if (DPC_CURRENT < DPC_END) then
                      memState          <= WAITCOMMANDDATA;
-                     rdram_request     <= '1';
+                     commandRAMMux     <= DPC_STATUS_xbus_dmem_dma;
+                     RSP2RDP_req       <= DPC_STATUS_xbus_dmem_dma;
+                     rdram_request     <= not DPC_STATUS_xbus_dmem_dma;
                      rdram_rnw         <= '1';
+                     RSP2RDP_rdaddr    <= DPC_CURRENT(11 downto 0);
                      rdram_address     <= x"0" & DPC_CURRENT;
                      if ((DPC_END(23 downto 3) - DPC_CURRENT(23 downto 3)) > 22) then
                         commandCntNext    <= to_unsigned(22, 5);
@@ -327,13 +365,8 @@ begin
                end if;
                
             when WAITCOMMANDDATA =>
-               if (rdram_done = '1') then
+               if (rdram_done = '1' or RSP2RDP_done = '1') then
                   commandRAMReady   <= '1';
-                  memState          <= MEMIDLE;
-               end if;
-               
-            when WAITWRITEPIXEL =>
-               if (rdram_done = '1') then
                   memState          <= MEMIDLE;
                end if;
          
@@ -345,6 +378,8 @@ begin
 
       end if;
    end process;
+   
+   RSP2RDP_len <= commandCntNext;
    
    process (clk2x)
    begin
@@ -381,15 +416,39 @@ begin
       address_b   => std_logic_vector(commandRAMPtr),
       data_b      => 64x"0",
       wren_b      => '0',
-      q_b         => CommandData
+      q_b         => CommandData_RAM
    );   
+   
+   iCommandRSP: entity mem.dpram
+   generic map 
+   ( 
+      addr_width  => 5,
+      data_width  => 64
+   )
+   port map
+   (
+      clock_a     => clk1x,
+      address_a   => std_logic_vector(RSP2RDP_wraddr),
+      data_a      => RSP2RDP_data,
+      wren_a      => RSP2RDP_we,
+      
+      clock_b     => clk1x,
+      address_b   => std_logic_vector(commandRAMPtr),
+      data_b      => 64x"0",
+      wren_b      => '0',
+      q_b         => CommandData_RSP
+   );   
+   
+   CommandData <= CommandData_RSP when (commandRAMMux = '1') else CommandData_RAM;
    
    iRDP_command : entity work.RDP_command
    port map
    (
       clk1x                => clk1x,          
       reset                => reset,          
-                                             
+
+      error                => command_error,
+                                        
       commandRAMReady      => commandRAMReady,
       CommandData          => unsigned(CommandData),    
       commandCntNext       => commandCntNext, 
@@ -401,6 +460,7 @@ begin
       poly_done            => poly_done,       
       settings_poly        => settings_poly,       
       poly_start           => poly_start,     
+      sync_full            => commandSyncFull,     
 
       -- synthesis translate_off
       export_command_done  => export_command_done, 
@@ -413,6 +473,10 @@ begin
       settings_combineMode => settings_combineMode,
       settings_colorImage  => settings_colorImage 
    );
+   
+   -- synthesis translate_off
+   commandIsIdle_out <= commandIsIdle;
+   -- synthesis translate_on
    
    iRDP_raster : entity work.RDP_raster
    port map
@@ -539,6 +603,8 @@ begin
                ss_in(i) <= (others => '0');
             end loop;
             
+            ss_in(0)(52) <= '1'; -- DPC_STATUS_cbuf_ready = 1
+            
          elsif (SS_wren = '1') then
             ss_in(to_integer(SS_Adr)) <= unsigned(SS_DataWrite);
          end if;
@@ -583,7 +649,8 @@ begin
                write(line_out, string'("Command: I ")); 
                write(line_out, to_string_len(tracecounts_out(2) + 1, 8));
                write(line_out, string'(" A ")); 
-               write(line_out, to_hstring(export_command_array.addr + (commandRAMPtr - 1) * 8));
+               --write(line_out, to_hstring(export_command_array.addr + (commandRAMPtr - 1) * 8));
+               write(line_out, to_hstring(to_unsigned(0, 32)));
                write(line_out, string'(" D "));
                write(line_out, to_hstring(CommandData));
                writeline(outfile, line_out);

@@ -21,6 +21,10 @@ architecture arch of etb is
    signal clk2x       : std_logic := '1';
    signal clkvid      : std_logic := '1';
    
+   signal clk1xToggle            : std_logic := '0';
+   signal clk1xToggle2X          : std_logic := '0';
+   signal clk2xIndex             : std_logic := '0';
+   
    -- top level replication
    signal rdram_request       : tDDDR3Single;
    signal rdram_rnw           : tDDDR3Single;    
@@ -31,6 +35,19 @@ architecture arch of etb is
    signal rdram_granted       : tDDDR3Single;
    signal rdram_done          : tDDDR3Single;
    signal rdram_dataRead      : std_logic_vector(63 downto 0);
+   
+   signal rdpfifo_reset       : std_logic; 
+   signal rdpfifo_Din         : std_logic_vector(91 downto 0);
+   signal rdpfifo_Wr          : std_logic;  
+   signal rdpfifo_nearfull    : std_logic;    
+   signal rdpfifo_empty       : std_logic;   
+   
+   signal bus_RDP_addr        : unsigned(19 downto 0) := (others => '0');
+   signal bus_RDP_dataWrite   : std_logic_vector(31 downto 0) := (others => '0');
+   signal bus_RDP_read        : std_logic := '0';
+   signal bus_RDP_write       : std_logic := '0';
+   signal bus_RDP_dataRead    : std_logic_vector(31 downto 0);    
+   signal bus_RDP_done        : std_logic; 
    
    signal bus_VI_addr         : unsigned(19 downto 0) := (others => '0');
    signal bus_VI_dataWrite    : std_logic_vector(31 downto 0) := (others => '0');
@@ -58,7 +75,16 @@ architecture arch of etb is
    signal sdram_be            : std_logic_vector(3 downto 0);
    signal sdram_rnw           : std_logic;
    signal sdram_ena           : std_logic;
-   signal sdram_done          : std_logic;        
+   signal sdram_done          : std_logic;     
+
+   -- RSP emulation
+   signal RSP2RDP_rdaddr      : unsigned(11 downto 0) := (others => '0'); 
+   signal RSP2RDP_len         : unsigned(4 downto 0) := (others => '0'); 
+   signal RSP2RDP_req         : std_logic := '0';
+   signal RSP2RDP_wraddr      : unsigned(4 downto 0) := (others => '0');
+   signal RSP2RDP_data        : std_logic_vector(63 downto 0) := (others => '0');
+   signal RSP2RDP_we          : std_logic := '0';
+   signal RSP2RDP_done        : std_logic := '0';
    
    -- video
    signal video_hblank        : std_logic;
@@ -79,9 +105,11 @@ architecture arch of etb is
    signal SS_wren             : std_logic_vector(13 downto 0) := (others => '0');
    
    -- testbench
-   signal clkCount            : integer := 0;
    signal cmdCount            : integer := 0;
-
+   type t_commandarray is array(0 to 31) of std_logic_vector(63 downto 0); 
+   signal commandarray : t_commandarray := (others => (others => '0'));
+   signal commandIsIdle_out : std_logic;
+   
 begin
 
    clk1x <= not clk1x after 8 ns;
@@ -94,21 +122,82 @@ begin
    clkvid <= not clkvid after 9462 ps;
    
     -- top level replication
+    
+   -- clock index
+   process (clk1x)
+   begin
+      if rising_edge(clk1x) then
+         clk1xToggle <= not clk1xToggle;
+      end if;
+   end process;
+   
+   process (clk2x)
+   begin
+      if rising_edge(clk2x) then
+         clk1xToggle2x <= clk1xToggle;
+         clk2xIndex    <= '0';
+         if (clk1xToggle2x = clk1xToggle) then
+            clk2xIndex <= '1';
+         end if;
+      end if;
+   end process;
+    
    iRDP : entity n64.RDP
    port map
    (
       clk1x                => clk1x,        
+      clk2x                => clk2x,        
       ce                   => '1',           
       reset                => reset_out, 
 
       irq_out              => open,
-                           
-      bus_addr             => (19 downto 0 => '0'),     
-      bus_dataWrite        => (31 downto 0 => '0'),     
-      bus_read             => '0',     
-      bus_write            => '0',    
-      bus_dataRead         => open, 
-      bus_done             => open
+            
+      bus_addr             => bus_RDP_addr,        
+      bus_dataWrite        => bus_RDP_dataWrite,   
+      bus_read             => bus_RDP_read,     
+      bus_write            => bus_RDP_write,    
+      bus_dataRead         => bus_RDP_dataRead, 
+      bus_done             => bus_RDP_done,     
+      
+      rdram_request        => rdram_request(DDR3MUX_RDP),   
+      rdram_rnw            => rdram_rnw(DDR3MUX_RDP),       
+      rdram_address        => rdram_address(DDR3MUX_RDP),   
+      rdram_burstcount     => rdram_burstcount(DDR3MUX_RDP),
+      rdram_writeMask      => rdram_writeMask(DDR3MUX_RDP), 
+      rdram_dataWrite      => rdram_dataWrite(DDR3MUX_RDP),     
+      rdram_granted        => rdram_granted(DDR3MUX_RDP),      
+      rdram_done           => rdram_done(DDR3MUX_RDP),   
+      ddr3_DOUT            => DDRAM_DOUT,       
+      ddr3_DOUT_READY      => DDRAM_DOUT_READY, 
+            
+      fifoout_reset        => rdpfifo_reset,   
+      fifoout_Din          => rdpfifo_Din,     
+      fifoout_Wr           => rdpfifo_Wr,      
+      fifoout_nearfull     => rdpfifo_nearfull,
+      fifoout_empty        => rdpfifo_empty,
+      
+      RSP_RDP_reg_addr     => 7x"0",   
+      RSP_RDP_reg_dataOut  => 32x"0",
+      RSP_RDP_reg_read     => '0',   
+      RSP_RDP_reg_write    => '0',  
+      RSP_RDP_reg_dataIn   => open, 
+      
+      RSP2RDP_rdaddr       => RSP2RDP_rdaddr, 
+      RSP2RDP_len          => RSP2RDP_len,    
+      RSP2RDP_req          => RSP2RDP_req,    
+      RSP2RDP_wraddr       => RSP2RDP_wraddr,
+      RSP2RDP_data         => RSP2RDP_data,
+      RSP2RDP_we           => RSP2RDP_we,  
+      RSP2RDP_done         => RSP2RDP_done,  
+      
+      commandIsIdle_out    => commandIsIdle_out,
+      
+      SS_reset             => SS_reset,
+      SS_DataWrite         => SS_DataWrite,
+      SS_Adr               => SS_Adr(0 downto 0),
+      SS_wren              => SS_wren(4),
+      SS_rden              => '0',
+      SS_DataRead          => open
    );  
    
    iVI : entity n64.VI
@@ -119,9 +208,11 @@ begin
       clkvid               => clkvid,        
       ce                   => '1',           
       reset_1x             => reset_out, 
-      reset_2x             => reset_out, 
 
       irq_out              => open,
+      
+      errorEna             => '0',
+      errorCode            => 12x"0",
       
       rdram_request        => rdram_request(DDR3MUX_VI),   
       rdram_rnw            => rdram_rnw(DDR3MUX_VI),       
@@ -162,8 +253,7 @@ begin
    (
       clk1x            => clk1x,           
       clk2x            => clk2x,           
-      ce               => '1',              
-      reset            => reset_out,           
+      clk2xIndex       => clk2xIndex,  
                                           
       ddr3_BUSY        => DDRAM_BUSY,       
       ddr3_DOUT        => DDRAM_DOUT,       
@@ -183,7 +273,19 @@ begin
       rdram_dataWrite  => rdram_dataWrite, 
       rdram_granted    => rdram_granted,      
       rdram_done       => rdram_done,      
-      rdram_dataRead   => rdram_dataRead      
+      rdram_dataRead   => rdram_dataRead,  
+
+      rspfifo_reset    => '0',
+      rspfifo_Din      => 85x"0",
+      rspfifo_Wr       => '0',
+      rspfifo_nearfull => open,
+      rspfifo_empty    => open,
+      
+      rdpfifo_reset    => rdpfifo_reset,   
+      rdpfifo_Din      => rdpfifo_Din,
+      rdpfifo_Wr       => rdpfifo_Wr,       
+      rdpfifo_nearfull => rdpfifo_nearfull, 
+      rdpfifo_empty    => rdpfifo_empty
    );   
    
    rdram_request(0 to 1) <= (others => '0');
@@ -264,75 +366,133 @@ begin
       SS_wren           => SS_wren     
    );
    
-   
-   process -- simulate interlaced register changes 
-   begin
-      wait until rising_edge(video_interlace);
-      bus_VI_addr      <= x"00034";
-      bus_VI_dataWrite <= x"02000800";
-      bus_VI_write     <= '1';
-      wait until rising_edge(clk1x);
-      bus_VI_write     <= '0';
-      wait until rising_edge(clk1x);
-      
-      wait until falling_edge(video_interlace);
-      bus_VI_addr      <= x"00034";
-      bus_VI_dataWrite <= x"00000800";
-      bus_VI_write     <= '1';
-      wait until rising_edge(clk1x);
-      bus_VI_write     <= '0';
-      wait until rising_edge(clk1x);
-   end process;  
-      
-      
-   --process
-   --   file infile          : text;
-   --   variable f_status    : FILE_OPEN_STATUS;
-   --   variable inLine      : LINE;
-   --   variable para_type   : std_logic_vector(7 downto 0);
-   --   variable para_time   : std_logic_vector(31 downto 0);
-   --   variable para_data   : std_logic_vector(31 downto 0);
-   --   variable space       : character;
+   --process -- simulate interlaced register changes 
    --begin
+   --   wait until rising_edge(video_interlace);
+   --   bus_VI_addr      <= x"00034";
+   --   bus_VI_dataWrite <= x"02000800";
+   --   bus_VI_write     <= '1';
+   --   wait until rising_edge(clk1x);
+   --   bus_VI_write     <= '0';
+   --   wait until rising_edge(clk1x);
    --   
-   --   wait until reset_out = '1';
-   --   wait until reset_out = '0';
-   --      
-   --   file_open(f_status, infile, "R:\gpu_test_FPGAN64.txt", read_mode);
-   --   
-   --   while (not endfile(infile)) loop
-   --      
-   --      readline(infile,inLine);
-   --      
-   --      HREAD(inLine, para_type);
-   --      Read(inLine, space);
-   --      HREAD(inLine, para_time);
-   --      Read(inLine, space);
-   --      HREAD(inLine, para_data);
-   --      
-   --      while (clkCount < unsigned(para_time)) loop
-   --         clkCount <= clkCount + 1;
-   --         wait until rising_edge(clk1x);
-   --      end loop;
-   --      
-   --      bus_gpu_dataWrite <= para_data;
-   --      bus_gpu_write     <= '1';
-   --      
-   --      clkCount <= clkCount + 1;
-   --      cmdCount <= cmdCount + 1;
-   --      wait until rising_edge(clk1x);
-   --      bus_gpu_write     <= '0';
-   --   end loop;
-   --   
-   --   file_close(infile);
-   --   
-   --   wait for 10 ms;
-   --   
-   --   if (cmdCount >= 0) then
-   --      report "DONE" severity failure;
-   --   end if;
-   --   
-   --end process;
+   --   wait until falling_edge(video_interlace);
+   --   bus_VI_addr      <= x"00034";
+   --   bus_VI_dataWrite <= x"00000800";
+   --   bus_VI_write     <= '1';
+   --   wait until rising_edge(clk1x);
+   --   bus_VI_write     <= '0';
+   --   wait until rising_edge(clk1x);
+   --end process;  
+      
+   -- RSP emulation
+   process
+   begin
+   
+      wait until rising_edge(clk1x);
+      
+      if (RSP2RDP_req = '1') then
+   
+         RSP2RDP_wraddr <= (others => '0');
+         for i in 0 to (to_integer(RSP2RDP_len) - 1) loop
+         
+            RSP2RDP_wraddr <= to_unsigned(i, 5);
+            RSP2RDP_data   <= commandarray(i);
+            RSP2RDP_we     <= '1';
+            wait until rising_edge(clk1x);
+
+         end loop;
+         
+         RSP2RDP_we   <= '0';
+         RSP2RDP_done <= '1';
+         wait until rising_edge(clk1x);
+         RSP2RDP_done <= '0';
+         wait until rising_edge(clk1x);
+         
+      end if;
+
+   end process;
+      
+      
+   process
+      file infile          : text;
+      variable f_status    : FILE_OPEN_STATUS;
+      variable inLine      : LINE;
+      variable para_type   : std_logic_vector(7 downto 0);
+      variable para_data   : std_logic_vector(63 downto 0);
+      variable space       : character;
+      variable commendIndex : integer range 0 to 31;
+   begin
+      
+      wait until reset_out = '1';
+      wait until reset_out = '0';
+         
+      file_open(f_status, infile, "R:\rdp_FPGN64_commands.txt", read_mode);
+      
+      while (not endfile(infile)) loop
+         
+         readline(infile,inLine);
+         
+         HREAD(inLine, para_type);
+         
+         if (para_type = x"01") then
+         
+            Read(inLine, space);
+            HREAD(inLine, para_data);
+            
+            commendIndex := 0;
+            commandarray(commendIndex) <= para_data;
+
+         elsif (para_type = x"02") then
+         
+            commendIndex := commendIndex + 1;
+            commandarray(commendIndex) <= para_data;
+         
+         elsif (para_type = x"03") then
+
+            cmdCount <= cmdCount + 1;
+            
+            bus_RDP_addr      <= x"0000C";
+            bus_RDP_dataWrite <= x"00000002"; -- xbus to RSP
+            bus_RDP_write     <= '1';
+            wait until rising_edge(clk1x);
+            bus_RDP_write     <= '0';
+            wait until rising_edge(clk1x);
+            
+            bus_RDP_addr      <= x"00000"; -- set DMA start
+            bus_RDP_dataWrite <= x"00000000";
+            bus_RDP_write     <= '1';
+            wait until rising_edge(clk1x);
+            bus_RDP_write     <= '0';
+            wait until rising_edge(clk1x);
+            
+            bus_RDP_addr      <= x"00004"; -- set DMA end
+            bus_RDP_dataWrite <= std_logic_vector(to_unsigned((commendIndex + 1) * 8, 32));
+            bus_RDP_write     <= '1';
+            wait until rising_edge(clk1x);
+            bus_RDP_write     <= '0';
+            wait until rising_edge(clk1x);
+            
+            wait for 1 us;
+            while (commandIsIdle_out = '0') loop
+               wait for 1 us;
+            end loop;
+
+            wait for 10 us;
+
+         end if;
+         
+      end loop;
+      
+      file_close(infile);
+      
+      wait for 10 ms;
+      
+      if (cmdCount >= 0) then
+         report "DONE" severity failure;
+      end if;
+      
+   end process;
    
    
 end architecture;
