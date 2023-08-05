@@ -25,6 +25,7 @@ List of Errors:
 - Bit 7 - PIF used up all 64 bytes for external communication or EEPROM command have unusual length
 - Bit 8 - RSP Instruction not implemented
 - Bit 9 - RSP stall timeout
+- Bit 10 - RDP command not implemented
   
 ## Status
 

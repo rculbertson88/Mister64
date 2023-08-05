@@ -99,8 +99,8 @@ architecture arch of RDP is
    signal DPC_END                   : unsigned(23 downto 0);
    
    signal fillAddr                  : unsigned(4 downto 0) := (others => '0');
-   signal store                     : std_logic := '0';
-
+   
+   signal commandRAMstore           : std_logic := '0';
    signal commandRAMReady           : std_logic := '0';
    signal commandRAMMux             : std_logic := '0';
    signal CommandData_RAM           : std_logic_vector(63 downto 0);
@@ -112,16 +112,26 @@ architecture arch of RDP is
    signal commandWordDone           : std_logic;
    signal commandSyncFull           : std_logic;
    
+   -- Texture request ram
+   signal TextureReqRAMreq          : std_logic;
+   signal TextureReqRAMaddr         : unsigned(25 downto 0);
+   signal TextureReqRAMstore        : std_logic := '0';
+   signal TextureReqRAMReady        : std_logic := '0';
+   signal TextureReqRAMData         : std_logic_vector(63 downto 0);
+   signal TextureReqRAMPtr          : unsigned(4 downto 0);
+   
    type tmemState is 
    (  
       MEMIDLE, 
-      WAITCOMMANDDATA
+      WAITCOMMANDDATA,
+      WAITTEXTUREDATA
    ); 
    signal memState  : tmemState := MEMIDLE;
 
    -- Command Eval    
    signal settings_poly             : tsettings_poly;
    signal poly_start                : std_logic;
+   signal poly_loading_mode         : std_logic;
    signal poly_done                 : std_logic;
    signal settings_scissor          : tsettings_scissor;
    signal settings_otherModes       : tsettings_otherModes;
@@ -129,6 +139,19 @@ architecture arch of RDP is
    signal settings_blendcolor       : tsettings_blendcolor;
    signal settings_combineMode      : tsettings_combineMode;
    signal settings_colorImage       : tsettings_colorImage;
+   signal settings_textureImage     : tsettings_textureImage;
+   signal settings_tile             : tsettings_tile;
+   signal settings_loadtype         : tsettings_loadtype;
+   
+   -- Texture RAM
+   signal TextureRamAddr            : unsigned(8 downto 0) := (others => '0');    
+   signal TextureRam0Data           : std_logic_vector(15 downto 0) := (others => '0');
+   signal TextureRam1Data           : std_logic_vector(15 downto 0) := (others => '0');
+   signal TextureRam2Data           : std_logic_vector(15 downto 0) := (others => '0');
+   signal TextureRam3Data           : std_logic_vector(15 downto 0) := (others => '0');
+   signal TextureRamWE              : std_logic_vector(7 downto 0)  := (others => '0');
+   type tTextureRamData is array(0 to 7) of std_logic_vector(15 downto 0);
+   signal TextureRamDataIn          : tTextureRamData;
    
    -- Fill line
    signal writePixel                : std_logic;
@@ -160,6 +183,11 @@ architecture arch of RDP is
    
    signal export_line_done          : std_logic; 
    signal export_line_list          : rdp_export_type; 
+   
+   signal export_load_done          : std_logic; 
+   signal export_loadFetch          : rdp_export_type; 
+   signal export_loadData           : rdp_export_type; 
+   signal export_loadValue          : rdp_export_type; 
    -- synthesis translate_on   
 
 begin 
@@ -167,14 +195,17 @@ begin
    reg_addr      <= 13x"0" & RSP_RDP_reg_addr when (RSP_RDP_reg_read = '1' or RSP_RDP_reg_write = '1') else bus_addr;     
    reg_dataWrite <= std_logic_vector(RSP_RDP_reg_dataOut) when (RSP_RDP_reg_write = '1') else bus_dataWrite;
 
+   rdram_rnw <= '1';
+
    process (clk1x)
       variable var_dataRead : std_logic_vector(31 downto 0) := (others => '0');
    begin
       if rising_edge(clk1x) then
       
-         irq_out          <= '0';
-         RSP2RDP_req      <= '0';
-         rdram_request    <= '0';
+         irq_out             <= '0';
+         RSP2RDP_req         <= '0';
+         rdram_request       <= '0';
+         TextureReqRAMReady  <= '0';
       
          if (reset = '1') then
             
@@ -342,13 +373,17 @@ begin
          case (memState) is
          
             when MEMIDLE =>
-               if (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1') then
+               if (TextureReqRAMreq = '1') then
+                  memState          <= WAITTEXTUREDATA;
+                  rdram_request     <= '1';
+                  rdram_address     <= "00" & TextureReqRAMaddr;
+                  rdram_burstcount  <= to_unsigned(32, 10);
+               elsif (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1') then
                   if (DPC_CURRENT < DPC_END) then
                      memState          <= WAITCOMMANDDATA;
                      commandRAMMux     <= DPC_STATUS_xbus_dmem_dma;
                      RSP2RDP_req       <= DPC_STATUS_xbus_dmem_dma;
                      rdram_request     <= not DPC_STATUS_xbus_dmem_dma;
-                     rdram_rnw         <= '1';
                      RSP2RDP_rdaddr    <= DPC_CURRENT(11 downto 0);
                      rdram_address     <= x"0" & DPC_CURRENT;
                      if ((DPC_END(23 downto 3) - DPC_CURRENT(23 downto 3)) > 22) then
@@ -369,6 +404,12 @@ begin
                   commandRAMReady   <= '1';
                   memState          <= MEMIDLE;
                end if;
+               
+            when WAITTEXTUREDATA =>
+               if (rdram_done = '1') then
+                  TextureReqRAMReady   <= '1';
+                  memState             <= MEMIDLE;
+               end if;
          
          end case;
   
@@ -387,13 +428,18 @@ begin
          
          if (rdram_granted = '1') then
             fillAddr <= (others => '0');
-            store    <= '1';
+            if (memState = WAITCOMMANDDATA) then
+               commandRAMstore <= '1';
+            elsif (memState = WAITTEXTUREDATA) then
+               TextureReqRAMstore <= '1';
+            end if;
          elsif (ddr3_DOUT_READY = '1') then
             fillAddr <= fillAddr + 1;
          end if;
          
          if (rdram_done = '1') then
-            store <= '0';
+            commandRAMstore    <= '0';
+            TextureReqRAMstore <= '0';
          end if;
          
       end if;
@@ -410,7 +456,7 @@ begin
       clock_a     => clk2x,
       address_a   => std_logic_vector(fillAddr),
       data_a      => byteswap64(ddr3_DOUT),
-      wren_a      => (ddr3_DOUT_READY and store),
+      wren_a      => (ddr3_DOUT_READY and commandRAMstore),
       
       clock_b     => clk1x,
       address_b   => std_logic_vector(commandRAMPtr),
@@ -444,66 +490,146 @@ begin
    iRDP_command : entity work.RDP_command
    port map
    (
-      clk1x                => clk1x,          
-      reset                => reset,          
-
-      error                => command_error,
-                                        
-      commandRAMReady      => commandRAMReady,
-      CommandData          => unsigned(CommandData),    
-      commandCntNext       => commandCntNext, 
-                                             
-      commandRAMPtr        => commandRAMPtr,  
-      commandIsIdle        => commandIsIdle,  
-      commandWordDone      => commandWordDone,
-      
-      poly_done            => poly_done,       
-      settings_poly        => settings_poly,       
-      poly_start           => poly_start,     
-      sync_full            => commandSyncFull,     
+      clk1x                   => clk1x,          
+      reset                   => reset,          
+   
+      error                   => command_error,
+                                          
+      commandRAMReady         => commandRAMReady,
+      CommandData             => unsigned(CommandData),    
+      commandCntNext          => commandCntNext, 
+                                                
+      commandRAMPtr           => commandRAMPtr,  
+      commandIsIdle           => commandIsIdle,  
+      commandWordDone         => commandWordDone,
+         
+      poly_done               => poly_done,       
+      settings_poly           => settings_poly,       
+      poly_start              => poly_start,     
+      poly_loading_mode       => poly_loading_mode,     
+      sync_full               => commandSyncFull,     
 
       -- synthesis translate_off
-      export_command_done  => export_command_done, 
+      export_command_done     => export_command_done, 
       -- synthesis translate_on      
                               
-      settings_scissor     => settings_scissor,   
-      settings_otherModes  => settings_otherModes, 
-      settings_fillcolor   => settings_fillcolor,  
-      settings_blendcolor  => settings_blendcolor, 
-      settings_combineMode => settings_combineMode,
-      settings_colorImage  => settings_colorImage 
+      settings_scissor        => settings_scissor,   
+      settings_otherModes     => settings_otherModes, 
+      settings_fillcolor      => settings_fillcolor,  
+      settings_blendcolor     => settings_blendcolor, 
+      settings_combineMode    => settings_combineMode,
+      settings_textureImage   => settings_textureImage,
+      settings_colorImage     => settings_colorImage,
+      settings_tile           => settings_tile,      
+      settings_loadtype       => settings_loadtype      
    );
    
    -- synthesis translate_off
    commandIsIdle_out <= commandIsIdle;
    -- synthesis translate_on
    
+   iTextureReceiveRAM: entity mem.dpram
+   generic map 
+   ( 
+      addr_width  => 5,
+      data_width  => 64
+   )
+   port map
+   (
+      clock_a     => clk2x,
+      address_a   => std_logic_vector(fillAddr),
+      data_a      => byteswap64(ddr3_DOUT),
+      wren_a      => (ddr3_DOUT_READY and TextureReqRAMstore),
+      
+      clock_b     => clk1x,
+      address_b   => std_logic_vector(textureReqRAMPtr),
+      data_b      => 64x"0",
+      wren_b      => '0',
+      q_b         => TextureReqRAMData
+   );
+   
+   
    iRDP_raster : entity work.RDP_raster
    port map
    (
-      clk1x                => clk1x,        
-      reset                => reset,        
-                           
-      settings_poly        => settings_poly,      
-      settings_scissor     => settings_scissor,   
-      settings_otherModes  => settings_otherModes, 
-      settings_fillcolor   => settings_fillcolor,  
-      settings_blendcolor  => settings_blendcolor, 
-      settings_colorImage  => settings_colorImage, 
-      poly_start           => poly_start,   
-      loading_mode         => '0',
-      poly_done            => poly_done,
+      clk1x                   => clk1x,        
+      reset                   => reset,        
+                              
+      settings_poly           => settings_poly,      
+      settings_scissor        => settings_scissor,   
+      settings_otherModes     => settings_otherModes, 
+      settings_fillcolor      => settings_fillcolor,  
+      settings_blendcolor     => settings_blendcolor, 
+      settings_colorImage     => settings_colorImage, 
+      settings_textureImage   => settings_textureImage,
+      settings_tile           => settings_tile,    
+      settings_loadtype       => settings_loadtype,    
+      poly_start              => poly_start,   
+      loading_mode            => poly_loading_mode,
+      poly_done               => poly_done,
+      
+      TextureReqRAMreq        => TextureReqRAMreq,   
+      TextureReqRAMaddr       => TextureReqRAMaddr,  
+      TextureReqRAMPtr        => TextureReqRAMPtr,   
+      TextureReqRAMData       => TextureReqRAMData,  
+      TextureReqRAMReady      => TextureReqRAMReady, 
+      
+      TextureRamAddr          => TextureRamAddr, 
+      TextureRam0Data         => TextureRam0Data,
+      TextureRam1Data         => TextureRam1Data,
+      TextureRam2Data         => TextureRam2Data,
+      TextureRam3Data         => TextureRam3Data,
+      TextureRamWE            => TextureRamWE,   
       
       -- synthesis translate_off
-      export_line_done     => export_line_done,
-      export_line_list     => export_line_list,
+      export_line_done        => export_line_done,
+      export_line_list        => export_line_list,
+         
+      export_load_done        => export_load_done,
+      export_loadFetch        => export_loadFetch,
+      export_loadData         => export_loadData, 
+      export_loadValue        => export_loadValue,
       -- synthesis translate_on
 
-      writePixel           => writePixel,     
-      writePixelX          => writePixelX,    
-      writePixelY          => writePixelY,   
-      writePixelColor      => writePixelColor     
+      writePixel              => writePixel,     
+      writePixelX             => writePixelX,    
+      writePixelY             => writePixelY,   
+      writePixelColor         => writePixelColor     
    );
+   
+   TextureRamDataIn(0) <= TextureRam0Data;
+   TextureRamDataIn(1) <= TextureRam1Data;
+   TextureRamDataIn(2) <= TextureRam2Data;
+   TextureRamDataIn(3) <= TextureRam3Data;
+   TextureRamDataIn(4) <= TextureRam0Data;
+   TextureRamDataIn(5) <= TextureRam1Data;
+   TextureRamDataIn(6) <= TextureRam2Data;
+   TextureRamDataIn(7) <= TextureRam3Data;
+   
+   gTextureRam: for i in 0 to 7 generate
+   begin
+   
+      iTextureRAM: entity mem.dpram
+      generic map 
+      ( 
+         addr_width  => 9,
+         data_width  => 16
+      )
+      port map
+      (
+         clock_a     => clk1x,
+         address_a   => std_logic_vector(TextureRamAddr),
+         data_a      => TextureRamDataIn(i),
+         wren_a      => TextureRamWE(i),
+         
+         clock_b     => clk1x,
+         address_b   => 9x"0",
+         data_b      => 16x"0",
+         wren_b      => '0',
+         q_b         => open
+      );
+      
+   end generate;
    
    process (clk1x)
    begin
@@ -670,6 +796,65 @@ begin
                write(line_out, to_hstring(export_line_list.debug3));
                writeline(outfile, line_out);
                tracecounts_out(20) <= tracecounts_out(20) + 1;
+            end if;
+            
+            if (export_load_done = '1') then
+               write(line_out, string'("LoadFetch: I ")); 
+               write(line_out, to_string_len(tracecounts_out(16) + 1, 8));
+               write(line_out, string'(" A ")); 
+               write(line_out, to_hstring(export_loadFetch.addr));
+               write(line_out, string'(" D ")); 
+               write(line_out, to_hstring(export_loadFetch.data(31 downto 0)));
+               write(line_out, string'(" X ")); 
+               write(line_out, to_string_len(to_integer(export_loadFetch.x), 4));
+               write(line_out, string'(" Y ")); 
+               write(line_out, to_string_len(to_integer(export_loadFetch.y), 4));
+               write(line_out, string'(" D1 "));
+               write(line_out, to_hstring(export_loadFetch.debug1));
+               write(line_out, string'(" D2 "));
+               write(line_out, to_hstring(export_loadFetch.debug2));
+               write(line_out, string'(" D3 "));
+               write(line_out, to_hstring(export_loadFetch.debug3));
+               writeline(outfile, line_out);
+               tracecounts_out(16) <= tracecounts_out(16) + 1;
+               
+               write(line_out, string'("LoadData: I ")); 
+               write(line_out, to_string_len(tracecounts_out(17) + 1, 8));
+               write(line_out, string'(" A ")); 
+               write(line_out, to_hstring(export_LoadData.addr));
+               write(line_out, string'(" D ")); 
+               write(line_out, to_hstring(export_LoadData.data));
+               write(line_out, string'(" X ")); 
+               write(line_out, to_string_len(to_integer(export_LoadData.x), 4));
+               write(line_out, string'(" Y ")); 
+               write(line_out, to_string_len(to_integer(export_LoadData.y), 4));
+               write(line_out, string'(" D1 "));
+               write(line_out, to_hstring(export_LoadData.debug1));
+               write(line_out, string'(" D2 "));
+               write(line_out, to_hstring(export_LoadData.debug2));
+               write(line_out, string'(" D3 "));
+               write(line_out, to_hstring(export_LoadData.debug3));
+               writeline(outfile, line_out);
+               tracecounts_out(17) <= tracecounts_out(17) + 1;
+               
+               write(line_out, string'("LoadValue: I ")); 
+               write(line_out, to_string_len(tracecounts_out(18) + 1, 8));
+               write(line_out, string'(" A ")); 
+               write(line_out, to_hstring(export_LoadValue.addr));
+               write(line_out, string'(" D ")); 
+               write(line_out, to_hstring(export_LoadValue.data(31 downto 0)));
+               write(line_out, string'(" X ")); 
+               write(line_out, to_string_len(to_integer(export_LoadValue.x), 4));
+               write(line_out, string'(" Y ")); 
+               write(line_out, to_string_len(to_integer(export_LoadValue.y), 4));
+               write(line_out, string'(" D1 "));
+               write(line_out, to_hstring(export_LoadValue.debug1));
+               write(line_out, string'(" D2 "));
+               write(line_out, to_hstring(export_LoadValue.debug2));
+               write(line_out, string'(" D3 "));
+               write(line_out, to_hstring(export_LoadValue.debug3));
+               writeline(outfile, line_out);
+               tracecounts_out(18) <= tracecounts_out(18) + 1;
             end if;
             
          end loop;
