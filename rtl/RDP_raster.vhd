@@ -48,9 +48,13 @@ entity RDP_raster is
       -- synthesis translate_on
       
       writePixel              : out std_logic := '0';
+      writePixelAddr          : out unsigned(25 downto 0);
       writePixelX             : out unsigned(11 downto 0) := (others => '0');
       writePixelY             : out unsigned(11 downto 0) := (others => '0');
-      writePixelColor         : out unsigned(31 downto 0) := (others => '0')
+      writePixelColor         : out unsigned(31 downto 0) := (others => '0');
+      fillWrite               : out std_logic := '0';
+      fillBE                  : out unsigned(7 downto 0) := (others => '0');
+      fillColor               : out unsigned(63 downto 0) := (others => '0')
    );
 end entity;
 
@@ -143,14 +147,18 @@ architecture arch of RDP_raster is
    type tlineState is 
    (  
       LINEIDLE, 
-      DRAWLINE
+      DRAWLINE,
+      FILLLINE
    ); 
    signal linestate  : tlineState := LINEIDLE;    
    
-   signal drawLineDone : std_logic;
-   signal line_posY    : unsigned(11 downto 0) := (others => '0');
-   signal line_posX    : unsigned(11 downto 0) := (others => '0');
-   signal line_endX    : unsigned(11 downto 0) := (others => '0');
+   signal drawLineDone     : std_logic;
+   signal line_posY        : unsigned(11 downto 0) := (others => '0');
+   signal line_posX        : unsigned(11 downto 0) := (others => '0');
+   signal line_endX        : unsigned(11 downto 0) := (others => '0');
+   
+   -- comb calculation
+   signal calcPixelAddr    : unsigned(25 downto 0);
    
    -- line loading
    type tloadState is 
@@ -410,7 +418,7 @@ begin
                   end if;
                   
                when POLYFINISH =>
-                  if (startLine = '0') then
+                  if (startLine = '0' and linestate = LINEIDLE and loadstate = LOADIDLE) then
                      polystate <= POLYIDLE;
                      poly_done <= '1'; 
                   end if;
@@ -430,13 +438,19 @@ begin
    end process;
    
    -- drawing
-   drawLineDone <= '1' when (linestate = DRAWLINE and line_posX = line_endX) else '0';
+   drawLineDone <= '1' when (linestate = DRAWLINE and line_posX = line_endX) else 
+                   '1' when (linestate = FILLLINE and line_posX > line_endX) else 
+                   '0';
+   
+   calcPixelAddr <= resize(settings_colorImage.FB_base + ((line_posY * (settings_colorImage.FB_width_m1 + 1)) + line_posX) * 2, 26) when (settings_colorImage.FB_size = SIZE_16BIT) else
+                    resize(settings_colorImage.FB_base + ((line_posY * (settings_colorImage.FB_width_m1 + 1)) + line_posX) * 4, 26);
    
    process (clk1x)
    begin
       if rising_edge(clk1x) then
       
          writePixel <= '0';
+         fillWrite  <= '0';
          
          if (reset = '1') then
             
@@ -449,10 +463,14 @@ begin
                when LINEIDLE =>
                   if (startLine = '1' and allinval = '0' and allover = '0' and allunder = '0') then
                      if (loading_mode = '0') then
-                        linestate <= DRAWLINE;
+                        if (settings_otherModes.cycleType = "11") then
+                           linestate <= FILLLINE;
+                        else
+                           linestate <= DRAWLINE;
+                        end if;
                      end if;
                      line_posY <= lineInfo.Y;
-                     if (settings_poly.lft = '1') then
+                     if (settings_poly.lft = '1' or settings_otherModes.cycleType = "11") then
                         line_posX <= lineInfo.xStart;
                         line_endX <= lineInfo.xEnd;
                      else
@@ -471,27 +489,60 @@ begin
                      linestate <= LINEIDLE;
                   end if;
                   
-                  writePixelX          <= line_posX;
-                  writePixelY          <= line_posY;
-                  writePixelColor      <= byteswap32(settings_fillcolor.color);
-                 
-                  if (settings_colorImage.FB_size = SIZE_16BIT) then
-                     if (line_posX(0) = '0') then
-                        writePixelColor(15 downto 0) <= byteswap16(settings_fillcolor.color(31 downto 16));
-                     else
-                        writePixelColor(15 downto 0) <= byteswap16(settings_fillcolor.color(15 downto 0)); 
-                     end if;
-                  end if;
+                  -- hack!
+                  writePixelAddr                <= calcPixelAddr;
+                  writePixelX                   <= line_posX;
+                  writePixelY                   <= line_posY;
+                  writePixel                    <= '1';
+                  writePixelColor(31 downto 16) <= (others => '0');
+                  writePixelColor(15 downto 0)  <= byteswap16(settings_blendcolor.blend_R(7 downto 3) & settings_blendcolor.blend_G(7 downto 3) & settings_blendcolor.blend_B(7 downto 3) & '0');
                   
-                  if (settings_otherModes.cycleType = "00") then -- HACK!
-                     writePixel                   <= '1';
-                     writePixelColor(15 downto 0) <= byteswap16(settings_blendcolor.blend_R(7 downto 3) & settings_blendcolor.blend_G(7 downto 3) & settings_blendcolor.blend_B(7 downto 3) & '0');
-                  end if;
+               when FILLLINE =>
+                  writePixelAddr <= calcPixelAddr;
+                  writePixelX    <= line_posX;
+                  writePixelY    <= line_posY;
                   
-                  if (settings_otherModes.cycleType = "11") then -- HACK!
-                     writePixel                   <= '1';
+                  fillWrite      <= '1';
+                  fillColor      <= byteswap32(settings_fillcolor.color) & byteswap32(settings_fillcolor.color);
+                  fillBE         <= (others => '1');
+                  
+                  case (settings_colorImage.FB_size) is
+                     when SIZE_8BIT  => 
+                        line_posX <= line_posX + 8 - calcPixelAddr(2 downto 0);
+                        case (to_integer(line_endX - line_posX)) is
+                           when 0 => fillBE(7 downto 1) <= (others => '0');
+                           when 1 => fillBE(7 downto 2) <= (others => '0');
+                           when 2 => fillBE(7 downto 3) <= (others => '0');
+                           when 3 => fillBE(7 downto 4) <= (others => '0');
+                           when 4 => fillBE(7 downto 5) <= (others => '0');
+                           when 5 => fillBE(7 downto 6) <= (others => '0');
+                           when 6 => fillBE(7 downto 7) <= (others => '0');
+                           when others => null;
+                        end case;
+                        
+                     when SIZE_16BIT => 
+                        line_posX <= line_posX + 4 - calcPixelAddr(2 downto 1);
+                        case (to_integer(line_endX - line_posX)) is
+                           when 0 => fillBE(7 downto 2) <= (others => '0');
+                           when 1 => fillBE(7 downto 4) <= (others => '0');
+                           when 2 => fillBE(7 downto 6) <= (others => '0');
+                           when others => null;
+                        end case;
+                        
+                     when SIZE_32BIT => 
+                        line_posX <= line_posX + 2 - ('0' & calcPixelAddr(2));
+                        if (line_endX = line_posX) then
+                           fillBE(7 downto 4) <= (others => '0');
+                        end if;
+                        
+                     when others => report "4 Bit Fill mode, RDP will crash" severity failure; 
+                  end case;
+                  
+                  if (drawLineDone = '1') then
+                     linestate <= LINEIDLE;
+                     fillWrite <= '0';
                   end if;
-            
+
             end case; -- linestate
             
          end if;

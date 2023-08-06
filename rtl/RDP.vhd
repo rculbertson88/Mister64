@@ -73,21 +73,21 @@ end entity;
 
 architecture arch of RDP is
 
-   signal DPC_START_NEXT            : unsigned(23 downto 0); -- 0x04100000 (RW): [23:0] DMEM/RDRAM start address
-   signal DPC_END_NEXT              : unsigned(23 downto 0); -- 0x04100004 (RW): [23:0] DMEM/RDRAM end address
-   signal DPC_CURRENT               : unsigned(23 downto 0); -- 0x04100008 (R): [23:0] DMEM/RDRAM current address
-   signal DPC_STATUS_xbus_dmem_dma  : std_logic;
-   signal DPC_STATUS_freeze         : std_logic;
-   signal DPC_STATUS_flush          : std_logic;
-   signal DPC_STATUS_start_gclk     : std_logic;
-   signal DPC_STATUS_cbuf_ready     : std_logic;
-   signal DPC_STATUS_dma_busy       : std_logic;
-   signal DPC_STATUS_end_pending    : std_logic;
-   signal DPC_STATUS_start_pending  : std_logic;
-   signal DPC_CLOCK                 : unsigned(23 downto 0); -- 0x04100010 (R): [23:0] clock counter
-   signal DPC_BUFBUSY               : unsigned(23 downto 0); -- 0x04100014 (R): [23:0] clock counter
-   signal DPC_PIPEBUSY              : unsigned(23 downto 0); -- 0x04100018 (R): [23:0] clock counter
-   signal DPC_TMEM                  : unsigned(23 downto 0); -- 0x0410001C (R): [23:0] clock counter
+   signal DPC_START_NEXT            : unsigned(23 downto 0) := (others => '0'); -- 0x04100000 (RW): [23:0] DMEM/RDRAM start address
+   signal DPC_END_NEXT              : unsigned(23 downto 0) := (others => '0'); -- 0x04100004 (RW): [23:0] DMEM/RDRAM end address
+   signal DPC_CURRENT               : unsigned(23 downto 0) := (others => '0'); -- 0x04100008 (R): [23:0] DMEM/RDRAM current address
+   signal DPC_STATUS_xbus_dmem_dma  : std_logic := '0';
+   signal DPC_STATUS_freeze         : std_logic := '0';
+   signal DPC_STATUS_flush          : std_logic := '0';
+   signal DPC_STATUS_start_gclk     : std_logic := '0';
+   signal DPC_STATUS_cbuf_ready     : std_logic := '0';
+   signal DPC_STATUS_dma_busy       : std_logic := '0';
+   signal DPC_STATUS_end_pending    : std_logic := '0';
+   signal DPC_STATUS_start_pending  : std_logic := '0';
+   signal DPC_CLOCK                 : unsigned(23 downto 0) := (others => '0'); -- 0x04100010 (R): [23:0] clock counter
+   signal DPC_BUFBUSY               : unsigned(23 downto 0) := (others => '0'); -- 0x04100014 (R): [23:0] clock counter
+   signal DPC_PIPEBUSY              : unsigned(23 downto 0) := (others => '0'); -- 0x04100018 (R): [23:0] clock counter
+   signal DPC_TMEM                  : unsigned(23 downto 0) := (others => '0'); -- 0x0410001C (R): [23:0] clock counter
 
    -- bus/mem multiplexing
    signal bus_read_latched          : std_logic := '0';
@@ -96,7 +96,7 @@ architecture arch of RDP is
    signal reg_dataWrite             : std_logic_vector(31 downto 0);
 
    -- Command RAM
-   signal DPC_END                   : unsigned(23 downto 0);
+   signal DPC_END                   : unsigned(23 downto 0) := (others => '0');
    
    signal fillAddr                  : unsigned(4 downto 0) := (others => '0');
    
@@ -155,16 +155,15 @@ architecture arch of RDP is
    
    -- Fill line
    signal writePixel                : std_logic;
+   signal writePixelAddr            : unsigned(25 downto 0);
    signal writePixelX               : unsigned(11 downto 0);
    signal writePixelY               : unsigned(11 downto 0);
    signal writePixelColor           : unsigned(31 downto 0);
+   signal fillWrite                 : std_logic;
+   signal fillBE                    : unsigned(7 downto 0);
+   signal fillColor                 : unsigned(63 downto 0);
 
    -- Pixel merging
-   signal pixelAddr                 : unsigned(25 downto 0) := (others => '0');
-   signal pixelColor                : std_logic_vector(31 downto 0) := (others => '0');
-   signal pixelBE                   : unsigned(23 downto 0) := (others => '0');
-   signal pixelWrite                : std_logic := '0';
-      
    signal pixel64data               : std_logic_vector(63 downto 0) := (others => '0');
    signal pixel64BE                 : std_logic_vector(7 downto 0) := (others => '0');
    signal pixel64addr               : std_logic_vector(19 downto 0) := (others => '0');
@@ -592,9 +591,13 @@ begin
       -- synthesis translate_on
 
       writePixel              => writePixel,     
+      writePixelAddr          => writePixelAddr,    
       writePixelX             => writePixelX,    
       writePixelY             => writePixelY,   
-      writePixelColor         => writePixelColor     
+      writePixelColor         => writePixelColor,
+      fillWrite               => fillWrite,
+      fillBE                  => fillBE,   
+      fillColor               => fillColor
    );
    
    TextureRamDataIn(0) <= TextureRam0Data;
@@ -640,62 +643,38 @@ begin
          fifoOut_Wr   <= '0';
          fifoOut_Din  <= pixel64BE & pixel64Addr & pixel64data;
          
-         -- stage 0 -> calculate FB address
-         pixelWrite <= writePixel;
-         pixelColor <= std_logic_vector(writePixelColor);
-         if (settings_colorImage.FB_size = SIZE_16BIT) then
-            pixelAddr <= resize(settings_colorImage.FB_base + ((writePixelY * (settings_colorImage.FB_width_m1 + 1)) + writePixelX) * 2, 26);
-         elsif (settings_colorImage.FB_size = SIZE_32BIT) then     
-            pixelAddr <= resize(settings_colorImage.FB_base + ((writePixelY * (settings_colorImage.FB_width_m1 + 1)) + writePixelX) * 4, 26);
-         end if;
+         if (fillWrite = '1') then
          
-         -- stage 1 -> write to 64bit buffer
-         if (pixelWrite = '1' and pixelAddr(25 downto 23) = 0) then -- change max bit according to 4/8mbyte rdram, currently 8mbyte only
+            fifoOut_Wr   <= '1';
+            fifoOut_Din(91 downto 84) <= std_logic_vector(fillBE sll to_integer(writePixelAddr(2 downto 0)));
+            fifoOut_Din(83 downto 64) <= std_logic_vector(writePixelAddr(22 downto 3));
+            fifoOut_Din(63 downto  0) <= std_logic_vector(fillColor);
+         
+         elsif (writePixel = '1' and writePixelAddr(25 downto 23) = 0) then -- todo: move max ram check to ddr3mux
          
             pixel64timeout <= 15;
          
-            if (pixel64filled = '0' or pixelAddr(22 downto 3) /= unsigned(pixel64Addr)) then
-            
-               fifoOut_Wr <= pixel64filled;
-               
-               pixel64Addr <= std_logic_vector(pixelAddr(22 downto 3));
-               
-               if (settings_colorImage.FB_size = SIZE_16BIT) then
-                  case (pixelAddr(2 downto 1)) is
-                     when "00" => pixel64data(15 downto  0) <= pixelColor(15 downto 0); pixel64BE <= "00000011";
-                     when "01" => pixel64data(31 downto 16) <= pixelColor(15 downto 0); pixel64BE <= "00001100";
-                     when "10" => pixel64data(47 downto 32) <= pixelColor(15 downto 0); pixel64BE <= "00110000";
-                     when "11" => pixel64data(63 downto 48) <= pixelColor(15 downto 0); pixel64BE <= "11000000";
-                     when others => null;
-                  end case;
-               elsif (settings_colorImage.FB_size = SIZE_32BIT) then     
-                  case (pixelAddr(2)) is
-                     when '0' => pixel64data(31 downto  0) <= pixelColor; pixel64BE <= "00001111";
-                     when '1' => pixel64data(63 downto 32) <= pixelColor; pixel64BE <= "11110000";
-                     when others => null;
-                  end case;
-               end if;
-               
+            if (pixel64filled = '0' or writePixelAddr(22 downto 3) /= unsigned(pixel64Addr)) then
+               fifoOut_Wr  <= pixel64filled;
+               pixel64Addr <= std_logic_vector(writePixelAddr(22 downto 3));
+               pixel64BE   <= (others => '0');
                pixel64filled <= '1';
+            end if;
             
-            else
-               
-               if (settings_colorImage.FB_size = SIZE_16BIT) then
-                  case (pixelAddr(2 downto 1)) is
-                     when "00" => pixel64data(15 downto  0) <= pixelColor(15 downto 0); pixel64BE(1 downto 0) <= "11";
-                     when "01" => pixel64data(31 downto 16) <= pixelColor(15 downto 0); pixel64BE(3 downto 2) <= "11";
-                     when "10" => pixel64data(47 downto 32) <= pixelColor(15 downto 0); pixel64BE(5 downto 4) <= "11";
-                     when "11" => pixel64data(63 downto 48) <= pixelColor(15 downto 0); pixel64BE(7 downto 6) <= "11";
-                     when others => null;
-                  end case;
-               elsif (settings_colorImage.FB_size = SIZE_32BIT) then     
-                  case (pixelAddr(2)) is
-                     when '0' => pixel64data(31 downto  0) <= pixelColor; pixel64BE(3 downto 0) <= "1111";
-                     when '1' => pixel64data(63 downto 32) <= pixelColor; pixel64BE(7 downto 4) <= "1111";
-                     when others => null;
-                  end case;
-               end if;
-
+            if (settings_colorImage.FB_size = SIZE_16BIT) then
+               case (writePixelAddr(2 downto 1)) is
+                  when "00" => pixel64data(15 downto  0) <= std_logic_vector(writePixelColor(15 downto 0)); pixel64BE(1 downto 0) <= "11";
+                  when "01" => pixel64data(31 downto 16) <= std_logic_vector(writePixelColor(15 downto 0)); pixel64BE(3 downto 2) <= "11";
+                  when "10" => pixel64data(47 downto 32) <= std_logic_vector(writePixelColor(15 downto 0)); pixel64BE(5 downto 4) <= "11";
+                  when "11" => pixel64data(63 downto 48) <= std_logic_vector(writePixelColor(15 downto 0)); pixel64BE(7 downto 6) <= "11";
+                  when others => null;
+               end case;
+            elsif (settings_colorImage.FB_size = SIZE_32BIT) then     
+               case (writePixelAddr(2)) is
+                  when '0' => pixel64data(31 downto  0) <= std_logic_vector(writePixelColor); pixel64BE(3 downto 0) <= "1111";
+                  when '1' => pixel64data(63 downto 32) <= std_logic_vector(writePixelColor); pixel64BE(7 downto 4) <= "1111";
+                  when others => null;
+               end case;
             end if;
          
          elsif (pixel64timeout > 0) then
@@ -753,10 +732,15 @@ begin
    begin
    
       process
-         file outfile          : text;
-         variable f_status     : FILE_OPEN_STATUS;
-         variable line_out     : line;
-         variable stringbuffer : string(1 to 31);
+         file outfile               : text;
+         variable f_status          : FILE_OPEN_STATUS;
+         variable line_out          : line;
+         variable stringbuffer      : string(1 to 31);
+         variable export_fillAddr   : unsigned(25 downto 0);
+         variable export_fillColor  : unsigned(63 downto 0);
+         variable export_fillBE     : unsigned(7 downto 0);
+         variable export_fillX      : unsigned(11 downto 0);
+         variable export_fillIndex  : integer;
       begin
    
          file_open(f_status, outfile, "R:\\rdp_n64_sim.txt", write_mode);
@@ -856,6 +840,122 @@ begin
                writeline(outfile, line_out);
                tracecounts_out(18) <= tracecounts_out(18) + 1;
             end if;
+            
+            if (writePixel = '1') then
+               write(line_out, string'("Pixel: I ")); 
+               write(line_out, to_string_len(tracecounts_out(1) + 1, 8));
+               write(line_out, string'(" A ")); 
+               write(line_out, to_hstring(resize(writePixelAddr, 32)));
+               write(line_out, string'(" D ")); 
+               if (settings_colorImage.FB_size = SIZE_16BIT) then
+                  write(line_out, to_hstring(x"0000" & byteswap16(writePixelColor(15 downto 0))));
+               else
+                  write(line_out, to_hstring(byteswap32(writePixelColor(31 downto 0))));
+               end if;
+               write(line_out, string'(" X ")); 
+               write(line_out, to_string_len(to_integer(writePixelX), 4));
+               write(line_out, string'(" Y ")); 
+               write(line_out, to_string_len(to_integer(writePixelY), 4));
+               write(line_out, string'(" D1 "));
+               if (settings_colorImage.FB_size = SIZE_16BIT) then
+                  write(line_out, to_hstring(30x"0" & writePixelColor(17 downto 16)));
+               else
+                  write(line_out, to_hstring(to_unsigned(0, 32)));
+               end if;
+               write(line_out, string'(" D2 "));
+               write(line_out, to_hstring(to_unsigned(0, 32)));
+               write(line_out, string'(" D3 "));
+               write(line_out, to_hstring(to_unsigned(0, 32)));
+               writeline(outfile, line_out);
+               tracecounts_out(1) <= tracecounts_out(1) + 1;
+            end if;
+            
+            if (fillWrite = '1') then
+               case (settings_colorImage.FB_size) is
+                  when SIZE_8BIT  => report "8 Bit Fill mode export not implemented" severity failure; 
+                  
+                  when SIZE_16BIT => 
+                     export_fillAddr  := writePixelAddr(25 downto 3) & "000";
+                     export_fillColor := fillColor;
+                     export_fillBE    := fillBE sll to_integer(writePixelAddr(2 downto 0));
+                     export_fillX     := writePixelX;
+                     export_fillIndex := tracecounts_out(1);
+                     while (export_fillBE(1 downto 0) /= "11") loop
+                        export_fillAddr  := export_fillAddr + 2;
+                        export_fillColor := x"0000" & export_fillColor(63 downto 16);
+                        export_fillBE    := "00" & export_fillBE(7 downto 2);
+                     end loop;
+                     for i in 0 to 3 loop
+                        if (export_fillBE(1 downto 0) = "11") then
+                           write(line_out, string'("Pixel: I ")); 
+                           write(line_out, to_string_len(export_fillIndex + 1, 8));
+                           write(line_out, string'(" A ")); 
+                           write(line_out, to_hstring(resize(export_fillAddr, 32)));
+                           write(line_out, string'(" D ")); 
+                           write(line_out, to_hstring(x"0000" & byteswap16(export_fillColor(15 downto 0))));
+                           write(line_out, string'(" X ")); 
+                           write(line_out, to_string_len(to_integer(export_fillX), 4));
+                           write(line_out, string'(" Y ")); 
+                           write(line_out, to_string_len(to_integer(writePixelY), 4));
+                           write(line_out, string'(" D1 "));
+                           write(line_out, to_hstring(to_unsigned(0, 30) & export_fillColor(8) & export_fillColor(8)));
+                           write(line_out, string'(" D2 "));
+                           write(line_out, to_hstring(to_unsigned(0, 32)));
+                           write(line_out, string'(" D3 "));
+                           write(line_out, to_hstring(to_unsigned(0, 32)));
+                           writeline(outfile, line_out);
+                           export_fillIndex := export_fillIndex + 1;
+                        end if;
+                        export_fillAddr  := export_fillAddr + 2;
+                        export_fillColor := x"0000" & export_fillColor(63 downto 16);
+                        export_fillBE    := "00" & export_fillBE(7 downto 2);
+                        export_fillX     := export_fillX + 1;
+                     end loop;
+                     tracecounts_out(1) <= export_fillIndex;
+
+                  when SIZE_32BIT => 
+                     export_fillAddr  := writePixelAddr(25 downto 3) & "000";
+                     export_fillColor := fillColor;
+                     export_fillBE    := fillBE sll to_integer(writePixelAddr(2 downto 0));
+                     export_fillX     := writePixelX;
+                     export_fillIndex := tracecounts_out(1);
+                     while (export_fillBE(3 downto 0) /= "1111") loop
+                        export_fillAddr  := export_fillAddr + 4;
+                        export_fillColor := x"00000000" & export_fillColor(63 downto 32);
+                        export_fillBE    := "0000" & export_fillBE(7 downto 4);
+                     end loop;
+                     for i in 0 to 1 loop
+                        if (export_fillBE(3 downto 0) = "1111") then
+                           write(line_out, string'("Pixel: I ")); 
+                           write(line_out, to_string_len(export_fillIndex + 1, 8));
+                           write(line_out, string'(" A ")); 
+                           write(line_out, to_hstring(resize(export_fillAddr, 32)));
+                           write(line_out, string'(" D ")); 
+                           write(line_out, to_hstring(byteswap32(export_fillColor(31 downto 0))));
+                           write(line_out, string'(" X ")); 
+                           write(line_out, to_string_len(to_integer(export_fillX), 4));
+                           write(line_out, string'(" Y ")); 
+                           write(line_out, to_string_len(to_integer(writePixelY), 4));
+                           write(line_out, string'(" D1 "));
+                           write(line_out, to_hstring(to_unsigned(0, 32)));
+                           write(line_out, string'(" D2 "));
+                           write(line_out, to_hstring(to_unsigned(0, 32)));
+                           write(line_out, string'(" D3 "));
+                           write(line_out, to_hstring(to_unsigned(0, 32)));
+                           writeline(outfile, line_out);
+                           export_fillIndex := export_fillIndex + 1;
+                        end if;
+                        export_fillAddr  := export_fillAddr + 4;
+                        export_fillColor := x"00000000" & export_fillColor(63 downto 32);
+                        export_fillBE    := "0000" & export_fillBE(7 downto 4);
+                        export_fillX     := export_fillX + 1;
+                     end loop;
+                     tracecounts_out(1) <= export_fillIndex;
+                  
+                  when others => null; 
+               end case;
+            end if;
+            
             
          end loop;
          
