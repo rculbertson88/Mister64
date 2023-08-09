@@ -26,6 +26,7 @@ List of Errors:
 - Bit 8 - RSP Instruction not implemented
 - Bit 9 - RSP stall timeout
 - Bit 10 - RDP command not implemented
+- Bit 11 - RDP combine mode not implemented
   
 ## Status
 
