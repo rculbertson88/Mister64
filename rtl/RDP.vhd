@@ -16,6 +16,7 @@ entity RDP is
       reset                : in  std_logic;
       
       command_error        : out std_logic;
+      errorCombine         : out std_logic;
             
       irq_out              : out std_logic := '0';
             
@@ -98,7 +99,7 @@ architecture arch of RDP is
    -- Command RAM
    signal DPC_END                   : unsigned(23 downto 0) := (others => '0');
    
-   signal fillAddr                  : unsigned(4 downto 0) := (others => '0');
+   signal CMD_fillAddr              : unsigned(4 downto 0) := (others => '0');
    
    signal commandRAMstore           : std_logic := '0';
    signal commandRAMReady           : std_logic := '0';
@@ -154,14 +155,35 @@ architecture arch of RDP is
    signal TextureRamDataIn          : tTextureRamData;
    
    -- Fill line
+   signal fillWrite                 : std_logic;
+   signal fillBE                    : unsigned(7 downto 0);
+   signal fillColor                 : unsigned(63 downto 0);
+   signal fillAddr                  : unsigned(25 downto 0) := (others => '0');
+   signal fillX                     : unsigned(11 downto 0) := (others => '0');
+   signal fillY                     : unsigned(11 downto 0) := (others => '0');
+
+   -- pipeline
+   signal pipe_busy                 : std_logic;
+   
+   signal pipeIn_trigger            : std_logic;
+   signal pipeIn_valid              : std_logic;
+   signal pipeIn_Addr               : unsigned(25 downto 0);
+   signal pipeIn_X                  : unsigned(11 downto 0);
+   signal pipeIn_Y                  : unsigned(11 downto 0);
+   signal pipeIn_cvgValue           : unsigned(7 downto 0);
+   signal pipeIn_offX               : unsigned(1 downto 0);
+   signal pipeIn_offY               : unsigned(1 downto 0);
+   signal pipeInColor               : tcolor4_s16;
+   
    signal writePixel                : std_logic;
    signal writePixelAddr            : unsigned(25 downto 0);
    signal writePixelX               : unsigned(11 downto 0);
    signal writePixelY               : unsigned(11 downto 0);
-   signal writePixelColor           : unsigned(31 downto 0);
-   signal fillWrite                 : std_logic;
-   signal fillBE                    : unsigned(7 downto 0);
-   signal fillColor                 : unsigned(63 downto 0);
+   signal writePixelColor           : tcolor3_u8;
+   signal writePixelCvg             : unsigned(2 downto 0);
+   
+   signal writePixelData16          : unsigned(15 downto 0);
+   signal writePixelData32          : unsigned(31 downto 0);
 
    -- Pixel merging
    signal pixel64data               : std_logic_vector(63 downto 0) := (others => '0');
@@ -187,6 +209,13 @@ architecture arch of RDP is
    signal export_loadFetch          : rdp_export_type; 
    signal export_loadData           : rdp_export_type; 
    signal export_loadValue          : rdp_export_type; 
+   
+   signal export_pipeDone           : std_logic;       
+   signal export_pipeO              : rdp_export_type;
+   signal export_Color              : rdp_export_type;
+   
+   signal pipeIn_cvg16              : unsigned(15 downto 0);
+   signal pipeInColorFull           : tcolor4_s32;
    -- synthesis translate_on   
 
 begin 
@@ -426,14 +455,14 @@ begin
       if rising_edge(clk2x) then
          
          if (rdram_granted = '1') then
-            fillAddr <= (others => '0');
+            CMD_fillAddr <= (others => '0');
             if (memState = WAITCOMMANDDATA) then
                commandRAMstore <= '1';
             elsif (memState = WAITTEXTUREDATA) then
                TextureReqRAMstore <= '1';
             end if;
          elsif (ddr3_DOUT_READY = '1') then
-            fillAddr <= fillAddr + 1;
+            CMD_fillAddr <= CMD_fillAddr + 1;
          end if;
          
          if (rdram_done = '1') then
@@ -453,7 +482,7 @@ begin
    port map
    (
       clock_a     => clk2x,
-      address_a   => std_logic_vector(fillAddr),
+      address_a   => std_logic_vector(CMD_fillAddr),
       data_a      => byteswap64(ddr3_DOUT),
       wren_a      => (ddr3_DOUT_READY and commandRAMstore),
       
@@ -498,7 +527,7 @@ begin
       CommandData             => unsigned(CommandData),    
       commandCntNext          => commandCntNext, 
                                                 
-      commandRAMPtr           => commandRAMPtr,  
+      commandRAMPtr_out       => commandRAMPtr,  
       commandIsIdle           => commandIsIdle,  
       commandWordDone         => commandWordDone,
          
@@ -536,7 +565,7 @@ begin
    port map
    (
       clock_a     => clk2x,
-      address_a   => std_logic_vector(fillAddr),
+      address_a   => std_logic_vector(CMD_fillAddr),
       data_a      => byteswap64(ddr3_DOUT),
       wren_a      => (ddr3_DOUT_READY and TextureReqRAMstore),
       
@@ -589,15 +618,30 @@ begin
       export_loadData         => export_loadData, 
       export_loadValue        => export_loadValue,
       -- synthesis translate_on
+      
+      pipe_busy               => pipe_busy,
+      
+      pipeIn_trigger          => pipeIn_trigger,
+      pipeIn_valid            => pipeIn_valid,  
+      pipeIn_Addr             => pipeIn_Addr,   
+      pipeIn_X                => pipeIn_X,      
+      pipeIn_Y                => pipeIn_Y, 
+      pipeIn_cvgValue         => pipeIn_cvgValue, 
+      pipeIn_offX             => pipeIn_offX, 
+      pipeIn_offY             => pipeIn_offY, 
+      pipeInColor             => pipeInColor, 
+      
+      -- synthesis translate_off
+      pipeIn_cvg16            => pipeIn_cvg16, 
+      pipeInColorFull         => pipeInColorFull,
+      -- synthesis translate_on
 
-      writePixel              => writePixel,     
-      writePixelAddr          => writePixelAddr,    
-      writePixelX             => writePixelX,    
-      writePixelY             => writePixelY,   
-      writePixelColor         => writePixelColor,
       fillWrite               => fillWrite,
       fillBE                  => fillBE,   
-      fillColor               => fillColor
+      fillColor               => fillColor,
+      fillAddr                => fillAddr,
+      fillX                   => fillX,   
+      fillY                   => fillY   
    );
    
    TextureRamDataIn(0) <= TextureRam0Data;
@@ -634,6 +678,53 @@ begin
       
    end generate;
    
+   iRDP_pipeline : entity work.RDP_pipeline
+   port map
+   (
+      clk1x                   => clk1x,                
+      reset                   => reset,   
+
+      errorCombine            => errorCombine,
+      
+      pipe_busy               => pipe_busy,
+                                                      
+      settings_otherModes     => settings_otherModes,  
+      settings_blendcolor     => settings_blendcolor,  
+      settings_colorImage     => settings_colorImage,  
+      settings_textureImage   => settings_textureImage,
+      settings_tile           => settings_tile,        
+      settings_combineMode    => settings_combineMode,        
+                                                      
+      pipeIn_trigger          => pipeIn_trigger,
+      pipeIn_valid            => pipeIn_valid,  
+      pipeIn_Addr             => pipeIn_Addr,   
+      pipeIn_X                => pipeIn_X,      
+      pipeIn_Y                => pipeIn_Y,      
+      pipeIn_cvgValue         => pipeIn_cvgValue,  
+      pipeIn_offX             => pipeIn_offX,  
+      pipeIn_offY             => pipeIn_offY,  
+      pipeInColor             => pipeInColor,       
+     
+      -- synthesis translate_off
+      pipeIn_cvg16            => pipeIn_cvg16,  
+      pipeInColorFull         => pipeInColorFull,
+      
+      export_pipeDone         => export_pipeDone,
+      export_pipeO            => export_pipeO,   
+      export_Color            => export_Color,   
+      -- synthesis translate_on
+      
+      writePixel              => writePixel,     
+      writePixelAddr          => writePixelAddr,    
+      writePixelX             => writePixelX,    
+      writePixelY             => writePixelY,   
+      writePixelColor         => writePixelColor,
+      writePixelCvg           => writePixelCvg
+   );
+   
+   writePixelData16 <= writePixelColor(0)(7 downto 3) & writePixelColor(1)(7 downto 3) & writePixelColor(2)(7 downto 3) & writePixelCvg(2);
+   writePixelData32 <= writePixelColor(0) & writePixelColor(1) & writePixelColor(2) & writePixelCvg & "00000";
+   
    process (clk1x)
    begin
       if rising_edge(clk1x) then
@@ -646,8 +737,8 @@ begin
          if (fillWrite = '1') then
          
             fifoOut_Wr   <= '1';
-            fifoOut_Din(91 downto 84) <= std_logic_vector(fillBE sll to_integer(writePixelAddr(2 downto 0)));
-            fifoOut_Din(83 downto 64) <= std_logic_vector(writePixelAddr(22 downto 3));
+            fifoOut_Din(91 downto 84) <= std_logic_vector(fillBE sll to_integer(fillAddr(2 downto 0)));
+            fifoOut_Din(83 downto 64) <= std_logic_vector(fillAddr(22 downto 3));
             fifoOut_Din(63 downto  0) <= std_logic_vector(fillColor);
          
          elsif (writePixel = '1' and writePixelAddr(25 downto 23) = 0) then -- todo: move max ram check to ddr3mux
@@ -663,16 +754,16 @@ begin
             
             if (settings_colorImage.FB_size = SIZE_16BIT) then
                case (writePixelAddr(2 downto 1)) is
-                  when "00" => pixel64data(15 downto  0) <= std_logic_vector(writePixelColor(15 downto 0)); pixel64BE(1 downto 0) <= "11";
-                  when "01" => pixel64data(31 downto 16) <= std_logic_vector(writePixelColor(15 downto 0)); pixel64BE(3 downto 2) <= "11";
-                  when "10" => pixel64data(47 downto 32) <= std_logic_vector(writePixelColor(15 downto 0)); pixel64BE(5 downto 4) <= "11";
-                  when "11" => pixel64data(63 downto 48) <= std_logic_vector(writePixelColor(15 downto 0)); pixel64BE(7 downto 6) <= "11";
+                  when "00" => pixel64data(15 downto  0) <= std_logic_vector(byteswap16(writePixelData16)); pixel64BE(1 downto 0) <= "11";
+                  when "01" => pixel64data(31 downto 16) <= std_logic_vector(byteswap16(writePixelData16)); pixel64BE(3 downto 2) <= "11";
+                  when "10" => pixel64data(47 downto 32) <= std_logic_vector(byteswap16(writePixelData16)); pixel64BE(5 downto 4) <= "11";
+                  when "11" => pixel64data(63 downto 48) <= std_logic_vector(byteswap16(writePixelData16)); pixel64BE(7 downto 6) <= "11";
                   when others => null;
                end case;
             elsif (settings_colorImage.FB_size = SIZE_32BIT) then     
                case (writePixelAddr(2)) is
-                  when '0' => pixel64data(31 downto  0) <= std_logic_vector(writePixelColor); pixel64BE(3 downto 0) <= "1111";
-                  when '1' => pixel64data(63 downto 32) <= std_logic_vector(writePixelColor); pixel64BE(7 downto 4) <= "1111";
+                  when '0' => pixel64data(31 downto  0) <= std_logic_vector(byteswap32(writePixelData32)); pixel64BE(3 downto 0) <= "1111";
+                  when '1' => pixel64data(63 downto 32) <= std_logic_vector(byteswap32(writePixelData32)); pixel64BE(7 downto 4) <= "1111";
                   when others => null;
                end case;
             end if;
@@ -767,20 +858,20 @@ begin
                tracecounts_out(2) <= tracecounts_out(2) + 1;
             end if;
             
-            if (export_line_done = '1') then
-               write(line_out, string'("LINE: I ")); 
-               write(line_out, to_string_len(tracecounts_out(20) + 1, 8));
-               write(line_out, string'(" A 00000000 D 00000000 X    0 Y ")); 
-               write(line_out, to_string_len(to_integer(export_line_list.y), 4));
-               write(line_out, string'(" D1 "));
-               write(line_out, to_hstring(export_line_list.debug1));
-               write(line_out, string'(" D2 "));
-               write(line_out, to_hstring(export_line_list.debug2));
-               write(line_out, string'(" D3 "));
-               write(line_out, to_hstring(export_line_list.debug3));
-               writeline(outfile, line_out);
-               tracecounts_out(20) <= tracecounts_out(20) + 1;
-            end if;
+            --if (export_line_done = '1') then
+            --   write(line_out, string'("LINE: I ")); 
+            --   write(line_out, to_string_len(tracecounts_out(20) + 1, 8));
+            --   write(line_out, string'(" A 00000000 D 00000000 X    0 Y ")); 
+            --   write(line_out, to_string_len(to_integer(export_line_list.y), 4));
+            --   write(line_out, string'(" D1 "));
+            --   write(line_out, to_hstring(export_line_list.debug1));
+            --   write(line_out, string'(" D2 "));
+            --   write(line_out, to_hstring(export_line_list.debug2));
+            --   write(line_out, string'(" D3 "));
+            --   write(line_out, to_hstring(export_line_list.debug3));
+            --   writeline(outfile, line_out);
+            --   tracecounts_out(20) <= tracecounts_out(20) + 1;
+            --end if;
             
             if (export_load_done = '1') then
                write(line_out, string'("LoadFetch: I ")); 
@@ -841,6 +932,46 @@ begin
                tracecounts_out(18) <= tracecounts_out(18) + 1;
             end if;
             
+            if (export_pipeDone = '1') then
+               write(line_out, string'("PipeO: I ")); 
+               write(line_out, to_string_len(tracecounts_out(3) + 1, 8));
+               write(line_out, string'(" A ")); 
+               write(line_out, to_hstring(export_pipeO.addr));
+               write(line_out, string'(" D ")); 
+               write(line_out, to_hstring(export_pipeO.data(31 downto 0)));
+               write(line_out, string'(" X ")); 
+               write(line_out, to_string_len(to_integer(export_pipeO.x), 4));
+               write(line_out, string'(" Y ")); 
+               write(line_out, to_string_len(to_integer(export_pipeO.y), 4));
+               write(line_out, string'(" D1 "));
+               write(line_out, to_hstring(export_pipeO.debug1));
+               write(line_out, string'(" D2 "));
+               write(line_out, to_hstring(export_pipeO.debug2));
+               write(line_out, string'(" D3 "));
+               write(line_out, to_hstring(export_pipeO.debug3));
+               writeline(outfile, line_out);
+               tracecounts_out(3) <= tracecounts_out(3) + 1;
+               
+               write(line_out, string'("Color: I ")); 
+               write(line_out, to_string_len(tracecounts_out(4) + 1, 8));
+               write(line_out, string'(" A ")); 
+               write(line_out, to_hstring(export_color.addr));
+               write(line_out, string'(" D ")); 
+               write(line_out, to_hstring(export_color.data(31 downto 0)));
+               write(line_out, string'(" X ")); 
+               write(line_out, to_string_len(to_integer(export_color.x), 4));
+               write(line_out, string'(" Y ")); 
+               write(line_out, to_string_len(to_integer(export_color.y), 4));
+               write(line_out, string'(" D1 "));
+               write(line_out, to_hstring(export_color.debug1));
+               write(line_out, string'(" D2 "));
+               write(line_out, to_hstring(export_color.debug2));
+               write(line_out, string'(" D3 "));
+               write(line_out, to_hstring(export_color.debug3));
+               writeline(outfile, line_out);
+               tracecounts_out(4) <= tracecounts_out(4) + 1;
+            end if;
+            
             if (writePixel = '1') then
                write(line_out, string'("Pixel: I ")); 
                write(line_out, to_string_len(tracecounts_out(1) + 1, 8));
@@ -848,9 +979,9 @@ begin
                write(line_out, to_hstring(resize(writePixelAddr, 32)));
                write(line_out, string'(" D ")); 
                if (settings_colorImage.FB_size = SIZE_16BIT) then
-                  write(line_out, to_hstring(x"0000" & byteswap16(writePixelColor(15 downto 0))));
+                  write(line_out, to_hstring(x"0000" & writePixelData16));
                else
-                  write(line_out, to_hstring(byteswap32(writePixelColor(31 downto 0))));
+                  write(line_out, to_hstring(writePixelData32));
                end if;
                write(line_out, string'(" X ")); 
                write(line_out, to_string_len(to_integer(writePixelX), 4));
@@ -858,7 +989,7 @@ begin
                write(line_out, to_string_len(to_integer(writePixelY), 4));
                write(line_out, string'(" D1 "));
                if (settings_colorImage.FB_size = SIZE_16BIT) then
-                  write(line_out, to_hstring(30x"0" & writePixelColor(17 downto 16)));
+                  write(line_out, to_hstring(to_unsigned(0, 30) & writePixelCvg(1 downto 0)));
                else
                   write(line_out, to_hstring(to_unsigned(0, 32)));
                end if;
@@ -875,10 +1006,10 @@ begin
                   when SIZE_8BIT  => report "8 Bit Fill mode export not implemented" severity failure; 
                   
                   when SIZE_16BIT => 
-                     export_fillAddr  := writePixelAddr(25 downto 3) & "000";
+                     export_fillAddr  := fillAddr(25 downto 3) & "000";
                      export_fillColor := fillColor;
-                     export_fillBE    := fillBE sll to_integer(writePixelAddr(2 downto 0));
-                     export_fillX     := writePixelX;
+                     export_fillBE    := fillBE sll to_integer(fillAddr(2 downto 0));
+                     export_fillX     := fillX;
                      export_fillIndex := tracecounts_out(1);
                      while (export_fillBE(1 downto 0) /= "11") loop
                         export_fillAddr  := export_fillAddr + 2;
@@ -896,7 +1027,7 @@ begin
                            write(line_out, string'(" X ")); 
                            write(line_out, to_string_len(to_integer(export_fillX), 4));
                            write(line_out, string'(" Y ")); 
-                           write(line_out, to_string_len(to_integer(writePixelY), 4));
+                           write(line_out, to_string_len(to_integer(fillY), 4));
                            write(line_out, string'(" D1 "));
                            write(line_out, to_hstring(to_unsigned(0, 30) & export_fillColor(8) & export_fillColor(8)));
                            write(line_out, string'(" D2 "));
@@ -914,10 +1045,10 @@ begin
                      tracecounts_out(1) <= export_fillIndex;
 
                   when SIZE_32BIT => 
-                     export_fillAddr  := writePixelAddr(25 downto 3) & "000";
+                     export_fillAddr  := fillAddr(25 downto 3) & "000";
                      export_fillColor := fillColor;
-                     export_fillBE    := fillBE sll to_integer(writePixelAddr(2 downto 0));
-                     export_fillX     := writePixelX;
+                     export_fillBE    := fillBE sll to_integer(fillAddr(2 downto 0));
+                     export_fillX     := fillX;
                      export_fillIndex := tracecounts_out(1);
                      while (export_fillBE(3 downto 0) /= "1111") loop
                         export_fillAddr  := export_fillAddr + 4;
@@ -935,7 +1066,7 @@ begin
                            write(line_out, string'(" X ")); 
                            write(line_out, to_string_len(to_integer(export_fillX), 4));
                            write(line_out, string'(" Y ")); 
-                           write(line_out, to_string_len(to_integer(writePixelY), 4));
+                           write(line_out, to_string_len(to_integer(fillY), 4));
                            write(line_out, string'(" D1 "));
                            write(line_out, to_hstring(to_unsigned(0, 32)));
                            write(line_out, string'(" D2 "));

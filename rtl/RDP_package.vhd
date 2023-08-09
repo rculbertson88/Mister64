@@ -113,7 +113,36 @@ package pRDP is
       perspTex           : std_logic;
       cycleType          : unsigned(1 downto 0);
       atomicPrim         : std_logic;
-   end record;    
+   end record;   
+
+   constant SETTINGSOTHERMODESINIT : tsettings_otherModes := 
+   (
+      alphaCompare       => '0',
+      ditherAlpha        => '0',
+      zSourceSel         => '0',
+      AntiAlias          => '0',
+      zCompare           => '0',
+      zUpdate            => '0',
+      imageRead          => '0',
+      colorOnCvg         => '0',
+      cvgTimesAlpha      => '0',
+      alphaCvgSelect     => '0',
+      forceBlend         => '0',
+      key                 => '0',
+      convertOne          => '0',
+      biLerp1             => '0',
+      biLerp0             => '0',
+      midTexel            => '0',
+      sampleType          => '0',
+      tlutType            => '0',
+      enTlut              => '0',
+      texLod              => '0',
+      sharpenTex          => '0',
+      detailTex           => '0',
+      perspTex            => '0',
+      atomicPrim          => '0',
+      others => (others => '0')
+   );    
    
    type tsettings_fillcolor is record
       color     : unsigned(31 downto 0);
@@ -194,6 +223,14 @@ package pRDP is
       LOADTYPE_BLOCK,
       LOADTYPE_TILE
    ); 
+   
+   type tcolor3_u8 is array(0 to 2) of unsigned(7 downto 0);
+   type tcolor3_s10 is array(0 to 2) of signed(9 downto 0);
+   type tcolor3_s12 is array(0 to 2) of signed(11 downto 0);
+   type tcolor3_s20 is array(0 to 2) of signed(19 downto 0);
+   
+   type tcolor4_s16 is array(0 to 3) of signed(15 downto 0);
+   type tcolor4_s32 is array(0 to 3) of signed(31 downto 0);
 
    constant SIZE_4BIT  : unsigned(1 downto 0) := "00";
    constant SIZE_8BIT  : unsigned(1 downto 0) := "01";

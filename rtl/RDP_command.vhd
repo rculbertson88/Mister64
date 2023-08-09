@@ -17,7 +17,7 @@ entity RDP_command is
       CommandData             : in  unsigned(63 downto 0);
       commandCntNext          : in  unsigned(4 downto 0) := (others => '0');
                
-      commandRAMPtr           : out unsigned(4 downto 0) := (others => '0');
+      commandRAMPtr_out       : out unsigned(4 downto 0) := (others => '0');
       commandIsIdle           : out std_logic;
       commandWordDone         : out std_logic := '0';
                
@@ -32,11 +32,11 @@ entity RDP_command is
       -- synthesis translate_on
       
       settings_scissor        : out tsettings_scissor := SETTINGSSCISSORINIT;
-      settings_otherModes     : out tsettings_otherModes;
+      settings_otherModes     : out tsettings_otherModes := SETTINGSOTHERMODESINIT;
       settings_fillcolor      : out tsettings_fillcolor := (others => (others => '0'));
       settings_blendcolor     : out tsettings_blendcolor := (others => (others => '0'));
       settings_primcolor      : out tsettings_primcolor := (others => (others => '0'));
-      settings_combineMode    : out tsettings_combineMode;
+      settings_combineMode    : out tsettings_combineMode := (others => (others => '0'));
       settings_textureImage   : out tsettings_textureImage := (others => (others => '0'));
       settings_Z_base         : out unsigned(24 downto 0) := (others => '0');
       settings_colorImage     : out tsettings_colorImage := (others => (others => '0'));
@@ -55,9 +55,15 @@ architecture arch of RDP_command is
       EVALTEXRECTANGLE,
       EVALTEXRECTANGLEFLIP,
       EVALTRIANGLE,
+      EVALSHADE,
+      EVALTEXTURE,
+      EVALZBUFFER,
       WAITRASTER
    ); 
    signal state  : tState := IDLE;
+   
+   signal commandRAMPtr    : unsigned(4 downto 0) := (others => '0');
+   signal commandAvailable : integer range -31 to 31;
 
    -- EVALTRIANGLE
    signal triCnt  : unsigned(2 downto 0);
@@ -83,9 +89,24 @@ begin
 
    commandIsIdle <= '1' when (state = IDLE) else '0';
 
+   commandRAMPtr_out <= commandRAMPtr;
+
+   commandAvailable <= to_integer(commandCntNext) - to_integer(commandRAMPtr);
+
    -- synthesis translate_off
-   export_command_done <=  '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"08" and commandCntNext - commandRAMPtr >= 3) else 
-                           '1' when (state = EVALCOMMAND and (CommandData(61 downto 56) < 6x"08" or CommandData(61 downto 56) > 6x"08")) else 
+   export_command_done <=  '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"08" and commandAvailable >=  3) else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"09" and commandAvailable >=  5) else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"0A" and commandAvailable >= 11) else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"0B" and commandAvailable >= 13) else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"0C" and commandAvailable >= 11) else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"0D" and commandAvailable >= 13) else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"0E" and commandAvailable >= 19) else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"0F" and commandAvailable >= 21) else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"24" and commandAvailable >= 1) else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) = 6x"25" and commandAvailable >= 1) else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) < 6x"08") else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) > 6x"0F" and CommandData(61 downto 56) < 6x"24") else 
+                           '1' when (state = EVALCOMMAND and CommandData(61 downto 56) > 6x"25") else 
                            '0';
    -- synthesis translate_on
    
@@ -179,14 +200,19 @@ begin
                         commandWordDone <= '1';                         
                         
                      -- triangle commands
-                     when 6x"08" =>
-                        shade <= '0'; texture <= '0'; zbuffer <= '0'; 
-                        if (commandCntNext - commandRAMPtr >= 3) then
-                           commandWordDone <= '1';
-                           state           <= EVALTRIANGLE;                           
-                        else
-                           state           <= IDLE;
-                        end if;
+                     when 6x"08" | 6x"09" | 6x"0A" | 6x"0B" | 6x"0C" | 6x"0D" | 6x"0E" | 6x"0F" =>
+                        shade <= CommandData(58); 
+                        texture <= CommandData(57); 
+                        zbuffer <= CommandData(56); 
+                        state <= IDLE;
+                        if (CommandData(61 downto 56) = 6x"08" and commandAvailable >=  3) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
+                        if (CommandData(61 downto 56) = 6x"09" and commandAvailable >=  5) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
+                        if (CommandData(61 downto 56) = 6x"0A" and commandAvailable >= 11) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
+                        if (CommandData(61 downto 56) = 6x"0B" and commandAvailable >= 13) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
+                        if (CommandData(61 downto 56) = 6x"0C" and commandAvailable >= 11) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
+                        if (CommandData(61 downto 56) = 6x"0D" and commandAvailable >= 13) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
+                        if (CommandData(61 downto 56) = 6x"0E" and commandAvailable >= 19) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
+                        if (CommandData(61 downto 56) = 6x"0F" and commandAvailable >= 21) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
                         triCnt                    <= (others => '0');
                         settings_poly.lft         <= CommandData(55);
                         settings_poly.maxLODlevel <= CommandData(53 downto 51);
@@ -196,7 +222,7 @@ begin
                         settings_poly.YH          <= signed(CommandData(14 downto  0));
                         
                      when 6x"24" | 6x"25" => -- texture rectangle
-                        if (commandCntNext - commandRAMPtr >= 3) then
+                        if (commandAvailable >= 1) then
                            commandWordDone <= '1';
                            state           <= EVALTEXRECTANGLE;  
                            if (CommandData(56) = '1') then
@@ -463,6 +489,147 @@ begin
                      when 2 =>
                         settings_poly.XM       <= signed(CommandData(63 downto 32));
                         settings_poly.DXMDy    <= signed(CommandData(29 downto  0));
+                        if (shade = '1') then 
+                           state  <= EVALSHADE;
+                           triCnt <= (others => '0');
+                        elsif (texture = '1') then
+                           state  <= EVALTEXTURE;
+                           triCnt <= (others => '0');
+                        elsif (zbuffer = '1') then
+                           state  <= EVALZBUFFER;
+                           triCnt <= (others => '0');
+                        else
+                           state                  <= WAITRASTER;
+                           commandRAMPtr          <= commandRAMPtr;
+                           poly_start             <= '1';
+                           poly_loading_mode      <= '0';
+                        end if;
+                        
+                     when others => null;
+                  end case;
+                  
+               when EVALSHADE =>
+                  commandRAMPtr   <= commandRAMPtr + 1;
+                  commandWordDone <= '1';
+                  triCnt <= triCnt + 1;
+                  case (to_integer(triCnt)) is
+                     when 0 =>
+                        settings_poly.shade_Color_R(31 downto 16) <= signed(CommandData(63 downto 48));
+                        settings_poly.shade_Color_G(31 downto 16) <= signed(CommandData(47 downto 32));
+                        settings_poly.shade_Color_B(31 downto 16) <= signed(CommandData(31 downto 16));
+                        settings_poly.shade_Color_A(31 downto 16) <= signed(CommandData(15 downto  0));
+                     when 1 =>
+                        settings_poly.shade_DrDx(31 downto 16) <= signed(CommandData(63 downto 48));
+                        settings_poly.shade_DgDx(31 downto 16) <= signed(CommandData(47 downto 32));
+                        settings_poly.shade_DbDx(31 downto 16) <= signed(CommandData(31 downto 16));
+                        settings_poly.shade_DaDx(31 downto 16) <= signed(CommandData(15 downto  0));                   
+                     when 2 =>
+                        settings_poly.shade_Color_R(15 downto 0) <= signed(CommandData(63 downto 48));
+                        settings_poly.shade_Color_G(15 downto 0) <= signed(CommandData(47 downto 32));
+                        settings_poly.shade_Color_B(15 downto 0) <= signed(CommandData(31 downto 16));
+                        settings_poly.shade_Color_A(15 downto 0) <= signed(CommandData(15 downto  0));                     
+                     when 3 =>
+                        settings_poly.shade_DrDx(15 downto 0) <= signed(CommandData(63 downto 48));
+                        settings_poly.shade_DgDx(15 downto 0) <= signed(CommandData(47 downto 32));
+                        settings_poly.shade_DbDx(15 downto 0) <= signed(CommandData(31 downto 16));
+                        settings_poly.shade_DaDx(15 downto 0) <= signed(CommandData(15 downto  0));
+                     when 4 =>
+                        settings_poly.shade_DrDe(31 downto 16) <= signed(CommandData(63 downto 48));
+                        settings_poly.shade_DgDe(31 downto 16) <= signed(CommandData(47 downto 32));
+                        settings_poly.shade_DbDe(31 downto 16) <= signed(CommandData(31 downto 16));
+                        settings_poly.shade_DaDe(31 downto 16) <= signed(CommandData(15 downto  0));
+                     when 5 =>
+                        settings_poly.shade_DrDy(31 downto 16) <= signed(CommandData(63 downto 48));
+                        settings_poly.shade_DgDy(31 downto 16) <= signed(CommandData(47 downto 32));
+                        settings_poly.shade_DbDy(31 downto 16) <= signed(CommandData(31 downto 16));
+                        settings_poly.shade_DaDy(31 downto 16) <= signed(CommandData(15 downto  0));                   
+                     when 6 =>
+                        settings_poly.shade_DrDe(15 downto 0) <= signed(CommandData(63 downto 48));
+                        settings_poly.shade_DgDe(15 downto 0) <= signed(CommandData(47 downto 32));
+                        settings_poly.shade_DbDe(15 downto 0) <= signed(CommandData(31 downto 16));
+                        settings_poly.shade_DaDe(15 downto 0) <= signed(CommandData(15 downto  0));                     
+                     when 7 =>
+                        settings_poly.shade_DrDy(15 downto 0) <= signed(CommandData(63 downto 48));
+                        settings_poly.shade_DgDy(15 downto 0) <= signed(CommandData(47 downto 32));
+                        settings_poly.shade_DbDy(15 downto 0) <= signed(CommandData(31 downto 16));
+                        settings_poly.shade_DaDy(15 downto 0) <= signed(CommandData(15 downto  0));
+                        if (texture = '1') then
+                           state  <= EVALTEXTURE;
+                           triCnt <= (others => '0');
+                        elsif (zbuffer = '1') then
+                           state  <= EVALZBUFFER;
+                           triCnt <= (others => '0');
+                        else
+                           state                  <= WAITRASTER;
+                           commandRAMPtr          <= commandRAMPtr;
+                           poly_start             <= '1';
+                           poly_loading_mode      <= '0';
+                        end if;
+                        
+                     when others => null;
+                  end case;
+               
+               when EVALTEXTURE =>
+                  commandRAMPtr   <= commandRAMPtr + 1;
+                  commandWordDone <= '1';
+                  triCnt <= triCnt + 1;
+                  case (to_integer(triCnt)) is
+                     when 0 =>
+                        settings_poly.tex_Texture_S(31 downto 16) <= signed(CommandData(63 downto 48));
+                        settings_poly.tex_Texture_T(31 downto 16) <= signed(CommandData(47 downto 32));
+                        settings_poly.tex_Texture_W(31 downto 16) <= signed(CommandData(31 downto 16));
+                     when 1 =>
+                        settings_poly.tex_DsDx(31 downto 16) <= signed(CommandData(63 downto 48));
+                        settings_poly.tex_DtDx(31 downto 16) <= signed(CommandData(47 downto 32));
+                        settings_poly.tex_DwDx(31 downto 16) <= signed(CommandData(31 downto 16));                   
+                     when 2 =>
+                        settings_poly.tex_Texture_S(15 downto 0) <= signed(CommandData(63 downto 48));
+                        settings_poly.tex_Texture_T(15 downto 0) <= signed(CommandData(47 downto 32));
+                        settings_poly.tex_Texture_W(15 downto 0) <= signed(CommandData(31 downto 16));                   
+                     when 3 =>
+                        settings_poly.tex_DsDx(15 downto 0) <= signed(CommandData(63 downto 48));
+                        settings_poly.tex_DtDx(15 downto 0) <= signed(CommandData(47 downto 32));
+                        settings_poly.tex_DwDx(15 downto 0) <= signed(CommandData(31 downto 16));
+                     when 4 =>
+                        settings_poly.tex_DsDe(31 downto 16) <= signed(CommandData(63 downto 48));
+                        settings_poly.tex_DtDe(31 downto 16) <= signed(CommandData(47 downto 32));
+                        settings_poly.tex_DwDe(31 downto 16) <= signed(CommandData(31 downto 16));
+                     when 5 =>
+                        settings_poly.tex_DsDy(31 downto 16) <= signed(CommandData(63 downto 48));
+                        settings_poly.tex_DtDy(31 downto 16) <= signed(CommandData(47 downto 32));
+                        settings_poly.tex_DwDy(31 downto 16) <= signed(CommandData(31 downto 16));                  
+                     when 6 =>
+                        settings_poly.tex_DsDe(15 downto 0) <= signed(CommandData(63 downto 48));
+                        settings_poly.tex_DtDe(15 downto 0) <= signed(CommandData(47 downto 32));
+                        settings_poly.tex_DwDe(15 downto 0) <= signed(CommandData(31 downto 16));                   
+                     when 7 =>
+                        settings_poly.tex_DsDy(15 downto 0) <= signed(CommandData(63 downto 48));
+                        settings_poly.tex_DtDy(15 downto 0) <= signed(CommandData(47 downto 32));
+                        settings_poly.tex_DwDy(15 downto 0) <= signed(CommandData(31 downto 16));
+                        if (zbuffer = '1') then
+                           state  <= EVALZBUFFER;
+                           triCnt <= (others => '0');
+                        else
+                           state                  <= WAITRASTER;
+                           commandRAMPtr          <= commandRAMPtr;
+                           poly_start             <= '1';
+                           poly_loading_mode      <= '0';
+                        end if;
+                        
+                     when others => null;
+                  end case;
+
+               when EVALZBUFFER =>
+                  commandRAMPtr   <= commandRAMPtr + 1;
+                  commandWordDone <= '1';
+                  triCnt <= triCnt + 1;
+                  case (to_integer(triCnt)) is
+                     when 0 =>
+                        settings_poly.zBuffer_Z    <= signed(CommandData(63 downto 32));
+                        settings_poly.zBuffer_DzDx <= signed(CommandData(31 downto  0));
+                     when 1 =>
+                        settings_poly.zBuffer_DzDe <= signed(CommandData(63 downto 32));
+                        settings_poly.zBuffer_DzDy <= signed(CommandData(31 downto  0));                     
                         state                  <= WAITRASTER;
                         commandRAMPtr          <= commandRAMPtr;
                         poly_start             <= '1';

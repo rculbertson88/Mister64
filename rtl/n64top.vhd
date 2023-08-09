@@ -120,6 +120,7 @@ architecture arch of n64top is
    signal errorRSP_instr         : std_logic;
    signal errorRSP_stall         : std_logic;
    signal errorRDP_command       : std_logic;
+   signal errorRDP_combine       : std_logic;
    
    -- irq
    signal irqRequest             : std_logic;
@@ -340,14 +341,15 @@ begin
    process (reset_intern_1x, errorRSP_instr    ) begin if (errorRSP_instr     = '1') then errorCode( 8) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 8) <= '0'; end if; end process;
    process (reset_intern_1x, errorRSP_stall    ) begin if (errorRSP_stall     = '1') then errorCode( 9) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 9) <= '0'; end if; end process;
    process (reset_intern_1x, errorRDP_command  ) begin if (errorRDP_command   = '1') then errorCode(10) <= '1'; elsif (reset_intern_1x = '1') then errorCode(10) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRDP_combine  ) begin if (errorRDP_combine   = '1') then errorCode(11) <= '1'; elsif (reset_intern_1x = '1') then errorCode(11) <= '0'; end if; end process;
    
-   errorCode(11 downto 11) <= "0";
+   --errorCode(11 downto 11) <= "0";
    
    process (clk1x)
    begin
       if rising_edge(clk1x) then
          errorEna <= '0';
-         if (errorCode /= x"000") then
+         if (errorCode /= 0) then
             errorEna <= '1'; 
          end if;
       end if;
@@ -418,6 +420,7 @@ begin
       reset                => reset_intern_1x, 
       
       command_error        => errorRDP_command,
+      errorCombine         => errorRDP_combine,
 
       irq_out              => irqVector(5),
                            

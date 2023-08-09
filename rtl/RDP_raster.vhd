@@ -47,14 +47,29 @@ entity RDP_raster is
       export_loadValue        : out rdp_export_type := (others => (others => '0')); 
       -- synthesis translate_on
       
-      writePixel              : out std_logic := '0';
-      writePixelAddr          : out unsigned(25 downto 0);
-      writePixelX             : out unsigned(11 downto 0) := (others => '0');
-      writePixelY             : out unsigned(11 downto 0) := (others => '0');
-      writePixelColor         : out unsigned(31 downto 0) := (others => '0');
+      pipe_busy               : in  std_logic;
+      
+      pipeIn_trigger          : out std_logic := '0';
+      pipeIn_valid            : out std_logic := '0';
+      pipeIn_Addr             : out unsigned(25 downto 0) := (others => '0');
+      pipeIn_X                : out unsigned(11 downto 0) := (others => '0');
+      pipeIn_Y                : out unsigned(11 downto 0) := (others => '0');
+      pipeIn_cvgValue         : out unsigned(7 downto 0) := (others => '0');
+      pipeIn_offX             : out unsigned(1 downto 0) := (others => '0');
+      pipeIn_offY             : out unsigned(1 downto 0) := (others => '0');
+      pipeInColor             : out tcolor4_s16 := (others => (others => '0'));
+      
+      -- synthesis translate_off
+      pipeIn_cvg16            : out unsigned(15 downto 0);
+      pipeInColorFull         : out tcolor4_s32;
+      -- synthesis translate_on
+
       fillWrite               : out std_logic := '0';
       fillBE                  : out unsigned(7 downto 0) := (others => '0');
-      fillColor               : out unsigned(63 downto 0) := (others => '0')
+      fillColor               : out unsigned(63 downto 0) := (others => '0');
+      fillAddr                : out unsigned(25 downto 0) := (others => '0');
+      fillX                   : out unsigned(11 downto 0) := (others => '0');
+      fillY                   : out unsigned(11 downto 0) := (others => '0')
    );
 end entity;
 
@@ -98,6 +113,54 @@ architecture arch of RDP_raster is
    signal minorx        : t_majorminor := (others => (others => '0'));
    signal invalidLine   : std_logic_vector(3 downto 0) := (others => '0');
    
+   -- offset calc
+   signal offset_Re     : signed(22 downto 0);
+   signal offset_Ge     : signed(22 downto 0);
+   signal offset_Be     : signed(22 downto 0);
+   signal offset_Ae     : signed(22 downto 0);
+   signal offset_Se     : signed(22 downto 0);
+   signal offset_Te     : signed(22 downto 0);
+   signal offset_We     : signed(22 downto 0);
+   signal offset_Ze     : signed(22 downto 0); 
+   
+   signal offset_Ry     : signed(22 downto 0);
+   signal offset_Gy     : signed(22 downto 0);
+   signal offset_By     : signed(22 downto 0);
+   signal offset_Ay     : signed(22 downto 0);
+   signal offset_Sy     : signed(22 downto 0);
+   signal offset_Ty     : signed(22 downto 0);
+   signal offset_Wy     : signed(22 downto 0);
+   signal offset_Zy     : signed(22 downto 0); 
+   
+   signal offset_R      : signed(31 downto 0) := (others => '0');
+   signal offset_G      : signed(31 downto 0) := (others => '0');
+   signal offset_B      : signed(31 downto 0) := (others => '0');
+   signal offset_A      : signed(31 downto 0) := (others => '0');
+   signal offset_S      : signed(31 downto 0) := (others => '0');
+   signal offset_T      : signed(31 downto 0) := (others => '0');
+   signal offset_W      : signed(31 downto 0) := (others => '0');
+   signal offset_Z      : signed(31 downto 0) := (others => '0');
+   
+   signal mul_R         : signed(23 downto 0);
+   signal mul_G         : signed(23 downto 0);
+   signal mul_B         : signed(23 downto 0);
+   signal mul_A         : signed(23 downto 0);
+   signal mul_S         : signed(23 downto 0);
+   signal mul_T         : signed(23 downto 0);
+   signal mul_W         : signed(23 downto 0);
+   signal mul_Z         : signed(23 downto 0);
+   
+   signal xfrac         : signed(8 downto 0);
+   
+   signal lineFrac_R    : signed(31 downto 0);
+   signal lineFrac_G    : signed(31 downto 0);
+   signal lineFrac_B    : signed(31 downto 0);
+   signal lineFrac_A    : signed(31 downto 0);
+   signal lineFrac_S    : signed(31 downto 0);
+   signal lineFrac_T    : signed(31 downto 0);
+   signal lineFrac_W    : signed(31 downto 0);
+   signal lineFrac_Z    : signed(31 downto 0);
+   
    -- comb calculation
    signal sticky_r      : std_logic := '0';  
    signal sticky_l      : std_logic := '0';  
@@ -114,7 +177,7 @@ architecture arch of RDP_raster is
    signal xright_cross  : unsigned(13 downto 0) := (others => '0');
    signal xleft_cross   : unsigned(13 downto 0) := (others => '0');   
    signal curcross      : std_logic := '0';
-   signal invaly        : std_logic := '0';
+   signal invaly        : std_logic := '0';  
    
    -- poly accu
    signal poly_Color_R     : signed(31 downto 0) := (others => '0');
@@ -147,6 +210,7 @@ architecture arch of RDP_raster is
    type tlineState is 
    (  
       LINEIDLE, 
+      PREPARELINE,
       DRAWLINE,
       FILLLINE
    ); 
@@ -156,6 +220,48 @@ architecture arch of RDP_raster is
    signal line_posY        : unsigned(11 downto 0) := (others => '0');
    signal line_posX        : unsigned(11 downto 0) := (others => '0');
    signal line_endX        : unsigned(11 downto 0) := (others => '0');
+   
+   signal xDiff            : signed(11 downto 0);
+   signal tile0            : unsigned(2 downto 0);
+   signal tile1            : unsigned(2 downto 0);
+   
+   type tlineCVGInfo is record
+      majorx      : t_majorminor;
+      minorx      : t_majorminor;
+      invalidLine : std_logic_vector(3 downto 0);
+   end record;
+   signal lineCVGInfo      : tlineCVGInfo;
+   
+   type tcvg is array(0 to 3) of unsigned(3 downto 0);
+   signal leftMasked       : tcvg;
+   signal rightMasked      : tcvg;
+   signal cvg              : tcvg;
+   signal maskx            : unsigned(3 downto 0);
+   signal masky            : unsigned(3 downto 0);
+   signal offx             : unsigned(1 downto 0);
+   signal offy             : unsigned(1 downto 0);
+   
+   type tCVGtable is array(0 to 15) of unsigned(1 downto 0);
+   constant cvgOffYTable : tCVGtable := ( 2x"0",2x"0",2x"1",2x"0",2x"2",2x"0",2x"1",2x"0",2x"3",2x"0",2x"1",2x"0",2x"2",2x"0",2x"1",2x"0" );
+   constant cvgOffXTable : tCVGtable := ( 2x"0",2x"3",2x"2",2x"2",2x"1",2x"1",2x"1",2x"1",2x"0",2x"0",2x"0",2x"0",2x"0",2x"0",2x"0",2x"0" );
+   
+   signal pixel_Color_R    : signed(31 downto 0) := (others => '0');
+   signal pixel_Color_G    : signed(31 downto 0) := (others => '0');
+   signal pixel_Color_B    : signed(31 downto 0) := (others => '0');
+   signal pixel_Color_A    : signed(31 downto 0) := (others => '0');
+   signal pixel_Texture_S  : signed(31 downto 0) := (others => '0');
+   signal pixel_Texture_T  : signed(31 downto 0) := (others => '0');
+   signal pixel_Texture_W  : signed(31 downto 0) := (others => '0');
+   signal pixel_Z          : signed(31 downto 0) := (others => '0');   
+   
+   signal line_DrDx        : signed(31 downto 0) := (others => '0');
+   signal line_DgDx        : signed(31 downto 0) := (others => '0');
+   signal line_DbDx        : signed(31 downto 0) := (others => '0');
+   signal line_DaDx        : signed(31 downto 0) := (others => '0');
+   signal line_DsDx        : signed(31 downto 0) := (others => '0');
+   signal line_DtDx        : signed(31 downto 0) := (others => '0');
+   signal line_DwDx        : signed(31 downto 0) := (others => '0');
+   signal line_DzDx        : signed(31 downto 0) := (others => '0'); 
    
    -- comb calculation
    signal calcPixelAddr    : unsigned(25 downto 0);
@@ -211,10 +317,50 @@ architecture arch of RDP_raster is
 
 begin 
 
+   -- offset
+   offset_Re <= settings_poly.shade_DrDe(31 downto 9);
+   offset_Ge <= settings_poly.shade_DgDe(31 downto 9);
+   offset_Be <= settings_poly.shade_DbDe(31 downto 9);
+   offset_Ae <= settings_poly.shade_DaDe(31 downto 9);         
+   offset_Se <= settings_poly.tex_DsDe(31 downto 9);        
+   offset_Te <= settings_poly.tex_DtDe(31 downto 9);         
+   offset_We <= settings_poly.tex_DwDe(31 downto 9);         
+   offset_Ze <= settings_poly.zBuffer_DzDe(31 downto 9);
+
+   offset_Ry <= settings_poly.shade_DrDy(31 downto 9);
+   offset_Gy <= settings_poly.shade_DgDy(31 downto 9);
+   offset_By <= settings_poly.shade_DbDy(31 downto 9);
+   offset_Ay <= settings_poly.shade_DaDy(31 downto 9);         
+   offset_Sy <= settings_poly.tex_DsDy(31 downto 9);        
+   offset_Ty <= settings_poly.tex_DtDy(31 downto 9);         
+   offset_Wy <= settings_poly.tex_DwDy(31 downto 9);         
+   offset_Zy <= settings_poly.zBuffer_DzDy(31 downto 9);
+   
+   mul_R <= settings_poly.shade_DrDx(31 downto 9) & '0';
+   mul_G <= settings_poly.shade_DgDx(31 downto 9) & '0';
+   mul_B <= settings_poly.shade_DbDx(31 downto 9) & '0';
+   mul_A <= settings_poly.shade_DaDx(31 downto 9) & '0';        
+   mul_S <= settings_poly.tex_DsDx(31 downto 9) & '0';        
+   mul_T <= settings_poly.tex_DtDx(31 downto 9) & '0';         
+   mul_W <= settings_poly.tex_DwDx(31 downto 9) & '0';         
+   mul_Z <= settings_poly.zBuffer_DzDx(31 downto 9) & '0';
+   
+   xfrac <= '0' & xright(15 downto 8) when (settings_otherModes.cycleType /= "10") else (others => '0');
+   
+   lineFrac_R <= (poly_Color_R(31 downto 9)   & 9x"0") + offset_R - resize(xfrac * mul_R,32);
+   lineFrac_G <= (poly_Color_G(31 downto 9)   & 9x"0") + offset_G - resize(xfrac * mul_G,32);
+   lineFrac_B <= (poly_Color_B(31 downto 9)   & 9x"0") + offset_B - resize(xfrac * mul_B,32);
+   lineFrac_A <= (poly_Color_A(31 downto 9)   & 9x"0") + offset_A - resize(xfrac * mul_A,32);
+   lineFrac_S <= (poly_Texture_S(31 downto 9) & 9x"0") + offset_S - resize(xfrac * mul_S,32);
+   lineFrac_T <= (poly_Texture_T(31 downto 9) & 9x"0") + offset_T - resize(xfrac * mul_T,32);
+   lineFrac_W <= (poly_Texture_W(31 downto 9) & 9x"0") + offset_W - resize(xfrac * mul_W,32);
+   lineFrac_Z <= (poly_Z(31 downto 9)         & 9x"0") + offset_Z - resize(xfrac * mul_Z,32);
+
+   -- comb calculation
    xright_inc     <= settings_poly.DXHDy(29 downto 3) & '0';
    xleft_inc      <= settings_poly.DXMDy(29 downto 3) & '0' when (secondhalf = '0') else settings_poly.DXLDy(29 downto 3) & '0';
       
-   do_offset      <= settings_poly.DXHDy(29) xor settings_poly.lft;
+   do_offset      <= not (settings_poly.DXHDy(29) xor settings_poly.lft);
    
    yLLimitMux     <= settings_poly.YL(14 downto 0)           when (loading_mode = '1' or settings_poly.YL(13) = '1') else
                   "000" & signed(settings_scissor.ScissorYL) when (settings_poly.YL(12) = '1') else
@@ -231,8 +377,8 @@ begin
    clipxlshift    <= settings_scissor.ScissorXL & '0';
    clipxhshift    <= settings_scissor.ScissorXH & '0';
    
-   sticky_r       <= '1' when (xright(13 downto 1) > 0) else '0';
-   sticky_l       <= '1' when (xleft(13 downto 1) > 0) else '0';
+   sticky_r       <= '1' when (xright(13 downto 1) /= 0) else '0';
+   sticky_l       <= '1' when (xleft(13 downto 1) /= 0) else '0';
    
    xrsc_sticky    <= unsigned(xright(26 downto 14)) & sticky_r;
    xlsc_sticky    <= unsigned(xleft(26 downto 14))  & sticky_l;
@@ -260,6 +406,7 @@ begin
                      '1' when (ycur >= yllimit) else
                      '1' when curcross = '1' else
                      '0';
+                   
    
    process (clk1x)
       variable unscrx_new : signed(12 downto 0) := (others => '0');
@@ -289,7 +436,6 @@ begin
                      --todos:
                      -- dzpix
                      -- normalize_dzpix
-                     -- if (do_offset) .. if (otherModes_cycleType != 2)
                      xright         <= settings_poly.XH(31 downto 1) & '0';
                      if (settings_poly.YH(14 downto 2) & "00" = settings_poly.YM) then
                         secondHalf <= '1';
@@ -299,7 +445,7 @@ begin
                         xleft       <= settings_poly.XM(31 downto 1) & '0';
                      end if;
                      ycur           <= settings_poly.YH(14 downto 2) & "00";
-                     ldflag         <= (others => not do_offset);
+                     ldflag         <= (others => do_offset);
                      yllimit        <= yLLimitMux;
                      if (settings_poly.YL(14 downto 2) > yLLimitMux(14 downto 2)) then
                         ylfar       <= (yLLimitMux(14 downto 2) + 1) & "11";
@@ -321,6 +467,26 @@ begin
                      poly_Texture_S <= settings_poly.tex_Texture_T;
                      poly_Texture_W <= settings_poly.tex_Texture_W;
                      poly_Z         <= settings_poly.zBuffer_Z;
+                     
+                     if (do_offset = '1') then
+                        offset_S    <= ((offset_Se & x"00") + resize(offset_Se & 7x"00", 32)) - ((offset_Sy & x"00") + resize(offset_Sy & 7x"00", 32));
+                        offset_T    <= ((offset_Te & x"00") + resize(offset_Te & 7x"00", 32)) - ((offset_Ty & x"00") + resize(offset_Ty & 7x"00", 32));
+                        offset_W    <= ((offset_We & x"00") + resize(offset_We & 7x"00", 32)) - ((offset_Wy & x"00") + resize(offset_Wy & 7x"00", 32));
+                        offset_R    <= ((offset_Re & x"00") + resize(offset_Re & 7x"00", 32)) - ((offset_Ry & x"00") + resize(offset_Ry & 7x"00", 32));
+                        offset_G    <= ((offset_Ge & x"00") + resize(offset_Ge & 7x"00", 32)) - ((offset_Gy & x"00") + resize(offset_Gy & 7x"00", 32));
+                        offset_B    <= ((offset_Be & x"00") + resize(offset_Be & 7x"00", 32)) - ((offset_By & x"00") + resize(offset_By & 7x"00", 32));
+                        offset_A    <= ((offset_Ae & x"00") + resize(offset_Ae & 7x"00", 32)) - ((offset_Ay & x"00") + resize(offset_Ay & 7x"00", 32));
+                        offset_Z    <= ((offset_Ze & x"00") + resize(offset_Ze & 7x"00", 32)) - ((offset_Zy & x"00") + resize(offset_Zy & 7x"00", 32));
+                     else
+                        offset_S    <= (others => '0');
+                        offset_T    <= (others => '0');
+                        offset_W    <= (others => '0');
+                        offset_R    <= (others => '0');
+                        offset_G    <= (others => '0');
+                        offset_B    <= (others => '0');
+                        offset_A    <= (others => '0');
+                        offset_Z    <= (others => '0');
+                     end if;
                   end if;                  
                
                when EVALLINE =>
@@ -343,8 +509,13 @@ begin
                         allover        <= '0';
                         allunder       <= '0';
                      else
-                        majorx(to_integer(unsigned(ycur(1 downto 0)))) <= xrsc(12 downto 0);
-                        minorx(to_integer(unsigned(ycur(1 downto 0)))) <= xlsc(12 downto 0);   
+                        if (settings_poly.lft = '1') then
+                           minorx(to_integer(unsigned(ycur(1 downto 0)))) <= xrsc(12 downto 0);
+                           majorx(to_integer(unsigned(ycur(1 downto 0)))) <= xlsc(12 downto 0);  
+                        else
+                           majorx(to_integer(unsigned(ycur(1 downto 0)))) <= xrsc(12 downto 0);
+                           minorx(to_integer(unsigned(ycur(1 downto 0)))) <= xlsc(12 downto 0);
+                        end if;
                         if (curover_r  = '0' or curover_l  = '0') then allover  <= '0'; end if;
                         if (curunder_r = '0' or curunder_l = '0') then allunder <= '0'; end if;
                      end if;
@@ -364,15 +535,15 @@ begin
                 
                      if (unsigned(ycur(1 downto 0)) = ldflag) then
                         unscrx_new := xright(28 downto 16);
-                        -- todo: fractional line information for color/texture/z
-                        lineInfo.Color_R   <= poly_Color_R;  
-                        lineInfo.Color_G   <= poly_Color_G;  
-                        lineInfo.Color_B   <= poly_Color_B;  
-                        lineInfo.Color_A   <= poly_Color_A;  
-                        lineInfo.Texture_S <= poly_Texture_S;
-                        lineInfo.Texture_T <= poly_Texture_T;
-                        lineInfo.Texture_W <= poly_Texture_W;
-                        lineInfo.Z         <= poly_Z;       
+                        lineInfo.Color_R     <= lineFrac_R;
+                        lineInfo.Color_G     <= lineFrac_G;
+                        lineInfo.Color_B     <= lineFrac_B;
+                        lineInfo.Color_A     <= lineFrac_A;
+                        lineInfo.Texture_S   <= lineFrac_S;
+                        lineInfo.Texture_T   <= lineFrac_T;
+                        lineInfo.Texture_W   <= lineFrac_W;
+                        lineInfo.Z           <= lineFrac_Z;
+     
                      end if;
                      
                      unscrx <= unscrx_new;
@@ -380,11 +551,11 @@ begin
                      minxmx <= minxmx_new;
                      
                      if (unsigned(ycur(1 downto 0)) = 3) then
-                        startLine         <= '1';
-                        lineInfo.y        <= unsigned(ycur(13 downto 2)); 
-                        lineInfo.xStart   <= minxmx_new;
-                        lineInfo.xEnd     <= maxxmx_new;
-                        lineInfo.unscrx   <= unscrx_new;
+                        startLine                    <= '1';
+                        lineInfo.y                   <= unsigned(ycur(13 downto 2)); 
+                        lineInfo.xStart              <= minxmx_new;
+                        lineInfo.xEnd                <= maxxmx_new;
+                        lineInfo.unscrx              <= unscrx_new;
                         if (startLine = '1') then
                            polystate      <= WAITLINE;
                         end if;
@@ -418,7 +589,7 @@ begin
                   end if;
                   
                when POLYFINISH =>
-                  if (startLine = '0' and linestate = LINEIDLE and loadstate = LOADIDLE) then
+                  if (startLine = '0' and linestate = LINEIDLE and loadstate = LOADIDLE and pipe_busy = '0' and pipeIn_trigger = '0') then
                      polystate <= POLYIDLE;
                      poly_done <= '1'; 
                   end if;
@@ -445,12 +616,63 @@ begin
    calcPixelAddr <= resize(settings_colorImage.FB_base + ((line_posY * (settings_colorImage.FB_width_m1 + 1)) + line_posX) * 2, 26) when (settings_colorImage.FB_size = SIZE_16BIT) else
                     resize(settings_colorImage.FB_base + ((line_posY * (settings_colorImage.FB_width_m1 + 1)) + line_posX) * 4, 26);
    
+   -- cvg
+   process (all)
+      variable fmask       : unsigned(3 downto 0);
+      variable minorShift  : unsigned(3 downto 0);
+      variable majorShift  : unsigned(3 downto 0);
+      variable leftcvg     : unsigned(3 downto 0);
+      variable rightcvg    : unsigned(7 downto 0);
+   begin
+   
+      for i in 0 to 3 loop
+      
+         if (i = 0 or i = 2) then fmask := x"A"; else fmask := x"5"; end if;
+         
+         minorShift := ('0' & lineCVGInfo.minorx(i)(2 downto 0)) + 1;
+         majorShift := ('0' & lineCVGInfo.majorx(i)(2 downto 0)) + 1;
+      
+         leftcvg  := shift_right(to_unsigned(16#F#,4),  to_integer(minorShift(3 downto 1)));
+         rightcvg := shift_right(to_unsigned(16#F0#,8), to_integer(majorShift(3 downto 1)));
+         
+         leftMasked(i)  <= leftcvg and fmask;
+         rightMasked(i) <= rightcvg(3 downto 0) and fmask;
+      
+         cvg(i) <= x"0";
+      
+         if (lineCVGInfo.invalidLine(i) = '0') then
+         
+            if (line_posX > lineCVGInfo.minorx(i)(12 downto 3) and line_posX < lineCVGInfo.majorx(i)(12 downto 3)) then
+               cvg(i) <= fmask;
+            elsif (line_posX = lineCVGInfo.minorx(i)(12 downto 3) and line_posX = lineCVGInfo.majorx(i)(12 downto 3)) then
+               cvg(i) <= leftMasked(i) and rightMasked(i);   
+            elsif (lineCVGInfo.majorx(i)(12 downto 3) > lineCVGInfo.minorx(i)(12 downto 3)) then
+               if (line_posX = lineCVGInfo.minorx(i)(12 downto 3)) then cvg(i) <= leftMasked(i);  end if;
+               if (line_posX = lineCVGInfo.majorx(i)(12 downto 3)) then cvg(i) <= rightMasked(i); end if;
+            end if;
+            
+         end if;
+      end loop;
+   
+   end process;
+   
+   masky(0) <= '1' when (cvg(0) > 0) else '0';
+   masky(1) <= '1' when (cvg(1) > 0) else '0';
+   masky(2) <= '1' when (cvg(2) > 0) else '0';
+   masky(3) <= '1' when (cvg(3) > 0) else '0';
+   
+   offy <= cvgOffYTable(to_integer(masky));
+   
+   maskx <= cvg(to_integer(offy));
+   
+   offx <= cvgOffXTable(to_integer(maskx));
+    
    process (clk1x)
    begin
       if rising_edge(clk1x) then
       
-         writePixel <= '0';
-         fillWrite  <= '0';
+         pipeIn_trigger <= '0';
+         fillWrite      <= '0';
          
          if (reset = '1') then
             
@@ -461,23 +683,81 @@ begin
             case (linestate) is
             
                when LINEIDLE =>
+                  if (polystate = POLYFINISH and pipe_busy = '1') then
+                     pipeIn_trigger  <= '1';
+                     pipeIn_valid    <= '0';
+                  end if;
+               
                   if (startLine = '1' and allinval = '0' and allover = '0' and allunder = '0') then
                      if (loading_mode = '0') then
                         if (settings_otherModes.cycleType = "11") then
                            linestate <= FILLLINE;
                         else
-                           linestate <= DRAWLINE;
+                           linestate <= PREPARELINE;
                         end if;
                      end if;
-                     line_posY <= lineInfo.Y;
-                     if (settings_poly.lft = '1' or settings_otherModes.cycleType = "11") then
-                        line_posX <= lineInfo.xStart;
-                        line_endX <= lineInfo.xEnd;
-                     else
-                        line_posX <= lineInfo.xEnd;
-                        line_endX <= lineInfo.xStart;
-                     end if;
-                  end if;                  
+                  end if;
+                  
+                  lineCVGInfo.majorx      <= majorx;
+                  lineCVGInfo.minorx      <= minorx;
+                  lineCVGInfo.invalidLine <= invalidLine;
+                  
+                  line_posY <= lineInfo.Y;
+                  if (settings_poly.lft = '1' or settings_otherModes.cycleType = "11") then
+                     line_posX   <= lineInfo.xStart;
+                     line_endX   <= lineInfo.xEnd;
+                  else
+                     line_posX   <= lineInfo.xEnd;
+                     line_endX   <= lineInfo.xStart;
+                  end if;
+                  
+                   if (settings_poly.lft = '1') then
+                     xDiff       <= signed(lineInfo.xStart) - lineInfo.unscrx(11 downto 0);
+                     line_DrDx   <= settings_poly.shade_DrDx(31 downto 5) & "00000";
+                     line_DgDx   <= settings_poly.shade_DgDx(31 downto 5) & "00000";
+                     line_DbDx   <= settings_poly.shade_DbDx(31 downto 5) & "00000";
+                     line_DaDx   <= settings_poly.shade_DaDx(31 downto 5) & "00000";
+                     line_DsDx   <= settings_poly.tex_DsDx(31 downto 5) & "00000";
+                     line_DtDx   <= settings_poly.tex_DtDx(31 downto 5) & "00000";
+                     line_DwDx   <= settings_poly.tex_DwDx(31 downto 5) & "00000";
+                     line_DzDx   <= settings_poly.zBuffer_DzDx(31 downto 5) & "00000";
+                  else
+                     xDiff       <= lineInfo.unscrx(11 downto 0) - signed(lineInfo.xEnd);
+                     line_DrDx   <= -(settings_poly.shade_DrDx(31 downto 5) & "00000");
+                     line_DgDx   <= -(settings_poly.shade_DgDx(31 downto 5) & "00000");
+                     line_DbDx   <= -(settings_poly.shade_DbDx(31 downto 5) & "00000");
+                     line_DaDx   <= -(settings_poly.shade_DaDx(31 downto 5) & "00000");
+                     line_DsDx   <= -(settings_poly.tex_DsDx(31 downto 5) & "00000");
+                     line_DtDx   <= -(settings_poly.tex_DtDx(31 downto 5) & "00000");
+                     line_DwDx   <= -(settings_poly.tex_DwDx(31 downto 5) & "00000");
+                     line_DzDx   <= -(settings_poly.zBuffer_DzDx(31 downto 5) & "00000");
+                  end if;
+                  
+                  pixel_Color_R   <= lineInfo.Color_R;  
+                  pixel_Color_G   <= lineInfo.Color_G;  
+                  pixel_Color_B   <= lineInfo.Color_B;  
+                  pixel_Color_A   <= lineInfo.Color_A;  
+                  pixel_Texture_S <= lineInfo.Texture_S;
+                  pixel_Texture_T <= lineInfo.Texture_T;
+                  pixel_Texture_W <= lineInfo.Texture_W;
+                  pixel_Z         <= lineInfo.Z;   
+
+                  --todo: if (otherModes_zSourceSel)
+                  --todo: if (poly_DzPix & 0xff00)
+               
+                  tile0 <= settings_poly.tile;
+                  tile1 <= settings_poly.tile + 1;
+               
+               when PREPARELINE =>
+                  linestate <= DRAWLINE;
+                  pixel_Color_R   <= pixel_Color_R   + resize(xDiff * line_DrDx,32);  
+                  pixel_Color_G   <= pixel_Color_G   + resize(xDiff * line_DgDx,32);  
+                  pixel_Color_B   <= pixel_Color_B   + resize(xDiff * line_DbDx,32);  
+                  pixel_Color_A   <= pixel_Color_A   + resize(xDiff * line_DaDx,32);  
+                  pixel_Texture_S <= pixel_Texture_S + resize(xDiff * line_DsDx,32);
+                  pixel_Texture_T <= pixel_Texture_T + resize(xDiff * line_DtDx,32);
+                  pixel_Texture_W <= pixel_Texture_W + resize(xDiff * line_DwDx,32);
+                  pixel_Z         <= pixel_Z         + resize(xDiff * line_DzDx,32);        
                
                when DRAWLINE =>
                   if (settings_poly.lft = '1') then
@@ -488,21 +768,45 @@ begin
                   if (drawLineDone = '1') then
                      linestate <= LINEIDLE;
                   end if;
+
+                  pipeIn_trigger  <= '1';
+                  pipeIn_valid    <= '1';
+                  pipeIn_Addr     <= calcPixelAddr;
+                  pipeIn_X        <= line_posX;
+                  pipeIn_Y        <= line_posY;
+                  pipeIn_cvgValue <= (cvg(0) or cvg(1)) & (cvg(2) or cvg(3));
+                  pipeIn_offX     <= offx;
+                  pipeIn_offY     <= offy;
                   
-                  -- hack!
-                  writePixelAddr                <= calcPixelAddr;
-                  writePixelX                   <= line_posX;
-                  writePixelY                   <= line_posY;
-                  writePixel                    <= '1';
-                  writePixelColor(31 downto 16) <= (others => '0');
-                  writePixelColor(15 downto 0)  <= byteswap16(settings_blendcolor.blend_R(7 downto 3) & settings_blendcolor.blend_G(7 downto 3) & settings_blendcolor.blend_B(7 downto 3) & '0');
+                  pipeInColor(0)  <= pixel_Color_R(31 downto 16);
+                  pipeInColor(1)  <= pixel_Color_G(31 downto 16);
+                  pipeInColor(2)  <= pixel_Color_B(31 downto 16);
+                  pipeInColor(3)  <= pixel_Color_A(31 downto 16);
+                  
+                  -- synthesis translate_off
+                  pipeIn_cvg16    <= cvg(0) & cvg(1) & cvg(2) & cvg(3);
+                  
+                  pipeInColorFull(0) <= pixel_Color_R;
+                  pipeInColorFull(1) <= pixel_Color_G;
+                  pipeInColorFull(2) <= pixel_Color_B;
+                  pipeInColorFull(3) <= pixel_Color_A;
+                  -- synthesis translate_on
+
+                  pixel_Color_R   <= pixel_Color_R   + line_DrDx;
+                  pixel_Color_G   <= pixel_Color_G   + line_DgDx;
+                  pixel_Color_B   <= pixel_Color_B   + line_DbDx;
+                  pixel_Color_A   <= pixel_Color_A   + line_DaDx;
+                  pixel_Texture_S <= pixel_Texture_S + line_DsDx;
+                  pixel_Texture_T <= pixel_Texture_T + line_DtDx;
+                  pixel_Texture_W <= pixel_Texture_W + line_DwDx;
+                  pixel_Z         <= pixel_Z         + line_DzDx;
+
                   
                when FILLLINE =>
-                  writePixelAddr <= calcPixelAddr;
-                  writePixelX    <= line_posX;
-                  writePixelY    <= line_posY;
-                  
                   fillWrite      <= '1';
+                  fillAddr       <= calcPixelAddr;
+                  fillX          <= line_posX;
+                  fillY          <= line_posY;
                   fillColor      <= byteswap32(settings_fillcolor.color) & byteswap32(settings_fillcolor.color);
                   fillBE         <= (others => '1');
                   
@@ -550,7 +854,7 @@ begin
    end process;
    
    -- loading
-   loadLineDone <= '1' when (loadstate = LOADLINE and load_posX = load_endX) else '0';
+   loadLineDone <= '1' when (loadstate = LOADLINE and (load_posX + spanAdvance) > load_endX) else '0';
    
    spanAdvance <= 4 when (settings_textureImage.tex_size = SIZE_16BIT and settings_loadtype /= LOADTYPE_TLUT) else
                   1 when (settings_textureImage.tex_size = SIZE_16BIT and settings_loadtype = LOADTYPE_TLUT) else
