@@ -151,8 +151,9 @@ architecture arch of RDP is
    signal TextureRam2Data           : std_logic_vector(15 downto 0) := (others => '0');
    signal TextureRam3Data           : std_logic_vector(15 downto 0) := (others => '0');
    signal TextureRamWE              : std_logic_vector(7 downto 0)  := (others => '0');
-   type tTextureRamData is array(0 to 7) of std_logic_vector(15 downto 0);
    signal TextureRamDataIn          : tTextureRamData;
+   signal TextureReadData           : tTextureRamData;
+   signal TextureReadAddr           : unsigned(11 downto 0) := (others => '0');    
    
    -- Fill line
    signal fillWrite                 : std_logic;
@@ -174,6 +175,8 @@ architecture arch of RDP is
    signal pipeIn_offX               : unsigned(1 downto 0);
    signal pipeIn_offY               : unsigned(1 downto 0);
    signal pipeInColor               : tcolor4_s16;
+   signal pipeIn_S                  : signed(15 downto 0);
+   signal pipeIn_T                  : signed(15 downto 0);
    
    signal writePixel                : std_logic;
    signal writePixelAddr            : unsigned(25 downto 0);
@@ -213,9 +216,14 @@ architecture arch of RDP is
    signal export_pipeDone           : std_logic;       
    signal export_pipeO              : rdp_export_type;
    signal export_Color              : rdp_export_type;
+   signal export_LOD                : rdp_export_type;
+   signal export_TexCoord           : rdp_export_type;
+   signal export_TexFetch           : rdp_export_type;
+   signal export_TexColor           : rdp_export_type;
    
    signal pipeIn_cvg16              : unsigned(15 downto 0);
    signal pipeInColorFull           : tcolor4_s32;
+   signal pipeInSTWZ                : tcolor4_s32;
    -- synthesis translate_on   
 
 begin 
@@ -630,10 +638,13 @@ begin
       pipeIn_offX             => pipeIn_offX, 
       pipeIn_offY             => pipeIn_offY, 
       pipeInColor             => pipeInColor, 
-      
+      pipeIn_S                => pipeIn_S,
+      pipeIn_T                => pipeIn_T,
+
       -- synthesis translate_off
       pipeIn_cvg16            => pipeIn_cvg16, 
       pipeInColorFull         => pipeInColorFull,
+      pipeInSTWZ              => pipeInSTWZ,
       -- synthesis translate_on
 
       fillWrite               => fillWrite,
@@ -670,14 +681,14 @@ begin
          wren_a      => TextureRamWE(i),
          
          clock_b     => clk1x,
-         address_b   => 9x"0",
+         address_b   => std_logic_vector(TextureReadAddr(11 downto 3)),
          data_b      => 16x"0",
          wren_b      => '0',
-         q_b         => open
+         q_b         => TextureReadData(i)
       );
       
    end generate;
-   
+
    iRDP_pipeline : entity work.RDP_pipeline
    port map
    (
@@ -688,6 +699,7 @@ begin
       
       pipe_busy               => pipe_busy,
                                                       
+      settings_poly           => settings_poly,  
       settings_otherModes     => settings_otherModes,  
       settings_blendcolor     => settings_blendcolor,  
       settings_colorImage     => settings_colorImage,  
@@ -703,15 +715,25 @@ begin
       pipeIn_cvgValue         => pipeIn_cvgValue,  
       pipeIn_offX             => pipeIn_offX,  
       pipeIn_offY             => pipeIn_offY,  
-      pipeInColor             => pipeInColor,       
+      pipeInColor             => pipeInColor,     
+      pipeIn_S                => pipeIn_S,
+      pipeIn_T                => pipeIn_T,    
+
+      TextureAddr             => TextureReadAddr,
+      TextureRamData          => TextureReadData,
      
       -- synthesis translate_off
       pipeIn_cvg16            => pipeIn_cvg16,  
       pipeInColorFull         => pipeInColorFull,
+      pipeInSTWZ              => pipeInSTWZ,
       
       export_pipeDone         => export_pipeDone,
       export_pipeO            => export_pipeO,   
       export_Color            => export_Color,   
+      export_LOD              => export_LOD,   
+      export_TexCoord         => export_TexCoord,   
+      export_TexFetch         => export_TexFetch,   
+      export_TexColor         => export_TexColor,   
       -- synthesis translate_on
       
       writePixel              => writePixel,     
@@ -874,102 +896,18 @@ begin
             --end if;
             
             if (export_load_done = '1') then
-               write(line_out, string'("LoadFetch: I ")); 
-               write(line_out, to_string_len(tracecounts_out(16) + 1, 8));
-               write(line_out, string'(" A ")); 
-               write(line_out, to_hstring(export_loadFetch.addr));
-               write(line_out, string'(" D ")); 
-               write(line_out, to_hstring(export_loadFetch.data(31 downto 0)));
-               write(line_out, string'(" X ")); 
-               write(line_out, to_string_len(to_integer(export_loadFetch.x), 4));
-               write(line_out, string'(" Y ")); 
-               write(line_out, to_string_len(to_integer(export_loadFetch.y), 4));
-               write(line_out, string'(" D1 "));
-               write(line_out, to_hstring(export_loadFetch.debug1));
-               write(line_out, string'(" D2 "));
-               write(line_out, to_hstring(export_loadFetch.debug2));
-               write(line_out, string'(" D3 "));
-               write(line_out, to_hstring(export_loadFetch.debug3));
-               writeline(outfile, line_out);
-               tracecounts_out(16) <= tracecounts_out(16) + 1;
-               
-               write(line_out, string'("LoadData: I ")); 
-               write(line_out, to_string_len(tracecounts_out(17) + 1, 8));
-               write(line_out, string'(" A ")); 
-               write(line_out, to_hstring(export_LoadData.addr));
-               write(line_out, string'(" D ")); 
-               write(line_out, to_hstring(export_LoadData.data));
-               write(line_out, string'(" X ")); 
-               write(line_out, to_string_len(to_integer(export_LoadData.x), 4));
-               write(line_out, string'(" Y ")); 
-               write(line_out, to_string_len(to_integer(export_LoadData.y), 4));
-               write(line_out, string'(" D1 "));
-               write(line_out, to_hstring(export_LoadData.debug1));
-               write(line_out, string'(" D2 "));
-               write(line_out, to_hstring(export_LoadData.debug2));
-               write(line_out, string'(" D3 "));
-               write(line_out, to_hstring(export_LoadData.debug3));
-               writeline(outfile, line_out);
-               tracecounts_out(17) <= tracecounts_out(17) + 1;
-               
-               write(line_out, string'("LoadValue: I ")); 
-               write(line_out, to_string_len(tracecounts_out(18) + 1, 8));
-               write(line_out, string'(" A ")); 
-               write(line_out, to_hstring(export_LoadValue.addr));
-               write(line_out, string'(" D ")); 
-               write(line_out, to_hstring(export_LoadValue.data(31 downto 0)));
-               write(line_out, string'(" X ")); 
-               write(line_out, to_string_len(to_integer(export_LoadValue.x), 4));
-               write(line_out, string'(" Y ")); 
-               write(line_out, to_string_len(to_integer(export_LoadValue.y), 4));
-               write(line_out, string'(" D1 "));
-               write(line_out, to_hstring(export_LoadValue.debug1));
-               write(line_out, string'(" D2 "));
-               write(line_out, to_hstring(export_LoadValue.debug2));
-               write(line_out, string'(" D3 "));
-               write(line_out, to_hstring(export_LoadValue.debug3));
-               writeline(outfile, line_out);
-               tracecounts_out(18) <= tracecounts_out(18) + 1;
+               export_gpu32(16, tracecounts_out(16), export_loadFetch, outfile); tracecounts_out(16) <= tracecounts_out(16) + 1;
+               export_gpu64(17, tracecounts_out(17), export_LoadData,  outfile); tracecounts_out(17) <= tracecounts_out(17) + 1;
+               export_gpu32(18, tracecounts_out(18), export_LoadValue, outfile); tracecounts_out(18) <= tracecounts_out(18) + 1;
             end if;
             
             if (export_pipeDone = '1') then
-               write(line_out, string'("PipeO: I ")); 
-               write(line_out, to_string_len(tracecounts_out(3) + 1, 8));
-               write(line_out, string'(" A ")); 
-               write(line_out, to_hstring(export_pipeO.addr));
-               write(line_out, string'(" D ")); 
-               write(line_out, to_hstring(export_pipeO.data(31 downto 0)));
-               write(line_out, string'(" X ")); 
-               write(line_out, to_string_len(to_integer(export_pipeO.x), 4));
-               write(line_out, string'(" Y ")); 
-               write(line_out, to_string_len(to_integer(export_pipeO.y), 4));
-               write(line_out, string'(" D1 "));
-               write(line_out, to_hstring(export_pipeO.debug1));
-               write(line_out, string'(" D2 "));
-               write(line_out, to_hstring(export_pipeO.debug2));
-               write(line_out, string'(" D3 "));
-               write(line_out, to_hstring(export_pipeO.debug3));
-               writeline(outfile, line_out);
-               tracecounts_out(3) <= tracecounts_out(3) + 1;
-               
-               write(line_out, string'("Color: I ")); 
-               write(line_out, to_string_len(tracecounts_out(4) + 1, 8));
-               write(line_out, string'(" A ")); 
-               write(line_out, to_hstring(export_color.addr));
-               write(line_out, string'(" D ")); 
-               write(line_out, to_hstring(export_color.data(31 downto 0)));
-               write(line_out, string'(" X ")); 
-               write(line_out, to_string_len(to_integer(export_color.x), 4));
-               write(line_out, string'(" Y ")); 
-               write(line_out, to_string_len(to_integer(export_color.y), 4));
-               write(line_out, string'(" D1 "));
-               write(line_out, to_hstring(export_color.debug1));
-               write(line_out, string'(" D2 "));
-               write(line_out, to_hstring(export_color.debug2));
-               write(line_out, string'(" D3 "));
-               write(line_out, to_hstring(export_color.debug3));
-               writeline(outfile, line_out);
-               tracecounts_out(4) <= tracecounts_out(4) + 1;
+               export_gpu32( 3, tracecounts_out( 3), export_pipeO,    outfile); tracecounts_out( 3) <= tracecounts_out( 3) + 1;
+               export_gpu32( 4, tracecounts_out( 4), export_color,    outfile); tracecounts_out( 4) <= tracecounts_out( 4) + 1;
+               export_gpu32(19, tracecounts_out(19), export_LOD,      outfile); tracecounts_out(19) <= tracecounts_out(19) + 1;
+               export_gpu32(11, tracecounts_out(11), export_TexCoord, outfile); tracecounts_out(11) <= tracecounts_out(11) + 1;
+               export_gpu32( 7, tracecounts_out( 7), export_TexFetch, outfile); tracecounts_out( 7) <= tracecounts_out( 7) + 1;
+               export_gpu32(13, tracecounts_out(13), export_TexColor, outfile); tracecounts_out(13) <= tracecounts_out(13) + 1;
             end if;
             
             if (writePixel = '1') then

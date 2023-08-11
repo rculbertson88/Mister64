@@ -193,6 +193,8 @@ begin
                   if (commandRAMPtr = commandCntNext) then
                      state <= IDLE;
                   end if;
+                  
+                  settings_poly  <= SETTINGSPOLYINIT;
 
                   case (CommandData(61 downto 56)) is
                   
@@ -232,7 +234,6 @@ begin
                            state           <= IDLE;
                         end if;
                      
-                        commandRAMPtr          <= commandRAMPtr;
                         tile_RdAddr            <= std_logic_vector(CommandData(26 downto 24));
                         settings_poly.lft      <= '1';
                         settings_poly.YL       <= "000" & signed(CommandData(43 downto 32));
@@ -254,6 +255,10 @@ begin
                         -- todo   
                         
                      when 6x"27" => -- sync pipe
+                        commandWordDone <= '1';
+                        -- todo                       
+                        
+                     when 6x"28" => -- sync tile
                         commandWordDone <= '1';
                         -- todo                     
                         
@@ -468,11 +473,18 @@ begin
                   commandRAMPtr          <= commandRAMPtr;
                   poly_start             <= '1';
                   poly_loading_mode      <= '0';
-                  -- todo: add poly_Texture_S/T from commanddata 
+                  
+                  settings_poly.tex_Texture_S   <= signed(CommandData(63 downto 48)) & 16x"0";
+                  settings_poly.tex_Texture_T   <= signed(CommandData(47 downto 32)) & 16x"0";
+
                   if (state = EVALTEXRECTANGLE) then
-                     -- todo: add poly_DsDx poly_DtDe poly_DtDy from commanddata 
+                     settings_poly.tex_DsDx <= resize(signed(CommandData(31 downto 16)), 21) & 11x"0";
+                     settings_poly.tex_DtDe <= resize(signed(CommandData(15 downto  0)), 21) & 11x"0";
+                     settings_poly.tex_DtDy <= resize(signed(CommandData(15 downto  0)), 21) & 11x"0";
                   else
-                     -- todo: add poly_DsDx poly_DtDe poly_DtDy from commanddata 
+                     settings_poly.tex_DtDx <= resize(signed(CommandData(15 downto  0)), 21) & 11x"0";
+                     settings_poly.tex_DsDe <= resize(signed(CommandData(31 downto 16)), 21) & 11x"0";
+                     settings_poly.tex_DsDy <= resize(signed(CommandData(31 downto 16)), 21) & 11x"0";
                   end if;   
             
                when EVALTRIANGLE =>

@@ -17,7 +17,8 @@ entity RDP_CombineColor is
       settings_combineMode    : in  tsettings_combineMode;
      
       pipeInColor             : in  tcolor4_s16;
-     
+      texture_color           : in  tcolor3_u8;
+
       combine_color           : out tcolor3_u8
    );
 end entity;
@@ -29,10 +30,10 @@ architecture arch of RDP_CombineColor is
    signal mode_mul         : unsigned(4 downto 0);
    signal mode_add         : unsigned(2 downto 0);
             
-   signal color_sub1       : tcolor3_s10;
-   signal color_sub2       : tcolor3_s10;
-   signal color_mul        : tcolor3_s10;
-   signal color_add        : tcolor3_s10;
+   signal color_sub1       : tcolor3_s10 := (others => (others => '0'));
+   signal color_sub2       : tcolor3_s10 := (others => (others => '0'));
+   signal color_mul        : tcolor3_s10 := (others => (others => '0'));
+   signal color_add        : tcolor3_s10 := (others => (others => '0'));
    
    signal combiner_sub     : tcolor3_s10;
    signal combiner_mul     : tcolor3_s20;
@@ -61,7 +62,7 @@ begin
                color_sub1(i) <= (others => '0');
                case (to_integer(mode_sub1)) is
                   --when 0 => combiner color
-                  --when 1 => tex1
+                  when 1 => color_sub1(i) <= "00" & signed(texture_color(i));
                   --when 2 => tex2
                   --when 3 => prim
                   when 4 => color_sub1(i) <= '0' & pipeInColor(i)(8 downto 0);
@@ -74,7 +75,7 @@ begin
                color_sub2(i) <= (others => '0');
                case (to_integer(mode_sub2)) is
                   --when 0 => combiner color
-                  --when 1 => tex1
+                  when 1 => color_sub2(i) <= "00" & signed(texture_color(i));
                   --when 2 => tex2
                   --when 3 => prim
                   when 4 => color_sub2(i) <= '0' & pipeInColor(i)(8 downto 0);
@@ -87,7 +88,7 @@ begin
                color_mul(i) <= (others => '0');
                case (to_integer(mode_mul)) is
                   --when 0 => combiner color
-                  --when 1 => tex1
+                  when 1 => color_mul(i) <= "00" & signed(texture_color(i));
                   --when 2 => tex2
                   --when 3 => prim
                   when 4 => color_mul(i) <= '0' & pipeInColor(i)(8 downto 0);
@@ -108,7 +109,7 @@ begin
                color_add(i) <= (others => '0');
                case (to_integer(mode_add)) is
                   --when 0 => combiner color
-                  --when 1 => tex1
+                  when 1 => color_add(i) <= "00" & signed(texture_color(i));
                   --when 2 => tex2
                   --when 3 => prim
                   when 4 => color_add(i) <= '0' & pipeInColor(i)(8 downto 0);

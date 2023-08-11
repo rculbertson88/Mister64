@@ -1,6 +1,9 @@
 library IEEE;
 use IEEE.std_logic_1164.all;  
-use IEEE.numeric_std.all;     
+use IEEE.numeric_std.all;
+use STD.textio.all;     
+
+use work.pFunctions.all;
 
 package pRDP is
 
@@ -231,6 +234,8 @@ package pRDP is
    
    type tcolor4_s16 is array(0 to 3) of signed(15 downto 0);
    type tcolor4_s32 is array(0 to 3) of signed(31 downto 0);
+   
+   type tTextureRamData is array(0 to 7) of std_logic_vector(15 downto 0);
 
    constant SIZE_4BIT  : unsigned(1 downto 0) := "00";
    constant SIZE_8BIT  : unsigned(1 downto 0) := "01";
@@ -254,6 +259,74 @@ package pRDP is
       debug2         : unsigned(31 downto 0);
       debug3         : unsigned(31 downto 0);
    end record; 
+   
+   procedure export_gpu32(id : integer; count: integer; item : rdp_export_type; file outfile : text);
+   procedure export_gpu64(id : integer; count: integer; item : rdp_export_type; file outfile : text);
    -- synthesis translate_on
 
 end package;
+
+package body pRDP is
+   
+   -- synthesis translate_off
+   procedure export_gpu32(id : integer; count: integer; item : rdp_export_type; file outfile : text) is
+      variable line_out : line;
+   begin
+      case (id) is
+         when  3 => write(line_out, string'("PipeO: I ")); 
+         when  4 => write(line_out, string'("Color: I ")); 
+         when  7 => write(line_out, string'("TexFt: I ")); 
+         when 11 => write(line_out, string'("TexCoord: I ")); 
+         when 13 => write(line_out, string'("TexColor: I ")); 
+         when 16 => write(line_out, string'("LoadFetch: I ")); 
+         when 18 => write(line_out, string'("LoadValue: I "));  
+         when 19 => write(line_out, string'("LOD: I ")); 
+         when others => null;
+      end case;
+      
+      write(line_out, to_string_len(count + 1, 8));
+      write(line_out, string'(" A ")); 
+      write(line_out, to_hstring(item.addr));
+      write(line_out, string'(" D ")); 
+      write(line_out, to_hstring(item.data(31 downto 0)));
+      write(line_out, string'(" X ")); 
+      write(line_out, to_string_len(to_integer(item.x), 4));
+      write(line_out, string'(" Y ")); 
+      write(line_out, to_string_len(to_integer(item.y), 4));
+      write(line_out, string'(" D1 "));
+      write(line_out, to_hstring(item.debug1));
+      write(line_out, string'(" D2 "));
+      write(line_out, to_hstring(item.debug2));
+      write(line_out, string'(" D3 "));
+      write(line_out, to_hstring(item.debug3));
+      writeline(outfile, line_out);
+   end procedure export_gpu32;
+   
+   procedure export_gpu64(id : integer; count: integer; item : rdp_export_type; file outfile : text) is
+      variable line_out : line;
+   begin
+      case (id) is
+         when 17 => write(line_out, string'("LoadData: I ")); 
+         when others => null;
+      end case;
+      
+      write(line_out, to_string_len(count + 1, 8));
+      write(line_out, string'(" A ")); 
+      write(line_out, to_hstring(item.addr));
+      write(line_out, string'(" D ")); 
+      write(line_out, to_hstring(item.data));
+      write(line_out, string'(" X ")); 
+      write(line_out, to_string_len(to_integer(item.x), 4));
+      write(line_out, string'(" Y ")); 
+      write(line_out, to_string_len(to_integer(item.y), 4));
+      write(line_out, string'(" D1 "));
+      write(line_out, to_hstring(item.debug1));
+      write(line_out, string'(" D2 "));
+      write(line_out, to_hstring(item.debug2));
+      write(line_out, string'(" D3 "));
+      write(line_out, to_hstring(item.debug3));
+      writeline(outfile, line_out);
+   end procedure export_gpu64;
+   -- synthesis translate_on
+
+end pRDP;

@@ -10,9 +10,7 @@ entity RDP_BlendColor is
    (
       clk1x                   : in  std_logic;
       trigger                 : in  std_logic;
-   
-      errorCombine            : out std_logic := '0';
-   
+
       settings_otherModes     : in  tsettings_otherModes;
       settings_blendcolor     : in  tsettings_blendcolor;
      

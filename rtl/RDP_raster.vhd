@@ -58,10 +58,13 @@ entity RDP_raster is
       pipeIn_offX             : out unsigned(1 downto 0) := (others => '0');
       pipeIn_offY             : out unsigned(1 downto 0) := (others => '0');
       pipeInColor             : out tcolor4_s16 := (others => (others => '0'));
+      pipeIn_S                : out signed(15 downto 0) := (others => '0');
+      pipeIn_T                : out signed(15 downto 0) := (others => '0');
       
       -- synthesis translate_off
-      pipeIn_cvg16            : out unsigned(15 downto 0);
+      pipeIn_cvg16            : out unsigned(15 downto 0) := (others => '0');
       pipeInColorFull         : out tcolor4_s32;
+      pipeInSTWZ              : out tcolor4_s32;
       -- synthesis translate_on
 
       fillWrite               : out std_logic := '0';
@@ -203,7 +206,7 @@ architecture arch of RDP_raster is
       Texture_W   : signed(31 downto 0);
       Z           : signed(31 downto 0);
    end record;
-   signal lineInfo      : tlineInfo;
+   signal lineInfo      : tlineInfo := (y => (others => '0'), xStart => (others => '0'), xEnd => (others => '0'), others => (others => '0'));
    signal startLine     : std_logic := '0';
    
    -- line drawing
@@ -222,8 +225,6 @@ architecture arch of RDP_raster is
    signal line_endX        : unsigned(11 downto 0) := (others => '0');
    
    signal xDiff            : signed(11 downto 0);
-   signal tile0            : unsigned(2 downto 0);
-   signal tile1            : unsigned(2 downto 0);
    
    type tlineCVGInfo is record
       majorx      : t_majorminor;
@@ -464,7 +465,7 @@ begin
                      poly_Color_B   <= settings_poly.shade_Color_B;
                      poly_Color_A   <= settings_poly.shade_Color_A;
                      poly_Texture_S <= settings_poly.tex_Texture_S;
-                     poly_Texture_S <= settings_poly.tex_Texture_T;
+                     poly_Texture_T <= settings_poly.tex_Texture_T;
                      poly_Texture_W <= settings_poly.tex_Texture_W;
                      poly_Z         <= settings_poly.zBuffer_Z;
                      
@@ -745,9 +746,6 @@ begin
                   --todo: if (otherModes_zSourceSel)
                   --todo: if (poly_DzPix & 0xff00)
                
-                  tile0 <= settings_poly.tile;
-                  tile1 <= settings_poly.tile + 1;
-               
                when PREPARELINE =>
                   linestate <= DRAWLINE;
                   pixel_Color_R   <= pixel_Color_R   + resize(xDiff * line_DrDx,32);  
@@ -783,13 +781,21 @@ begin
                   pipeInColor(2)  <= pixel_Color_B(31 downto 16);
                   pipeInColor(3)  <= pixel_Color_A(31 downto 16);
                   
+                  pipeIn_S        <= pixel_Texture_S(31 downto 16);
+                  pipeIn_T        <= pixel_Texture_T(31 downto 16);
+                  
                   -- synthesis translate_off
                   pipeIn_cvg16    <= cvg(0) & cvg(1) & cvg(2) & cvg(3);
                   
                   pipeInColorFull(0) <= pixel_Color_R;
                   pipeInColorFull(1) <= pixel_Color_G;
                   pipeInColorFull(2) <= pixel_Color_B;
-                  pipeInColorFull(3) <= pixel_Color_A;
+                  pipeInColorFull(3) <= pixel_Color_A;                  
+                  
+                  pipeInSTWZ(0)      <= pixel_Texture_S;
+                  pipeInSTWZ(1)      <= pixel_Texture_T;
+                  pipeInSTWZ(2)      <= pixel_Texture_W;
+                  pipeInSTWZ(3)      <= pixel_Z;
                   -- synthesis translate_on
 
                   pixel_Color_R   <= pixel_Color_R   + line_DrDx;
@@ -894,8 +900,8 @@ begin
    
    load_Ram0Addr <= load_tmemAddr0(10 downto 1) & '1';
    load_Ram1Addr <= load_tmemAddr0(10 downto 1) & '0';
-   load_Ram2Addr <= load_tmemAddr0(10 downto 1) & '1';
-   load_Ram3Addr <= load_tmemAddr0(10 downto 1) & '0';
+   load_Ram2Addr <= load_tmemAddr0(10 downto 2) & "11";
+   load_Ram3Addr <= load_tmemAddr0(10 downto 2) & "10";
    
    load_Ram0Data <= TextureReqRAMData(63 downto 48) when (load_T_corrected(0) = '0') else TextureReqRAMData(31 downto 16);
    load_Ram1Data <= TextureReqRAMData(47 downto 32) when (load_T_corrected(0) = '0') else TextureReqRAMData(15 downto  0);
@@ -969,10 +975,10 @@ begin
                   loadTexture_T <= loadTexture_T + (settings_poly.tex_DtDx(31 downto 5) & "00000");
                   
                   TextureRamAddr  <= load_Ram0Addr(10 downto 2);
-                  TextureRam0Data <= load_Ram0Data;
-                  TextureRam1Data <= load_Ram1Data;
-                  TextureRam2Data <= load_Ram2Data;
-                  TextureRam3Data <= load_Ram3Data;
+                  TextureRam0Data <= load_Ram1Data;
+                  TextureRam1Data <= load_Ram0Data;
+                  TextureRam2Data <= load_Ram3Data;
+                  TextureRam3Data <= load_Ram2Data;
                   
                   if (settings_tile.Tile_format = FORMAT_YUV) then
                      report "texture loading in YUV format" severity failure;  -- todo: implement
