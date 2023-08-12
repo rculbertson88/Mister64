@@ -99,7 +99,7 @@ architecture arch of RDP is
    -- Command RAM
    signal DPC_END                   : unsigned(23 downto 0) := (others => '0');
    
-   signal CMD_fillAddr              : unsigned(4 downto 0) := (others => '0');
+   signal RDRAM_fillAddr            : unsigned(9 downto 0) := (others => '0');
    
    signal commandRAMstore           : std_logic := '0';
    signal commandRAMReady           : std_logic := '0';
@@ -121,11 +121,21 @@ architecture arch of RDP is
    signal TextureReqRAMData         : std_logic_vector(63 downto 0);
    signal TextureReqRAMPtr          : unsigned(4 downto 0);
    
+   -- Framebuffer request
+   signal FBreq                     : std_logic;
+   signal FBaddr                    : unsigned(25 downto 0);
+   signal FBodd                     : std_logic;
+   signal FBdone                    : std_logic := '0';
+   signal FBRAMstore                : std_logic := '0';
+   signal FBReadAddr                : unsigned(10 downto 0);
+   signal FBReadData                : std_logic_vector(31 downto 0);
+   
    type tmemState is 
    (  
       MEMIDLE, 
       WAITCOMMANDDATA,
-      WAITTEXTUREDATA
+      WAITTEXTUREDATA,
+      WAITFBDATA
    ); 
    signal memState  : tmemState := MEMIDLE;
 
@@ -169,6 +179,7 @@ architecture arch of RDP is
    signal pipeIn_trigger            : std_logic;
    signal pipeIn_valid              : std_logic;
    signal pipeIn_Addr               : unsigned(25 downto 0);
+   signal pipeIn_xIndex             : unsigned(11 downto 0);
    signal pipeIn_X                  : unsigned(11 downto 0);
    signal pipeIn_Y                  : unsigned(11 downto 0);
    signal pipeIn_cvgValue           : unsigned(7 downto 0);
@@ -220,6 +231,8 @@ architecture arch of RDP is
    signal export_TexCoord           : rdp_export_type;
    signal export_TexFetch           : rdp_export_type;
    signal export_TexColor           : rdp_export_type;
+   signal export_Comb               : rdp_export_type;
+   signal export_FBMem              : rdp_export_type;
    
    signal pipeIn_cvg16              : unsigned(15 downto 0);
    signal pipeInColorFull           : tcolor4_s32;
@@ -242,6 +255,7 @@ begin
          RSP2RDP_req         <= '0';
          rdram_request       <= '0';
          TextureReqRAMReady  <= '0';
+         FBdone              <= '0';
       
          if (reset = '1') then
             
@@ -414,6 +428,11 @@ begin
                   rdram_request     <= '1';
                   rdram_address     <= "00" & TextureReqRAMaddr;
                   rdram_burstcount  <= to_unsigned(32, 10);
+               elsif (FBreq = '1') then
+                  memState          <= WAITFBDATA;
+                  rdram_request     <= '1';
+                  rdram_address     <= "00" & (settings_colorImage.FB_base + FBaddr);
+                  rdram_burstcount  <= to_unsigned(32, 10);
                elsif (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1') then
                   if (DPC_CURRENT < DPC_END) then
                      memState          <= WAITCOMMANDDATA;
@@ -445,6 +464,12 @@ begin
                if (rdram_done = '1') then
                   TextureReqRAMReady   <= '1';
                   memState             <= MEMIDLE;
+               end if;            
+               
+            when WAITFBDATA =>
+               if (rdram_done = '1') then
+                  FBdone   <= '1';
+                  memState <= MEMIDLE;
                end if;
          
          end case;
@@ -463,19 +488,23 @@ begin
       if rising_edge(clk2x) then
          
          if (rdram_granted = '1') then
-            CMD_fillAddr <= (others => '0');
+            RDRAM_fillAddr <= (others => '0');
             if (memState = WAITCOMMANDDATA) then
                commandRAMstore <= '1';
             elsif (memState = WAITTEXTUREDATA) then
-               TextureReqRAMstore <= '1';
+               TextureReqRAMstore <= '1';            
+            elsif (memState = WAITFBDATA) then
+               FBRAMstore       <= '1';
+               RDRAM_fillAddr(9) <= FBodd;
             end if;
          elsif (ddr3_DOUT_READY = '1') then
-            CMD_fillAddr <= CMD_fillAddr + 1;
+            RDRAM_fillAddr(8 downto 0) <= RDRAM_fillAddr(8 downto 0) + 1;
          end if;
          
          if (rdram_done = '1') then
             commandRAMstore    <= '0';
             TextureReqRAMstore <= '0';
+            FBRAMstore         <= '0';
          end if;
          
       end if;
@@ -490,7 +519,7 @@ begin
    port map
    (
       clock_a     => clk2x,
-      address_a   => std_logic_vector(CMD_fillAddr),
+      address_a   => std_logic_vector(RDRAM_fillAddr(4 downto 0)),
       data_a      => byteswap64(ddr3_DOUT),
       wren_a      => (ddr3_DOUT_READY and commandRAMstore),
       
@@ -573,7 +602,7 @@ begin
    port map
    (
       clock_a     => clk2x,
-      address_a   => std_logic_vector(CMD_fillAddr),
+      address_a   => std_logic_vector(RDRAM_fillAddr(4 downto 0)),
       data_a      => byteswap64(ddr3_DOUT),
       wren_a      => (ddr3_DOUT_READY and TextureReqRAMstore),
       
@@ -617,6 +646,11 @@ begin
       TextureRam3Data         => TextureRam3Data,
       TextureRamWE            => TextureRamWE,   
       
+      FBreq                   => FBreq, 
+      FBaddr                  => FBaddr,
+      FBodd                   => FBodd, 
+      FBdone                  => FBdone,
+      
       -- synthesis translate_off
       export_line_done        => export_line_done,
       export_line_list        => export_line_list,
@@ -632,6 +666,7 @@ begin
       pipeIn_trigger          => pipeIn_trigger,
       pipeIn_valid            => pipeIn_valid,  
       pipeIn_Addr             => pipeIn_Addr,   
+      pipeIn_xIndex           => pipeIn_xIndex,      
       pipeIn_X                => pipeIn_X,      
       pipeIn_Y                => pipeIn_Y, 
       pipeIn_cvgValue         => pipeIn_cvgValue, 
@@ -688,6 +723,28 @@ begin
       );
       
    end generate;
+   
+   iFBRAM: entity mem.dpram_dif
+   generic map 
+   ( 
+      addr_width_a => 10,
+      data_width_a => 64,
+      addr_width_b => 11,
+      data_width_b => 32
+   )
+   port map
+   (
+      clock_a     => clk2x,
+      address_a   => std_logic_vector(RDRAM_fillAddr),
+      data_a      => byteswap64(ddr3_DOUT),
+      wren_a      => (ddr3_DOUT_READY and FBRAMstore),
+      
+      clock_b     => clk1x,
+      address_b   => std_logic_vector(FBReadAddr),
+      data_b      => 32x"0",
+      wren_b      => '0',
+      q_b         => FBReadData
+   );
 
    iRDP_pipeline : entity work.RDP_pipeline
    port map
@@ -710,6 +767,7 @@ begin
       pipeIn_trigger          => pipeIn_trigger,
       pipeIn_valid            => pipeIn_valid,  
       pipeIn_Addr             => pipeIn_Addr,   
+      pipeIn_xIndex           => pipeIn_xIndex,      
       pipeIn_X                => pipeIn_X,      
       pipeIn_Y                => pipeIn_Y,      
       pipeIn_cvgValue         => pipeIn_cvgValue,  
@@ -721,6 +779,9 @@ begin
 
       TextureAddr             => TextureReadAddr,
       TextureRamData          => TextureReadData,
+      
+      FBAddr                  => FBReadAddr,
+      FBData                  => FBReadData,
      
       -- synthesis translate_off
       pipeIn_cvg16            => pipeIn_cvg16,  
@@ -734,6 +795,8 @@ begin
       export_TexCoord         => export_TexCoord,   
       export_TexFetch         => export_TexFetch,   
       export_TexColor         => export_TexColor,   
+      export_Comb             => export_Comb,   
+      export_FBMem            => export_FBMem,   
       -- synthesis translate_on
       
       writePixel              => writePixel,     
@@ -854,6 +917,7 @@ begin
          variable export_fillBE     : unsigned(7 downto 0);
          variable export_fillX      : unsigned(11 downto 0);
          variable export_fillIndex  : integer;
+         variable useTexture        : std_logic;
       begin
    
          file_open(f_status, outfile, "R:\\rdp_n64_sim.txt", write_mode);
@@ -900,14 +964,30 @@ begin
                export_gpu64(17, tracecounts_out(17), export_LoadData,  outfile); tracecounts_out(17) <= tracecounts_out(17) + 1;
                export_gpu32(18, tracecounts_out(18), export_LoadValue, outfile); tracecounts_out(18) <= tracecounts_out(18) + 1;
             end if;
+
+            useTexture := '0';
+            case (to_integer(settings_combineMode.combine_sub_a_R_1)) is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_sub_b_R_1)) is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_mul_R_1))   is  when 1 | 2 | 8 | 9 | 13 | 14 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_add_R_1))   is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_sub_a_A_1)) is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_sub_b_A_1)) is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_mul_A_1))   is  when 1 | 2 | 6 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_add_A_1))   is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
             
             if (export_pipeDone = '1') then
                export_gpu32( 3, tracecounts_out( 3), export_pipeO,    outfile); tracecounts_out( 3) <= tracecounts_out( 3) + 1;
                export_gpu32( 4, tracecounts_out( 4), export_color,    outfile); tracecounts_out( 4) <= tracecounts_out( 4) + 1;
-               export_gpu32(19, tracecounts_out(19), export_LOD,      outfile); tracecounts_out(19) <= tracecounts_out(19) + 1;
-               export_gpu32(11, tracecounts_out(11), export_TexCoord, outfile); tracecounts_out(11) <= tracecounts_out(11) + 1;
-               export_gpu32( 7, tracecounts_out( 7), export_TexFetch, outfile); tracecounts_out( 7) <= tracecounts_out( 7) + 1;
-               export_gpu32(13, tracecounts_out(13), export_TexColor, outfile); tracecounts_out(13) <= tracecounts_out(13) + 1;
+               if (useTexture = '1') then
+                  export_gpu32(19, tracecounts_out(19), export_LOD,      outfile); tracecounts_out(19) <= tracecounts_out(19) + 1;
+                  export_gpu32(11, tracecounts_out(11), export_TexCoord, outfile); tracecounts_out(11) <= tracecounts_out(11) + 1;
+                  export_gpu32( 7, tracecounts_out( 7), export_TexFetch, outfile); tracecounts_out( 7) <= tracecounts_out( 7) + 1;
+                  export_gpu32(13, tracecounts_out(13), export_TexColor, outfile); tracecounts_out(13) <= tracecounts_out(13) + 1;
+               end if;
+               export_gpu32(23, tracecounts_out(23), export_Comb    , outfile); tracecounts_out(23) <= tracecounts_out(23) + 1;
+               if (settings_otherModes.imageRead = '1') then
+                  export_gpu32(24, tracecounts_out(24), export_FBMem   , outfile); tracecounts_out(24) <= tracecounts_out(24) + 1;
+               end if;
             end if;
             
             if (writePixel = '1') then

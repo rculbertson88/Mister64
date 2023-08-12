@@ -37,6 +37,11 @@ entity RDP_raster is
       TextureRam3Data         : out std_logic_vector(15 downto 0) := (others => '0');
       TextureRamWE            : out std_logic_vector(7 downto 0)  := (others => '0');
      
+      FBreq                   : out std_logic := '0';
+      FBaddr                  : out unsigned(25 downto 0) := (others => '0');
+      FBodd                   : out std_logic := '0';
+      FBdone                  : in  std_logic;
+     
       -- synthesis translate_off
       export_line_done        : out std_logic := '0'; 
       export_line_list        : out rdp_export_type := (others => (others => '0')); 
@@ -52,6 +57,7 @@ entity RDP_raster is
       pipeIn_trigger          : out std_logic := '0';
       pipeIn_valid            : out std_logic := '0';
       pipeIn_Addr             : out unsigned(25 downto 0) := (others => '0');
+      pipeIn_xIndex           : out unsigned(11 downto 0) := (others => '0');
       pipeIn_X                : out unsigned(11 downto 0) := (others => '0');
       pipeIn_Y                : out unsigned(11 downto 0) := (others => '0');
       pipeIn_cvgValue         : out unsigned(7 downto 0) := (others => '0');
@@ -82,6 +88,8 @@ architecture arch of RDP_raster is
    (  
       POLYIDLE, 
       EVALLINE,
+      REQUESTFB,
+      WAITREADRAM,
       WAITLINE,
       POLYFINISH
    ); 
@@ -180,7 +188,8 @@ architecture arch of RDP_raster is
    signal xright_cross  : unsigned(13 downto 0) := (others => '0');
    signal xleft_cross   : unsigned(13 downto 0) := (others => '0');   
    signal curcross      : std_logic := '0';
-   signal invaly        : std_logic := '0';  
+   signal invaly        : std_logic := '0'; 
+   signal calcFBAddr    : unsigned(25 downto 0);   
    
    -- poly accu
    signal poly_Color_R     : signed(31 downto 0) := (others => '0');
@@ -223,6 +232,7 @@ architecture arch of RDP_raster is
    signal line_posY        : unsigned(11 downto 0) := (others => '0');
    signal line_posX        : unsigned(11 downto 0) := (others => '0');
    signal line_endX        : unsigned(11 downto 0) := (others => '0');
+   signal line_indexX      : unsigned(11 downto 0) := (others => '0');
    
    signal xDiff            : signed(11 downto 0);
    
@@ -393,8 +403,13 @@ begin
    curover_r      <= '1' when (xrsc_under(13) = '1' or xrsc_under > clipxlshift) else '0';
    curover_l      <= '1' when (xlsc_under(13) = '1' or xlsc_under > clipxlshift) else '0';
    
-   xrsc           <= "00" & clipxlshift when (curover_r = '1') else xrsc_under(14 downto 0);
-   xlsc           <= "00" & clipxlshift when (curover_l = '1') else xlsc_under(14 downto 0);
+   xrsc           <= unsigned(xright(27 downto 14) & '0') when (loading_mode = '1') else
+                     "00" & clipxlshift                   when (curover_r = '1') else 
+                     xrsc_under(14 downto 0);
+   
+   xlsc           <= unsigned(xleft(27 downto 14) & '0') when (loading_mode = '1') else 
+                     "00" & clipxlshift                  when (curover_l = '1') else 
+                     xlsc_under(14 downto 0);
    
    xright_cross   <= not xright(27) & unsigned(xright(26 downto 14));
    xleft_cross    <= not xleft(27)  & unsigned(xleft(26 downto 14));
@@ -405,9 +420,11 @@ begin
    
    invaly         <= '1' when (ycur < yhlimit) else
                      '1' when (ycur >= yllimit) else
-                     '1' when curcross = '1' else
+                     '1' when (loading_mode = '0' and curcross = '1') else
                      '0';
                    
+   calcFBAddr     <= resize(((lineInfo.y * (settings_colorImage.FB_width_m1 + 1)) + lineInfo.xStart) * 2, 26) when (settings_colorImage.FB_size = SIZE_16BIT) else
+                     resize(((lineInfo.y * (settings_colorImage.FB_width_m1 + 1)) + lineInfo.xStart) * 4, 26);
    
    process (clk1x)
       variable unscrx_new : signed(12 downto 0) := (others => '0');
@@ -421,6 +438,7 @@ begin
          minxmx_new := minxmx;
       
          poly_done  <= '0';
+         FBreq      <= '0';
 
          if (reset = '1') then
             
@@ -510,15 +528,16 @@ begin
                         allover        <= '0';
                         allunder       <= '0';
                      else
-                        if (settings_poly.lft = '1') then
-                           minorx(to_integer(unsigned(ycur(1 downto 0)))) <= xrsc(12 downto 0);
-                           majorx(to_integer(unsigned(ycur(1 downto 0)))) <= xlsc(12 downto 0);  
-                        else
-                           majorx(to_integer(unsigned(ycur(1 downto 0)))) <= xrsc(12 downto 0);
-                           minorx(to_integer(unsigned(ycur(1 downto 0)))) <= xlsc(12 downto 0);
-                        end if;
                         if (curover_r  = '0' or curover_l  = '0') then allover  <= '0'; end if;
                         if (curunder_r = '0' or curunder_l = '0') then allunder <= '0'; end if;
+                     end if;
+                     
+                     if (settings_poly.lft = '1') then
+                        minorx(to_integer(unsigned(ycur(1 downto 0)))) <= xrsc(12 downto 0);
+                        majorx(to_integer(unsigned(ycur(1 downto 0)))) <= xlsc(12 downto 0);  
+                     else
+                        majorx(to_integer(unsigned(ycur(1 downto 0)))) <= xrsc(12 downto 0);
+                        minorx(to_integer(unsigned(ycur(1 downto 0)))) <= xlsc(12 downto 0);
                      end if;
                      
                      invalidLine(to_integer(unsigned(ycur(1 downto 0)))) <= invaly;
@@ -536,14 +555,14 @@ begin
                 
                      if (unsigned(ycur(1 downto 0)) = ldflag) then
                         unscrx_new := xright(28 downto 16);
-                        lineInfo.Color_R     <= lineFrac_R;
-                        lineInfo.Color_G     <= lineFrac_G;
-                        lineInfo.Color_B     <= lineFrac_B;
-                        lineInfo.Color_A     <= lineFrac_A;
-                        lineInfo.Texture_S   <= lineFrac_S;
-                        lineInfo.Texture_T   <= lineFrac_T;
-                        lineInfo.Texture_W   <= lineFrac_W;
-                        lineInfo.Z           <= lineFrac_Z;
+                        lineInfo.Color_R     <= lineFrac_R(31 downto 10) & 10x"0";
+                        lineInfo.Color_G     <= lineFrac_G(31 downto 10) & 10x"0";
+                        lineInfo.Color_B     <= lineFrac_B(31 downto 10) & 10x"0";
+                        lineInfo.Color_A     <= lineFrac_A(31 downto 10) & 10x"0";
+                        lineInfo.Texture_S   <= lineFrac_S(31 downto 10) & 10x"0";
+                        lineInfo.Texture_T   <= lineFrac_T(31 downto 10) & 10x"0";
+                        lineInfo.Texture_W   <= lineFrac_W(31 downto 10) & 10x"0";
+                        lineInfo.Z           <= lineFrac_Z(31 downto 10) & 10x"0";
      
                      end if;
                      
@@ -552,13 +571,17 @@ begin
                      minxmx <= minxmx_new;
                      
                      if (unsigned(ycur(1 downto 0)) = 3) then
-                        startLine                    <= '1';
                         lineInfo.y                   <= unsigned(ycur(13 downto 2)); 
                         lineInfo.xStart              <= minxmx_new;
                         lineInfo.xEnd                <= maxxmx_new;
                         lineInfo.unscrx              <= unscrx_new;
-                        if (startLine = '1') then
-                           polystate      <= WAITLINE;
+                        if (settings_otherModes.imageRead = '1' and loading_mode = '0') then
+                           polystate <= REQUESTFB;
+                        else
+                           startLine <= '1';
+                           if (startLine = '1') then
+                              polystate <= WAITLINE;
+                           end if;
                         end if;
                      end if;
                 
@@ -581,6 +604,21 @@ begin
                   if (ycur + 1 = settings_poly.YM) then
                      secondHalf <= '1';
                      xleft      <= settings_poly.XL(31 downto 1) & '0';
+                  end if;
+                  
+               when REQUESTFB =>
+                  polystate <= WAITREADRAM;
+                  FBreq     <= '1';
+                  FBaddr    <= calcFBAddr;
+                  FBodd     <= lineInfo.y(0);
+                  
+               when WAITREADRAM =>
+                  if (FBdone = '1') then
+                     polystate <= EVALLINE;
+                     startLine <= '1';
+                     if (startLine = '1') then
+                        polystate <= WAITLINE;
+                     end if;
                   end if;
                   
                when WAITLINE =>
@@ -703,7 +741,8 @@ begin
                   lineCVGInfo.minorx      <= minorx;
                   lineCVGInfo.invalidLine <= invalidLine;
                   
-                  line_posY <= lineInfo.Y;
+                  line_posY   <= lineInfo.Y;
+                  line_indexX <= (others => '0');
                   if (settings_poly.lft = '1' or settings_otherModes.cycleType = "11") then
                      line_posX   <= lineInfo.xStart;
                      line_endX   <= lineInfo.xEnd;
@@ -758,6 +797,7 @@ begin
                   pixel_Z         <= pixel_Z         + resize(xDiff * line_DzDx,32);        
                
                when DRAWLINE =>
+                  line_indexX <= line_indexX + 1;
                   if (settings_poly.lft = '1') then
                      line_posX <= line_posX + 1;
                   else
@@ -770,6 +810,7 @@ begin
                   pipeIn_trigger  <= '1';
                   pipeIn_valid    <= '1';
                   pipeIn_Addr     <= calcPixelAddr;
+                  pipeIn_xIndex   <= line_indexX;
                   pipeIn_X        <= line_posX;
                   pipeIn_Y        <= line_posY;
                   pipeIn_cvgValue <= (cvg(0) or cvg(1)) & (cvg(2) or cvg(3));

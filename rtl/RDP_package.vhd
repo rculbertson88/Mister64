@@ -151,6 +151,13 @@ package pRDP is
       color     : unsigned(31 downto 0);
    end record;        
    
+   type tsettings_fogcolor is record
+      fog_A     : unsigned(7 downto 0);
+      fog_B     : unsigned(7 downto 0);
+      fog_G     : unsigned(7 downto 0);
+      fog_R     : unsigned(7 downto 0);
+   end record;   
+   
    type tsettings_blendcolor is record
       blend_A     : unsigned(7 downto 0);
       blend_B     : unsigned(7 downto 0);
@@ -166,6 +173,13 @@ package pRDP is
       prim_levelFrac    : unsigned(7 downto 0);
       prim_minLevel     : unsigned(4 downto 0);
    end record;    
+   
+   type tsettings_envcolor is record
+      env_A     : unsigned(7 downto 0);
+      env_B     : unsigned(7 downto 0);
+      env_G     : unsigned(7 downto 0);
+      env_R     : unsigned(7 downto 0);
+   end record;   
    
    type tsettings_combineMode is record
       combine_add_A_1   : unsigned(2 downto 0);
@@ -228,10 +242,13 @@ package pRDP is
    ); 
    
    type tcolor3_u8 is array(0 to 2) of unsigned(7 downto 0);
+   type tcolor3_u13 is array(0 to 2) of unsigned(12 downto 0);
+   type tcolor3_u14 is array(0 to 2) of unsigned(13 downto 0);
    type tcolor3_s10 is array(0 to 2) of signed(9 downto 0);
    type tcolor3_s12 is array(0 to 2) of signed(11 downto 0);
    type tcolor3_s20 is array(0 to 2) of signed(19 downto 0);
    
+   type tcolor4_u8 is array(0 to 3) of unsigned(7 downto 0);
    type tcolor4_s16 is array(0 to 3) of signed(15 downto 0);
    type tcolor4_s32 is array(0 to 3) of signed(31 downto 0);
    
@@ -281,6 +298,8 @@ package body pRDP is
          when 16 => write(line_out, string'("LoadFetch: I ")); 
          when 18 => write(line_out, string'("LoadValue: I "));  
          when 19 => write(line_out, string'("LOD: I ")); 
+         when 23 => write(line_out, string'("Comb: I ")); 
+         when 24 => write(line_out, string'("FBMem: I ")); 
          when others => null;
       end case;
       

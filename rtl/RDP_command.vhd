@@ -34,8 +34,10 @@ entity RDP_command is
       settings_scissor        : out tsettings_scissor := SETTINGSSCISSORINIT;
       settings_otherModes     : out tsettings_otherModes := SETTINGSOTHERMODESINIT;
       settings_fillcolor      : out tsettings_fillcolor := (others => (others => '0'));
+      settings_fogcolor       : out tsettings_fogcolor := (others => (others => '0'));
       settings_blendcolor     : out tsettings_blendcolor := (others => (others => '0'));
       settings_primcolor      : out tsettings_primcolor := (others => (others => '0'));
+      settings_envcolor       : out tsettings_envcolor := (others => (others => '0'));
       settings_combineMode    : out tsettings_combineMode := (others => (others => '0'));
       settings_textureImage   : out tsettings_textureImage := (others => (others => '0'));
       settings_Z_base         : out unsigned(24 downto 0) := (others => '0');
@@ -140,25 +142,6 @@ begin
       q          => tileSize_RdData
 	);
    
-   settings_tile.Tile_sl <= unsigned(tileSize_RdData(47 downto 36));
-   settings_tile.Tile_tl <= unsigned(tileSize_RdData(35 downto 24));
-   settings_tile.Tile_sh <= unsigned(tileSize_RdData(23 downto 12));
-   settings_tile.Tile_th <= unsigned(tileSize_RdData(11 downto  0));
-
-   settings_tile.Tile_format   <= unsigned(tileSettings_RdData(46 downto 44));
-   settings_tile.Tile_size     <= unsigned(tileSettings_RdData(43 downto 42));
-   settings_tile.Tile_line     <= unsigned(tileSettings_RdData(41 downto 33));
-   settings_tile.Tile_TmemAddr <= unsigned(tileSettings_RdData(32 downto 24));
-   settings_tile.Tile_palette  <= unsigned(tileSettings_RdData(23 downto 20));
-   settings_tile.Tile_clampT   <= tileSettings_RdData(19);
-   settings_tile.Tile_mirrorT  <= tileSettings_RdData(18);
-   settings_tile.Tile_maskT    <= unsigned(tileSettings_RdData(17 downto 14));
-   settings_tile.Tile_shiftT   <= unsigned(tileSettings_RdData(13 downto 10));
-   settings_tile.Tile_clampS   <= tileSettings_RdData(9);
-   settings_tile.Tile_mirrorS  <= tileSettings_RdData(8);
-   settings_tile.Tile_maskS    <= unsigned(tileSettings_RdData( 7 downto  4));
-   settings_tile.Tile_shiftS   <= unsigned(tileSettings_RdData( 3 downto  0));
-
    process (clk1x)
    begin
       if rising_edge(clk1x) then
@@ -169,6 +152,25 @@ begin
          sync_full       <= '0';
          tileSettings_we <= '0';
          tileSize_we     <= '0';
+         
+         settings_tile.Tile_sl <= unsigned(tileSize_RdData(47 downto 36));
+         settings_tile.Tile_tl <= unsigned(tileSize_RdData(35 downto 24));
+         settings_tile.Tile_sh <= unsigned(tileSize_RdData(23 downto 12));
+         settings_tile.Tile_th <= unsigned(tileSize_RdData(11 downto  0));
+      
+         settings_tile.Tile_format   <= unsigned(tileSettings_RdData(46 downto 44));
+         settings_tile.Tile_size     <= unsigned(tileSettings_RdData(43 downto 42));
+         settings_tile.Tile_line     <= unsigned(tileSettings_RdData(41 downto 33));
+         settings_tile.Tile_TmemAddr <= unsigned(tileSettings_RdData(32 downto 24));
+         settings_tile.Tile_palette  <= unsigned(tileSettings_RdData(23 downto 20));
+         settings_tile.Tile_clampT   <= tileSettings_RdData(19);
+         settings_tile.Tile_mirrorT  <= tileSettings_RdData(18);
+         settings_tile.Tile_maskT    <= unsigned(tileSettings_RdData(17 downto 14));
+         settings_tile.Tile_shiftT   <= unsigned(tileSettings_RdData(13 downto 10));
+         settings_tile.Tile_clampS   <= tileSettings_RdData(9);
+         settings_tile.Tile_mirrorS  <= tileSettings_RdData(8);
+         settings_tile.Tile_maskS    <= unsigned(tileSettings_RdData( 7 downto  4));
+         settings_tile.Tile_shiftS   <= unsigned(tileSettings_RdData( 3 downto  0));
       
          if (reset = '1') then
             
@@ -206,6 +208,7 @@ begin
                         shade <= CommandData(58); 
                         texture <= CommandData(57); 
                         zbuffer <= CommandData(56); 
+                        tile_RdAddr <= std_logic_vector(CommandData(50 downto 48));
                         state <= IDLE;
                         if (CommandData(61 downto 56) = 6x"08" and commandAvailable >=  3) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
                         if (CommandData(61 downto 56) = 6x"09" and commandAvailable >=  5) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
@@ -363,12 +366,40 @@ begin
                         tileSize_we            <= '1'; 
                      
                      when 6x"33" => -- load block
-                        commandWordDone        <= '1';        
+                        commandWordDone        <= '1';  
+                        poly_start             <= '1';
+                        poly_loading_mode      <= '1';
+                        state                  <= WAITRASTER;   
+                        commandRAMPtr          <= commandRAMPtr;                        
+                        tile_RdAddr            <= std_logic_vector(CommandData(26 downto 24));
                         tileSize_WrAddr        <= std_logic_vector(CommandData(26 downto 24));
                         tileSize_WrData        <= std_logic_vector(CommandData(55 downto 32)) & std_logic_vector(CommandData(23 downto 0));
                         tileSize_we            <= '1'; 
                         settings_loadtype      <= LOADTYPE_BLOCK;
-                        -- todo load block
+                        settings_poly.lft             <= '1';
+                        settings_poly.YL              <= "000" & signed(CommandData(41 downto 32)) & "11";
+                        settings_poly.YM              <= "000" & signed(CommandData(41 downto 32)) & "11";
+                        settings_poly.YH              <= "000" & signed(CommandData(41 downto 32)) & "00";
+                        settings_poly.XL              <= 4x"0" & signed(CommandData(23 downto 12)) & 16x"0";
+                        settings_poly.XH              <= 4x"0" & signed(CommandData(55 downto 44)) & 16x"0";
+                        settings_poly.XM              <= 4x"0" & signed(CommandData(23 downto 12)) & 16x"0";
+                        settings_poly.DXLDy           <= (others => '0');
+                        settings_poly.DXHDy           <= (others => '0');
+                        settings_poly.DXMDy           <= (others => '0');
+                        settings_poly.tex_Texture_S   <= '0' & signed(CommandData(55 downto 44)) & 19x"0";
+                        settings_poly.tex_Texture_T   <= '0' & signed(CommandData(43 downto 32)) & 19x"0";
+                        case (settings_textureImage.tex_size) is
+                           when SIZE_4BIT  => settings_poly.tex_DsDx  <= x"0080000" & signed(CommandData(11 downto 8));
+                           when SIZE_8BIT  => settings_poly.tex_DsDx  <= x"0040000" & signed(CommandData(11 downto 8));
+                           when SIZE_16BIT => settings_poly.tex_DsDx  <= x"0020000" & signed(CommandData(11 downto 8));
+                           when SIZE_32BIT => settings_poly.tex_DsDx  <= x"0010000" & signed(CommandData(11 downto 8));
+                           when others => null;
+                        end case;
+                        settings_poly.tex_DtDx        <= x"000" & signed(CommandData(11 downto 0)) & x"00";     
+                        settings_poly.tex_DsDe        <= (others => '0');
+                        settings_poly.tex_DtDe        <= x"00200000";   
+                        settings_poly.tex_DsDy        <= (others => '0');
+                        settings_poly.tex_DtDy        <= x"00200000";
                      
                      when 6x"35" => -- set tile
                         commandWordDone        <= '1';        
@@ -403,21 +434,35 @@ begin
                         commandWordDone <= '1';
                         settings_fillcolor.color    <= CommandData(31 downto 0);                      
                         
+                     when 6x"38" => -- set fog color
+                        commandWordDone <= '1';
+                        settings_fogcolor.fog_A  <= CommandData( 7 downto  0);
+                        settings_fogcolor.fog_B  <= CommandData(15 downto  8);
+                        settings_fogcolor.fog_G  <= CommandData(23 downto 16);
+                        settings_fogcolor.fog_R  <= CommandData(31 downto 24);
+                        
                      when 6x"39" => -- set blend color
                         commandWordDone <= '1';
-                        settings_blendcolor.blend_A  <= CommandData( 7 downto  0);                           
-                        settings_blendcolor.blend_B  <= CommandData(15 downto  8);                           
-                        settings_blendcolor.blend_G  <= CommandData(23 downto 16);                           
-                        settings_blendcolor.blend_R  <= CommandData(31 downto 24);                        
+                        settings_blendcolor.blend_A  <= CommandData( 7 downto  0);
+                        settings_blendcolor.blend_B  <= CommandData(15 downto  8);
+                        settings_blendcolor.blend_G  <= CommandData(23 downto 16);
+                        settings_blendcolor.blend_R  <= CommandData(31 downto 24);
                         
                      when 6x"3A" => -- set prim color
                         commandWordDone <= '1';
-                        settings_primcolor.prim_A          <= CommandData( 7 downto  0);                           
-                        settings_primcolor.prim_B          <= CommandData(15 downto  8);                           
-                        settings_primcolor.prim_G          <= CommandData(23 downto 16);                           
-                        settings_primcolor.prim_R          <= CommandData(31 downto 24);                           
-                        settings_primcolor.prim_levelFrac  <= CommandData(39 downto 32);                           
-                        settings_primcolor.prim_minLevel   <= CommandData(44 downto 40);                           
+                        settings_primcolor.prim_A          <= CommandData( 7 downto  0);
+                        settings_primcolor.prim_B          <= CommandData(15 downto  8);
+                        settings_primcolor.prim_G          <= CommandData(23 downto 16);
+                        settings_primcolor.prim_R          <= CommandData(31 downto 24);
+                        settings_primcolor.prim_levelFrac  <= CommandData(39 downto 32);
+                        settings_primcolor.prim_minLevel   <= CommandData(44 downto 40);
+                        
+                     when 6x"3B" => -- set environment color
+                        commandWordDone <= '1';
+                        settings_envcolor.env_A  <= CommandData( 7 downto  0);
+                        settings_envcolor.env_B  <= CommandData(15 downto  8);
+                        settings_envcolor.env_G  <= CommandData(23 downto 16);
+                        settings_envcolor.env_R  <= CommandData(31 downto 24);
                         
                      when 6x"3C" => -- set combine mode
                         commandWordDone <= '1';
