@@ -239,6 +239,7 @@ parameter CONF_STR = {
 	"RI,Restore state (F1);",
 	"-;",
    "O[1],Swap Interlaced,Off,On;",
+   "O[2],Error Overlay,Off,On;",
    "O[10:9],EEPROM type,None,4 KBit,16 KBit;",
    "O[8:7],Stereo Mix,None,25%,50%,100%;",
 	"R0,Reset;",
@@ -482,6 +483,7 @@ n64top n64top
    .clkvid(clk_vid),
    .reset(reset_or),
    .pause(OSD_STATUS),
+   .errorCodesOn(status[2]),
    
    // savestates              
    .increaseSSHeaderCount (!status[36]),

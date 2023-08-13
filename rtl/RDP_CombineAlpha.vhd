@@ -13,6 +13,8 @@ entity RDP_CombineAlpha is
    
       settings_otherModes     : in  tsettings_otherModes;
       settings_combineMode    : in  tsettings_combineMode;
+      settings_primcolor      : in  tsettings_primcolor;
+      settings_envcolor       : in  tsettings_envcolor;
      
       pipeInColor             : in  tcolor4_s16;
       tex_alpha               : in  unsigned(7 downto 0);
@@ -55,9 +57,9 @@ begin
          when 0 => alpha_sub1 <= "00" & signed(combine_alpha);
          when 1 => alpha_sub1 <= "00" & signed(tex_alpha);
          --when 2 => tex2
-         --when 3 => prim
+         when 3 => alpha_sub1 <= "00" & signed(settings_primcolor.prim_A);
          when 4 => alpha_sub1 <= '0' & pipeInColor(3)(8 downto 0);
-         --when 5 => env
+         when 5 => alpha_sub1 <= "00" & signed(settings_envcolor.env_A);
          when 6 => alpha_sub1 <= 10x"100";
          when 7 => alpha_sub1 <= (others => '0');
          when others => null;
@@ -68,9 +70,9 @@ begin
          when 0 => alpha_sub2 <= "00" & signed(combine_alpha);
          when 1 => alpha_sub2 <= "00" & signed(tex_alpha);
          --when 2 => tex2
-         --when 3 => prim
+         when 3 => alpha_sub2 <= "00" & signed(settings_primcolor.prim_A);
          when 4 => alpha_sub2 <= '0' & pipeInColor(3)(8 downto 0);
-         --when 5 => env
+         when 5 => alpha_sub2 <= "00" & signed(settings_envcolor.env_A);
          when 6 => alpha_sub2 <= 10x"100";
          when 7 => alpha_sub2 <= (others => '0');
          when others => null;
@@ -81,9 +83,9 @@ begin
          when 0 => alpha_mul <= "00" & signed(lod_frac);
          when 1 => alpha_mul <= "00" & signed(tex_alpha);
          --when 2 => tex2
-         --when 3 => prim
+         when 3 => alpha_mul <= "00" & signed(settings_primcolor.prim_A);
          when 4 => alpha_mul <= '0' & pipeInColor(3)(8 downto 0);
-         --when 5 => env
+         when 5 => alpha_mul <= "00" & signed(settings_envcolor.env_A);
          --when 6 => prim level Frac
          --when 7 => alpha_sub2 <= (others => '0');
          when others => null;
@@ -94,9 +96,9 @@ begin
          when 0 => alpha_add <= "00" & signed(combine_alpha);
          when 1 => alpha_add <= "00" & signed(tex_alpha);
          --when 2 => tex2
-         --when 3 => prim
+         when 3 => alpha_add <= "00" & signed(settings_primcolor.prim_A);
          when 4 => alpha_add <= '0' & pipeInColor(3)(8 downto 0);
-         --when 5 => env
+         when 5 => alpha_add <= "00" & signed(settings_envcolor.env_A);
          when 6 => alpha_add <= 10x"100";
          when 7 => alpha_add <= (others => '0');
          when others => null;

@@ -19,6 +19,7 @@ entity n64top is
       clkvid                  : in  std_logic;
       reset                   : in  std_logic;
       pause                   : in  std_logic;
+      errorCodesOn            : in  std_logic;
       
       -- savestates
       increaseSSHeaderCount   : in  std_logic;
@@ -244,7 +245,7 @@ architecture arch of n64top is
    signal SIPIF_ProcDone         : std_logic;
    
    -- RSP/RDP
-   signal RSP_RDP_reg_addr       : unsigned(6 downto 0);
+   signal RSP_RDP_reg_addr       : unsigned(4 downto 0);
    signal RSP_RDP_reg_dataOut    : unsigned(31 downto 0);
    signal RSP_RDP_reg_read       : std_logic;
    signal RSP_RDP_reg_write      : std_logic;
@@ -350,7 +351,7 @@ begin
       if rising_edge(clk1x) then
          errorEna <= '0';
          if (errorCode /= 0) then
-            errorEna <= '1'; 
+            errorEna <= errorCodesOn; 
          end if;
       end if;
    end process;

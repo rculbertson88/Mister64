@@ -44,7 +44,7 @@ entity RDP is
       fifoout_nearfull     : in  std_logic;   
       fifoout_empty        : in  std_logic;  
             
-      RSP_RDP_reg_addr     : in  unsigned(6 downto 0);
+      RSP_RDP_reg_addr     : in  unsigned(4 downto 0);
       RSP_RDP_reg_dataOut  : in  unsigned(31 downto 0);
       RSP_RDP_reg_read     : in  std_logic;
       RSP_RDP_reg_write    : in  std_logic;
@@ -147,7 +147,10 @@ architecture arch of RDP is
    signal settings_scissor          : tsettings_scissor;
    signal settings_otherModes       : tsettings_otherModes;
    signal settings_fillcolor        : tsettings_fillcolor;
+   signal settings_fogcolor         : tsettings_fogcolor;
    signal settings_blendcolor       : tsettings_blendcolor;
+   signal settings_primcolor        : tsettings_primcolor;
+   signal settings_envcolor         : tsettings_envcolor;
    signal settings_combineMode      : tsettings_combineMode;
    signal settings_colorImage       : tsettings_colorImage;
    signal settings_textureImage     : tsettings_textureImage;
@@ -241,7 +244,7 @@ architecture arch of RDP is
 
 begin 
 
-   reg_addr      <= 13x"0" & RSP_RDP_reg_addr when (RSP_RDP_reg_read = '1' or RSP_RDP_reg_write = '1') else bus_addr;     
+   reg_addr      <= 15x"0" & RSP_RDP_reg_addr when (RSP_RDP_reg_read = '1' or RSP_RDP_reg_write = '1') else bus_addr;     
    reg_dataWrite <= std_logic_vector(RSP_RDP_reg_dataOut) when (RSP_RDP_reg_write = '1') else bus_dataWrite;
 
    rdram_rnw <= '1';
@@ -581,7 +584,10 @@ begin
       settings_scissor        => settings_scissor,   
       settings_otherModes     => settings_otherModes, 
       settings_fillcolor      => settings_fillcolor,  
+      settings_fogcolor       => settings_fogcolor, 
       settings_blendcolor     => settings_blendcolor, 
+      settings_primcolor      => settings_primcolor, 
+      settings_envcolor       => settings_envcolor, 
       settings_combineMode    => settings_combineMode,
       settings_textureImage   => settings_textureImage,
       settings_colorImage     => settings_colorImage,
@@ -624,7 +630,6 @@ begin
       settings_scissor        => settings_scissor,   
       settings_otherModes     => settings_otherModes, 
       settings_fillcolor      => settings_fillcolor,  
-      settings_blendcolor     => settings_blendcolor, 
       settings_colorImage     => settings_colorImage, 
       settings_textureImage   => settings_textureImage,
       settings_tile           => settings_tile,    
@@ -758,7 +763,10 @@ begin
                                                       
       settings_poly           => settings_poly,  
       settings_otherModes     => settings_otherModes,  
-      settings_blendcolor     => settings_blendcolor,  
+      settings_fogcolor       => settings_fogcolor, 
+      settings_blendcolor     => settings_blendcolor, 
+      settings_primcolor      => settings_primcolor, 
+      settings_envcolor       => settings_envcolor,  
       settings_colorImage     => settings_colorImage,  
       settings_textureImage   => settings_textureImage,
       settings_tile           => settings_tile,        

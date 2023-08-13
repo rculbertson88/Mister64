@@ -15,7 +15,6 @@ entity RDP_raster is
       settings_scissor        : in  tsettings_scissor := SETTINGSSCISSORINIT;
       settings_otherModes     : in  tsettings_otherModes;
       settings_fillcolor      : in  tsettings_fillcolor;
-      settings_blendcolor     : in  tsettings_blendcolor;
       settings_colorImage     : in  tsettings_colorImage;
       settings_textureImage   : in  tsettings_textureImage;
       settings_tile           : in  tsettings_tile;

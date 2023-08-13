@@ -27,7 +27,7 @@ entity RSP_core is
       dmem_WriteEnable      : out std_logic_vector(15 downto 0);
       dmem_dataRead         : in  tDMEMarray;
       
-      reg_addr              : out unsigned(6 downto 0);
+      reg_addr              : out unsigned(4 downto 0);
       reg_dataWrite         : out unsigned(31 downto 0);
       reg_RSP_read          : out std_logic;
       reg_RDP_read          : out std_logic;
@@ -138,7 +138,7 @@ architecture arch of RSP_core is
    signal decodeReadRDPReg             : std_logic := '0';   
    signal decodeWriteRSPReg            : std_logic := '0';
    signal decodeWriteRDPReg            : std_logic := '0';
-   signal decodeRegAddr                : unsigned(6 downto 0) := (others => '0');
+   signal decodeRegAddr                : unsigned(4 downto 0) := (others => '0');
    signal decodeMemOffset              : signed(15 downto 0) := (others => '0');
    
    signal decodeVectorNew              : std_logic := '0';
@@ -313,6 +313,7 @@ architecture arch of RSP_core is
    signal exe_dmem_sort                : tDMEMarray;
    signal exe_dmem_sort7               : tDMEMarray;
    signal exeVectorStore7Bit           : unsigned(15 downto 0) := (others => '0');
+   signal exeVectorStartCalc           : std_logic;
    
    --regs         
    signal executeNew                   : std_logic := '0';
@@ -599,7 +600,7 @@ begin
             
          else
          
-            if (stall2 = '1') then
+            if (stall2 = '1' and stall3 = '0') then
                if (decodeStallcount > 0) then
                   decodeStallcount <= decodeStallcount - 1;
                else
@@ -628,7 +629,7 @@ begin
                   decodeShamt          <= decShamt;          
                   decodeRD             <= decRd;          
                   decodeTarget         <= decTarget;   
-                  decodeRegAddr        <= decRD & "00";
+                  decodeRegAddr        <= decRD(2 downto 0) & "00";
                   
                   decodeVectorElement  <= decVectorElement;
                   decodeVectorDestEle  <= decVectorDestEle;
@@ -1689,7 +1690,7 @@ begin
       
       end if;
       
-      if (stall = 0 and decodeNew = '1') then
+      if (stall3 = '0' and decodeNew = '1') then
       
          if (decodeVectorWriteEnable = '1') then
          
@@ -1728,7 +1729,7 @@ begin
       reg_RSP_write     <= '0';      
       reg_RDP_write     <= '0';    
       
-      if (stall = 0 and decodeNew = '1') then
+      if (stall3 = '0' and decodeNew = '1') then
       
          break_out     <= decode_break;
          
@@ -1761,7 +1762,7 @@ begin
          else
             
             -- load delay block
-            if (stall3) then
+            if (stall3 = '1') then
             
                executeStallFromMEM <= '0';
                if (writebackStallFromMEM = '1' and writebackNew = '1') then
@@ -2114,6 +2115,8 @@ begin
 --############################### submodules
 --##############################################################
    
+   exeVectorStartCalc <= decodeVectorNew when (stall3 = '0') else '0';
+   
    gVectorUnits : for i in 0 to 7 generate
    begin
    
@@ -2126,7 +2129,7 @@ begin
       (
          clk1x                 => clk1x,
          
-         CalcNew               => decodeVectorNew,
+         CalcNew               => exeVectorStartCalc,
          CalcType              => decodeVectorCalcType,
          CalcSign1             => decodeVectorSign1,
          CalcSign2             => decodeVectorSign2,
@@ -2173,7 +2176,7 @@ begin
    (
       clk1x           => clk1x,
                      
-      CalcNew         => decodeVectorNew,
+      CalcNew         => exeVectorStartCalc,
       CalcType        => decodeVectorCalcType,
       CalcValue       => decodeVectorValueDiv,
                      
@@ -2270,10 +2273,11 @@ begin
             
             if (writeDoneNew = '1') then
                -- count
-               write(line_out, string'("# ")); 
-               write(line_out, to_hstring(out_count));
+               --write(line_out, string'("# ")); 
+               --write(line_out, to_hstring(out_count));
+               --write(line_out, string'(" ")); 
                -- PC
-               write(line_out, string'(" PC ")); 
+               write(line_out, string'("PC ")); 
                write(line_out, to_hstring(pcOld4));
                -- OP
                write(line_out, string'(" OP ")); 
@@ -2337,16 +2341,16 @@ begin
                export_vco_last <= export_vco;
                export_vce_last <= export_vce;
                
-               for i in 0 to 15 loop
-                  if (dmem_WriteEnable_3(i) = '1') then
-                     write(line_out, string'("DM "));
-                     write(line_out, to_hstring(dmem_addr_3(i)));
-                     write(line_out, to_hstring(to_unsigned(i, 4)));
-                     write(line_out, string'("  "));
-                     write(line_out, to_hstring(dmem_dataWrite_3(i)));
-                     write(line_out, string'(" "));
-                  end if;
-               end loop;
+               --for i in 0 to 15 loop
+               --   if (dmem_WriteEnable_3(i) = '1') then
+               --      write(line_out, string'("DM "));
+               --      write(line_out, to_hstring(dmem_addr_3(i)));
+               --      write(line_out, to_hstring(to_unsigned(i, 4)));
+               --      write(line_out, string'("  "));
+               --      write(line_out, to_hstring(dmem_dataWrite_3(i)));
+               --      write(line_out, string'(" "));
+               --   end if;
+               --end loop;
                
                writeline(outfile, line_out);
                out_count <= out_count + 1;

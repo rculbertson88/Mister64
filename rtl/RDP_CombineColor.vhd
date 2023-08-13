@@ -15,6 +15,8 @@ entity RDP_CombineColor is
    
       settings_otherModes     : in  tsettings_otherModes;
       settings_combineMode    : in  tsettings_combineMode;
+      settings_primcolor      : in  tsettings_primcolor;
+      settings_envcolor       : in  tsettings_envcolor;
      
       pipeInColor             : in  tcolor4_s16;
       texture_color           : in  tcolor3_u8;
@@ -29,6 +31,9 @@ architecture arch of RDP_CombineColor is
    signal mode_sub2        : unsigned(3 downto 0);
    signal mode_mul         : unsigned(4 downto 0);
    signal mode_add         : unsigned(2 downto 0);
+   
+   signal primcolor        : tcolor3_u8;
+   signal envcolor         : tcolor3_u8;
             
    signal color_sub1       : tcolor3_s10 := (others => (others => '0'));
    signal color_sub2       : tcolor3_s10 := (others => (others => '0'));
@@ -50,6 +55,14 @@ begin
    mode_mul  <= settings_combineMode.combine_mul_R_1;
    mode_add  <= settings_combineMode.combine_add_R_1;
    
+   primcolor(0) <= settings_primcolor.prim_R;
+   primcolor(1) <= settings_primcolor.prim_G;
+   primcolor(2) <= settings_primcolor.prim_B;   
+   
+   envcolor(0) <= settings_envcolor.env_R;
+   envcolor(1) <= settings_envcolor.env_G;
+   envcolor(2) <= settings_envcolor.env_B;
+   
    process (all)
    begin
       
@@ -62,9 +75,9 @@ begin
             when 0 => color_sub1(i) <= "00" & signed(combine_color(i));
             when 1 => color_sub1(i) <= "00" & signed(texture_color(i));
             when 2 => errorCombine <= '1'; -- tex2
-            when 3 => errorCombine <= '1'; -- prim
+            when 3 => color_sub1(i) <= "00" & signed(primcolor(i));
             when 4 => color_sub1(i) <= '0' & pipeInColor(i)(8 downto 0);
-            when 5 => errorCombine <= '1'; -- env
+            when 5 => color_sub1(i) <= "00" & signed(envcolor(i));
             when 6 => color_sub1(i) <= 10x"100";
             when 7 => errorCombine <= '1'; --noise
             when others => null;
@@ -75,9 +88,9 @@ begin
             when 0 => color_sub2(i) <= "00" & signed(combine_color(i));
             when 1 => color_sub2(i) <= "00" & signed(texture_color(i));
             when 2 => errorCombine <= '1'; -- tex2
-            when 3 => errorCombine <= '1'; -- prim
+            when 3 => color_sub2(i) <= "00" & signed(primcolor(i));
             when 4 => color_sub2(i) <= '0' & pipeInColor(i)(8 downto 0);
-            when 5 => errorCombine <= '1'; -- env
+            when 5 => color_sub2(i) <= "00" & signed(envcolor(i));
             when 6 => errorCombine <= '1'; -- key center
             when 7 => errorCombine <= '1'; -- k4
             when others => null;
@@ -88,16 +101,16 @@ begin
             when  0 => color_mul(i) <= "00" & signed(combine_color(i));
             when  1 => color_mul(i) <= "00" & signed(texture_color(i));
             when  2 => errorCombine <= '1'; --tex2
-            when  3 => errorCombine <= '1'; --prim
+            when  3 => color_mul(i) <= "00" & signed(primcolor(i));
             when  4 => color_mul(i) <= '0' & pipeInColor(i)(8 downto 0);
-            when  5 => errorCombine <= '1'; -- env
+            when  5 => color_mul(i) <= "00" & signed(envcolor(i));
             when  6 => errorCombine <= '1'; -- key scale
             when  7 => errorCombine <= '1'; -- combiner color
             when  8 => errorCombine <= '1'; -- tex1 A
             when  9 => errorCombine <= '1'; -- tex2 A
-            when 10 => errorCombine <= '1'; -- prim A
-            when 11 => errorCombine <= '1'; -- shade A
-            when 12 => errorCombine <= '1'; -- env A
+            when 10 => color_mul(i) <= "00" & signed(settings_primcolor.prim_A);
+            when 11 => color_mul(i) <= '0' & pipeInColor(3)(8 downto 0);
+            when 12 => color_mul(i) <= "00" & signed(settings_envcolor.env_A);
             when 13 => errorCombine <= '1'; -- lod frac
             when 14 => errorCombine <= '1'; -- primlevel frac
             when 15 => errorCombine <= '1'; -- k5
@@ -109,9 +122,9 @@ begin
             when 0 => color_add(i) <= "00" & signed(combine_color(i));
             when 1 => color_add(i) <= "00" & signed(texture_color(i));
             when 2 => errorCombine <= '1'; --tex2
-            when 3 => errorCombine <= '1'; --prim
+            when 3 => color_add(i) <= "00" & signed(primcolor(i));
             when 4 => color_add(i) <= '0' & pipeInColor(i)(8 downto 0);
-            when 5 => errorCombine <= '1'; -- env
+            when 5 => color_add(i) <= "00" & signed(envcolor(i));
             when 6 => color_add(i) <= 10x"100";
             when others => null;
          end case;

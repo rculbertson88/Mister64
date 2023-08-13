@@ -854,12 +854,18 @@ begin
          if (reset_93 = '1') then
                      
             mem1_request   <= '1';
-            mem1_address   <= unsigned(ss_in(0)(31 downto 0)); -- x"FFFFFFFFBFC00000";         
+            if (ss_in(16)(3) = '1') then
+               mem1_address   <= unsigned(ss_in(5)(31 downto 0)); -- last was branch -> should be patched in the savestate already
+               PC             <= unsigned(ss_in(5)); 
+            else
+               mem1_address   <= unsigned(ss_in(0)(31 downto 0)); -- x"FFFFFFFFBFC00000";    
+               PC             <= unsigned(ss_in(0)); -- x"FFFFFFFFBFC00000";                    
+            end if;
             stall1         <= '1';
             fetchReady     <= '1';
             useCached_data <= '0';
             
-            PC             <= unsigned(ss_in(0)); -- x"FFFFFFFFBFC00000";          
+                 
 
             opcode0        <= (others => '0'); --unsigned(ss_in(14));
          

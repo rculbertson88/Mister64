@@ -37,7 +37,7 @@ entity RSP is
       ddr3_DOUT            : in  std_logic_vector(63 downto 0);
       ddr3_DOUT_READY      : in  std_logic;
       
-      RSP_RDP_reg_addr     : out unsigned(6 downto 0);
+      RSP_RDP_reg_addr     : out unsigned(4 downto 0);
       RSP_RDP_reg_dataOut  : out unsigned(31 downto 0);
       RSP_RDP_reg_read     : out std_logic;
       RSP_RDP_reg_write    : out std_logic;
@@ -173,7 +173,7 @@ architecture arch of RSP is
    signal PC_out                    : unsigned(11 downto 0);
    signal break_core                : std_logic;
    
-   signal core_reg_addr             : unsigned(6 downto 0);
+   signal core_reg_addr             : unsigned(4 downto 0);
    signal core_reg_dataWrite        : unsigned(31 downto 0);
    signal core_reg_RSP_read         : std_logic;
    signal core_reg_RSP_write        : std_logic;
@@ -181,7 +181,7 @@ architecture arch of RSP is
 
 begin 
 
-   reg_addr      <= 13x"800" & core_reg_addr when (core_reg_RSP_read = '1' or core_reg_RSP_write = '1') else bus_addr;     
+   reg_addr      <= 15x"2000" & core_reg_addr when (core_reg_RSP_read = '1' or core_reg_RSP_write = '1') else bus_addr;     
    reg_dataWrite <= std_logic_vector(core_reg_dataWrite) when (core_reg_RSP_write = '1') else bus_dataWrite;
    
    process (clk1x)
@@ -362,7 +362,8 @@ begin
                      SP_DMA_COUNT  <= unsigned(reg_dataWrite(19 downto 12));     
                      SP_DMA_SKIP   <= unsigned(reg_dataWrite(31 downto 23));
                      SP_STATUS_dmafull <= '1';
-                     if (bus_addr(19 downto 2) & "00" = x"40008") then dma_next_isWrite <= '0'; else dma_next_isWrite <= '1'; end if;
+                     if (SP_STATUS_dmabusy = '0') then SP_STATUS_dmabusy <= '1'; end if; -- make sure to set instantly when inactive
+                     if (reg_addr(19 downto 2) & "00" = x"40008") then dma_next_isWrite <= '0'; else dma_next_isWrite <= '1'; end if;
                   when x"40010" => 
                      if (reg_dataWrite(0 ) = '1' and reg_dataWrite(1 ) = '0') then SP_STATUS_halt        <= '0'; end if;
                      if (reg_dataWrite(1 ) = '1' and reg_dataWrite(0 ) = '0') then SP_STATUS_halt        <= '1'; end if;

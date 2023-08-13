@@ -104,6 +104,7 @@ begin
       clkvid                => clkvid,
       reset                 => reset,
       pause                 => '0',
+      errorCodesOn          => '1',
       
       -- savestates              
       increaseSSHeaderCount => '1',

@@ -17,7 +17,10 @@ entity RDP_pipeline is
    
       settings_poly           : in  tsettings_poly;
       settings_otherModes     : in  tsettings_otherModes;
+      settings_fogcolor       : in  tsettings_fogcolor;
       settings_blendcolor     : in  tsettings_blendcolor;
+      settings_primcolor      : in  tsettings_primcolor;
+      settings_envcolor       : in  tsettings_envcolor;
       settings_colorImage     : in  tsettings_colorImage;
       settings_textureImage   : in  tsettings_textureImage;
       settings_tile           : in  tsettings_tile;
@@ -434,6 +437,8 @@ begin
    
       settings_otherModes     => settings_otherModes,
       settings_combineMode    => settings_combineMode,
+      settings_primcolor      => settings_primcolor, 
+      settings_envcolor       => settings_envcolor, 
       
       pipeInColor             => stage_Color(STAGE_INPUT),
       texture_color           => texture_color,
@@ -449,6 +454,8 @@ begin
                               
       settings_otherModes     => settings_otherModes,
       settings_combineMode    => settings_combineMode,
+      settings_primcolor      => settings_primcolor, 
+      settings_envcolor       => settings_envcolor, 
                               
       pipeInColor             => stage_Color(STAGE_INPUT),
       tex_alpha               => texture_alpha,
