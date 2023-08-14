@@ -29,7 +29,8 @@ entity RDP_pipeline is
       pipeIn_trigger          : in  std_logic;
       pipeIn_valid            : in  std_logic;
       pipeIn_Addr             : in  unsigned(25 downto 0);
-      pipeIn_xIndex           : in  unsigned(11 downto 0);
+      pipeIn_xIndexPx         : in  unsigned(11 downto 0);
+      pipeIn_xIndex9          : in  unsigned(11 downto 0);
       pipeIn_X                : in  unsigned(11 downto 0);
       pipeIn_Y                : in  unsigned(11 downto 0);
       pipeIn_cvgValue         : in  unsigned(7 downto 0);
@@ -44,6 +45,9 @@ entity RDP_pipeline is
       
       FBAddr                  : out unsigned(10 downto 0);
       FBData                  : in  std_logic_vector(31 downto 0);
+      
+      FBAddr9                 : out unsigned(7 downto 0);
+      FBData9                 : in  std_logic_vector(31 downto 0);
      
       -- synthesis translate_off
       pipeIn_cvg16            : in  unsigned(15 downto 0);
@@ -66,7 +70,8 @@ entity RDP_pipeline is
       writePixelX             : out unsigned(11 downto 0) := (others => '0');
       writePixelY             : out unsigned(11 downto 0) := (others => '0');
       writePixelColor         : out tcolor3_u8 := (others => (others => '0'));
-      writePixelCvg           : out unsigned(2 downto 0)
+      writePixelCvg           : out unsigned(2 downto 0);
+      writePixelFBData9       : out unsigned(31 downto 0)
    );
 end entity;
 
@@ -77,6 +82,7 @@ architecture arch of RDP_pipeline is
    constant STAGE_BLENDER   : integer := 2;
    constant STAGE_OUTPUT    : integer := 3;
    
+   type t_stage_std is array(0 to STAGE_OUTPUT - 1) of std_logic;
    type t_stage_u32 is array(0 to STAGE_OUTPUT - 1) of unsigned(31 downto 0);
    type t_stage_u26 is array(0 to STAGE_OUTPUT - 1) of unsigned(25 downto 0);
    type t_stage_u16 is array(0 to STAGE_OUTPUT - 1) of unsigned(15 downto 0);
@@ -99,8 +105,12 @@ architecture arch of RDP_pipeline is
    signal stage_cvgValue   : t_stage_u8;
    signal stage_offX       : t_stage_u2;
    signal stage_offY       : t_stage_u2;
-   signal stage_cvgCount   : t_stage_u4;
+   signal stage_cvgCount   : t_stage_u4 := (others => (others => '0'));
    signal stage_Color      : t_stage_c16s := (others => (others => (others => '0')));
+   signal stage_cvgFB      : t_stage_u3;
+   signal stage_cvgSum     : t_stage_u3 := (others => (others => '0'));
+   signal stage_blendEna   : t_stage_std := (others => '0');
+   signal stage_FBData9    : t_stage_u32;
 
    -- modules
    signal texture_color    : tcolor3_u8;
@@ -111,6 +121,7 @@ architecture arch of RDP_pipeline is
    
    signal FBcolor          : tcolor4_u8;
    signal cvgFB            : unsigned(2 downto 0);
+   signal FBData9_old      : unsigned(31 downto 0);
    
    signal blender_color    : tcolor3_u8;
    
@@ -127,6 +138,9 @@ architecture arch of RDP_pipeline is
    signal texture_T_frac      : unsigned(4 downto 0);
    signal texture_S_diff      : signed(1 downto 0);
    signal texture_T_diff      : signed(1 downto 0);
+   
+   signal cvg_sum             : unsigned(3 downto 0);
+   signal blend_ena           : std_logic;
 
    -- export only
    -- synthesis translate_off
@@ -144,7 +158,6 @@ architecture arch of RDP_pipeline is
    signal stage_texFt_db3     : t_stage_u32;
    signal stage_combineC      : t_stage_c8u;
    signal stage_FBcolor       : t_stage_c8u;
-   signal stage_cvgFB         : t_stage_u3;
    
    signal export_TexFt_addr   : unsigned(31 downto 0);
    signal export_TexFt_data   : unsigned(31 downto 0);
@@ -155,6 +168,12 @@ architecture arch of RDP_pipeline is
 begin 
 
    pipe_busy <= '1' when (stage_valid > 0) else '0';
+   
+   cvg_sum   <= stage_cvgCount(STAGE_COMBINER) + ('0' & cvgFB);
+   
+   blend_ena <= '1' when (settings_otherModes.forceBlend = '1') else
+                '1' when (cvg_sum(3) = '0' and settings_otherModes.AntiAlias = '1') else -- todo: also check for z-buffer farther
+                '0';
 
    process (clk1x)
       variable cvgCounter : unsigned(3 downto 0);
@@ -242,6 +261,10 @@ begin
             stage_offX(STAGE_BLENDER)     <= stage_offX(STAGE_COMBINER);   
             stage_offY(STAGE_BLENDER)     <= stage_offY(STAGE_COMBINER);   
             stage_cvgCount(STAGE_BLENDER) <= stage_cvgCount(STAGE_COMBINER);
+            stage_cvgFB(STAGE_BLENDER)    <= cvgFB;
+            if (cvg_sum(3) = '1') then stage_cvgSum(STAGE_BLENDER) <= "111";  else stage_cvgSum(STAGE_BLENDER) <= cvg_sum(2 downto 0); end if;
+            stage_blendEna(STAGE_BLENDER) <= blend_ena;
+            stage_FBData9(STAGE_BLENDER)  <= FBData9_old;
 
             -- synthesis translate_off
             stage_cvg16(STAGE_BLENDER)       <= stage_cvg16(STAGE_COMBINER);
@@ -261,17 +284,18 @@ begin
             stage_combineC(STAGE_BLENDER)(2) <= combine_color(2);
             stage_combineC(STAGE_BLENDER)(3) <= combine_alpha;
             stage_FBcolor(STAGE_BLENDER)     <= FBcolor;
-            stage_cvgFB(STAGE_BLENDER)       <= cvgFB;
             -- synthesis translate_on                  
             
             -- ##################################################
             -- ######### STAGE_OUTPUT ###########################
             -- ##################################################
-            writePixel      <= stage_valid(STAGE_OUTPUT - 1);
-            writePixelAddr  <= stage_addr(STAGE_OUTPUT - 1);
-            writePixelX     <= stage_x(STAGE_OUTPUT - 1);
-            writePixelY     <= stage_y(STAGE_OUTPUT - 1);
-            writePixelColor <= blender_color;
+            writePixel        <= stage_valid(STAGE_OUTPUT - 1);
+            writePixelAddr    <= stage_addr(STAGE_OUTPUT - 1);
+            writePixelX       <= stage_x(STAGE_OUTPUT - 1);
+            writePixelY       <= stage_y(STAGE_OUTPUT - 1);
+            writePixelColor   <= blender_color;
+            writePixelFBData9 <= stage_FBData9(STAGE_OUTPUT - 1);
+            
             
             --writePixelColor <= x"0000" & byteswap16(settings_blendcolor.blend_R(7 downto 3) & settings_blendcolor.blend_G(7 downto 3) & settings_blendcolor.blend_B(7 downto 3) & '0');
             
@@ -282,12 +306,15 @@ begin
             
             case (settings_otherModes.cvgDest) is
                when "00" =>
-                  -- todo : if blend_ena
-                  writePixelCvg <= resize(stage_cvgCount(STAGE_OUTPUT - 1) - 1, 3);
+                  if (stage_blendEna(STAGE_OUTPUT - 1)) then 
+                     writePixelCvg <= stage_cvgSum(STAGE_OUTPUT - 1);
+                  else
+                     writePixelCvg <= resize(stage_cvgCount(STAGE_OUTPUT - 1) - 1, 3);
+                  end if;
                   
-               when "01" => writePixelCvg <= "000"; -- todo: (cvg + cvgMem);
+               when "01" => writePixelCvg <= stage_cvgSum(STAGE_OUTPUT - 1);
                when "10" => writePixelCvg <= "111";
-               when "11" => writePixelCvg <= "000"; -- todo: cvg mem
+               when "11" => writePixelCvg <= stage_cvgFB(STAGE_OUTPUT - 1);
                when others => null;
             end case;
             
@@ -460,6 +487,7 @@ begin
       pipeInColor             => stage_Color(STAGE_INPUT),
       tex_alpha               => texture_alpha,
       lod_frac                => x"FF", -- todo
+      cvgCount                => stage_cvgCount(STAGE_INPUT),
                               
       combine_alpha           => combine_alpha
    );
@@ -473,14 +501,19 @@ begin
       settings_otherModes     => settings_otherModes,
       settings_colorImage     => settings_colorImage,
                                                     
-      xIndex                  => pipeIn_xIndex,             
+      xIndexPx                => pipeIn_xIndexPx,             
+      xIndex9                 => pipeIn_xIndex9,             
       yOdd                    => pipeIn_Y(0),               
                                                     
       FBAddr                  => FBAddr,             
-      FBData                  => unsigned(FBData),             
+      FBData                  => unsigned(FBData),  
+
+      FBAddr9                 => FBAddr9,
+      FBData9                 => unsigned(FBData9),             
                               
       FBcolor                 => FBcolor,
-      cvgFB                   => cvgFB
+      cvgFB                   => cvgFB,
+      FBData9_old             => FBData9_old
    );
    
    
@@ -495,9 +528,12 @@ begin
       settings_otherModes     => settings_otherModes,
       settings_blendcolor     => settings_blendcolor,
       
+      blend_ena               => blend_ena,
       combine_color           => combine_color,
       combine_alpha           => combine_alpha,
       FB_color                => FBcolor,     
+      blend_shift_a           => "000",
+      blend_shift_b           => "000",
       
       blender_color           => blender_color
    );

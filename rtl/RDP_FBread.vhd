@@ -14,52 +14,78 @@ entity RDP_FBread is
       settings_otherModes     : in  tsettings_otherModes;
       settings_colorImage     : in  tsettings_colorImage;
       
-      xIndex                  : in  unsigned(11 downto 0);
+      xIndexPx                : in  unsigned(11 downto 0);
+      xIndex9                 : in  unsigned(11 downto 0);
       yOdd                    : in  std_logic;
       
       FBAddr                  : out unsigned(10 downto 0);
       FBData                  : in  unsigned(31 downto 0);
+      
+      FBAddr9                 : out unsigned(7 downto 0);
+      FBData9                 : in  unsigned(31 downto 0);
      
       FBcolor                 : out  tcolor4_u8;
-      cvgFB                   : out unsigned(2 downto 0)
+      cvgFB                   : out unsigned(2 downto 0);
+      FBData9_old             : out unsigned(31 downto 0)
    );
 end entity;
 
 architecture arch of RDP_FBread is
 
-   signal muxselect : std_logic := '0';
-   signal Fbdata16  : unsigned(15 downto 0);
+   signal muxselect  : std_logic := '0';
+   signal Fbdata16   : unsigned(15 downto 0);
+   
+   signal muxselect9 : unsigned(3 downto 0);
+   signal Fbdata16_9 : unsigned(1 downto 0);
 
 begin 
    
    -- todo: must increase line size if games really use more than 2048 pixels in 16bit mode or 1024 pixels in 32 bit mode
-   FBAddr <= yOdd & xIndex(10 downto 1) when (settings_colorImage.FB_size = SIZE_16BIT) else
-             yOdd & xIndex(9 downto 0);
-             
-   Fbdata16 <= FBData(31 downto 16) when (muxselect = '1') else FBData(15 downto 0);
+   FBAddr <= yOdd & xIndexPx(10 downto 1) when (settings_colorImage.FB_size = SIZE_16BIT) else
+             yOdd & xIndexPx(9 downto 0);
+   
+   FBAddr9 <= yOdd & xIndex9(10 downto 4);
+   
+   Fbdata16   <= byteswap16(FBData(31 downto 16)) when (muxselect = '1') else byteswap16(FBData(15 downto 0));
+   
+   Fbdata16_9(1) <= FBData9((to_integer(muxselect9) * 2) + 1);
+   Fbdata16_9(0) <= FBData9((to_integer(muxselect9) * 2) + 0);
 
    process (clk1x)
    begin
       if rising_edge(clk1x) then
          
-         muxselect <= xIndex(0);
+         muxselect <= xIndexPx(0);
          
-         case (settings_colorImage.FB_size) is
-            when SIZE_16BIT =>
-               FBcolor(0) <= Fbdata16(15 downto 11) & "000";
-               FBcolor(1) <= Fbdata16(10 downto 6) & "000";
-               FBcolor(2) <= Fbdata16(5 downto 1) & "000";
-               FBcolor(3) <= x"E0"; -- todo: use data from old_cvg
-               cvgFB      <= (others => '1');
+         muxselect9 <= xIndex9(3 downto 0);
+         
+         if (trigger = '1') then
+         
+            FBData9_old <= FBData9;
+         
+            case (settings_colorImage.FB_size) is
+               when SIZE_16BIT =>
+                  FBcolor(0) <= Fbdata16(15 downto 11) & "000";
+                  FBcolor(1) <= Fbdata16(10 downto 6) & "000";
+                  FBcolor(2) <= Fbdata16(5 downto 1) & "000";
+                  if (settings_otherModes.imageRead = '1') then
+                     FBcolor(3) <= Fbdata16(0) & Fbdata16_9 & "00000";
+                     cvgFB      <= Fbdata16(0) & Fbdata16_9;
+                  else
+                     FBcolor(3) <= x"E0";
+                     cvgFB      <= (others => '1');
+                  end if;
+                  
+               when SIZE_32BIT =>
+                  FBcolor(0) <= Fbdata(31 downto 24);
+                  FBcolor(1) <= Fbdata(23 downto 16);
+                  FBcolor(2) <= Fbdata(15 downto 8);
+                  FBcolor(3) <= x"E0"; -- todo: unclear
                
-            when SIZE_32BIT =>
-               FBcolor(0) <= Fbdata(31 downto 24);
-               FBcolor(1) <= Fbdata(23 downto 16);
-               FBcolor(2) <= Fbdata(15 downto 8);
-               FBcolor(3) <= x"E0"; -- todo: unclear
+               when others => null;
+            end case;
             
-            when others => null;
-         end case;
+         end if;
          
       end if;
    end process;

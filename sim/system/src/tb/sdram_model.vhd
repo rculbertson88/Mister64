@@ -33,6 +33,7 @@ architecture arch of sdram_model is
    type bit_vector_file is file of bit_vector;
    
    signal waitrfs    : integer range 0 to 8 := 0;
+   signal waitcnt    : integer range 0 to 8 := 0;
    
    signal req_buffer  : std_logic := '0';
    
@@ -97,7 +98,18 @@ begin
          refreshcnt <= refreshcnt + 1;
       end if;
       
-      if (waitrfs > 0) then
+      if (waitcnt > 0) then
+         waitcnt <= waitcnt - 1;
+         if (waitcnt = 1) then
+            done <= '1';
+            if (DOREFRESH = '1' and refreshcnt >= 260) then
+               refreshcnt <= 0;
+               waitrfs    <= 2;
+            else
+               waitrfs    <= 2; -- hack to simulate dead time after write
+            end if;
+         end if;
+      elsif (waitrfs > 0) then
          waitrfs  <= waitrfs - 1;
       elsif (DOREFRESH = '1' and refreshcnt >= 260) then
          refreshcnt <= 0;
@@ -107,8 +119,8 @@ begin
          if (be(2) = '1') then data(to_integer(unsigned(addr(26 downto 1)) & '0') + 2) := to_integer(unsigned(di(23 downto 16))); end if;
          if (be(1) = '1') then data(to_integer(unsigned(addr(26 downto 1)) & '0') + 1) := to_integer(unsigned(di(15 downto  8))); end if;
          if (be(0) = '1') then data(to_integer(unsigned(addr(26 downto 1)) & '0') + 0) := to_integer(unsigned(di( 7 downto  0))); end if;
-         done       <= '1';
          req_buffer <= '0';
+         waitcnt    <= 2;
       elsif ((req = '1' or req_buffer = '1') and rnw = '1') then
          done       <= '1';
          req_buffer   <= '0';

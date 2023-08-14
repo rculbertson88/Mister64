@@ -298,7 +298,7 @@ begin
                   var_dataRead(0)  := SP_STATUS_halt;    
                   var_dataRead(1)  := SP_STATUS_broke;    
                   var_dataRead(2)  := SP_STATUS_dmabusy;    
-                  var_dataRead(3)  := SP_STATUS_dmafull;    
+                  var_dataRead(3)  := SP_STATUS_dmafull or SP_STATUS_dmabusy;  -- games check for busy right after starting DMA in previous cycle
                   var_dataRead(4)  := SP_STATUS_iofull;    
                   var_dataRead(5)  := SP_STATUS_singlestep;    
                   var_dataRead(6)  := SP_STATUS_irqonbreak;    
@@ -362,7 +362,6 @@ begin
                      SP_DMA_COUNT  <= unsigned(reg_dataWrite(19 downto 12));     
                      SP_DMA_SKIP   <= unsigned(reg_dataWrite(31 downto 23));
                      SP_STATUS_dmafull <= '1';
-                     if (SP_STATUS_dmabusy = '0') then SP_STATUS_dmabusy <= '1'; end if; -- make sure to set instantly when inactive
                      if (reg_addr(19 downto 2) & "00" = x"40008") then dma_next_isWrite <= '0'; else dma_next_isWrite <= '1'; end if;
                   when x"40010" => 
                      if (reg_dataWrite(0 ) = '1' and reg_dataWrite(1 ) = '0') then SP_STATUS_halt        <= '0'; end if;

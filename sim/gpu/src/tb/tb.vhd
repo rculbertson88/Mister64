@@ -7,6 +7,7 @@ use STD.textio.all;
 
 library n64;
 use n64.pDDR3.all;
+use n64.pSDRAM.all;
 
 entity etb  is
 end entity;
@@ -41,6 +42,22 @@ architecture arch of etb is
    signal rdpfifo_Wr          : std_logic;  
    signal rdpfifo_nearfull    : std_logic;    
    signal rdpfifo_empty       : std_logic;   
+  
+   signal sdramMux_request    : tSDRAMSingle;
+   signal sdramMux_rnw        : tSDRAMSingle;    
+   signal sdramMux_address    : tSDRAMReqAddr;
+   signal sdramMux_burstcount : tSDRAMBurstcount;  
+   signal sdramMux_writeMask  : tSDRAMBwriteMask;  
+   signal sdramMux_dataWrite  : tSDRAMBwriteData;
+   signal sdramMux_granted    : tSDRAMSingle;
+   signal sdramMux_done       : tSDRAMSingle;
+   signal sdramMux_dataRead   : std_logic_vector(31 downto 0);
+   
+   signal rdp9fifo_reset      : std_logic; 
+   signal rdp9fifo_Din        : std_logic_vector(49 downto 0);
+   signal rdp9fifo_Wr         : std_logic;  
+   signal rdp9fifo_nearfull   : std_logic;  
+   signal rdp9fifo_empty      : std_logic;
    
    signal bus_RDP_addr        : unsigned(19 downto 0) := (others => '0');
    signal bus_RDP_dataWrite   : std_logic_vector(31 downto 0) := (others => '0');
@@ -150,6 +167,10 @@ begin
       ce                   => '1',           
       reset                => reset_out, 
 
+      write9               => '1',
+      read9                => '1',
+      wait9                => '1',
+
       irq_out              => open,
             
       bus_addr             => bus_RDP_addr,        
@@ -176,7 +197,24 @@ begin
       fifoout_nearfull     => rdpfifo_nearfull,
       fifoout_empty        => rdpfifo_empty,
       
-      RSP_RDP_reg_addr     => 7x"0",   
+      sdram_request        => sdramMux_request(SDRAMMUX_RDP),   
+      sdram_rnw            => sdramMux_rnw(SDRAMMUX_RDP),       
+      sdram_address        => sdramMux_address(SDRAMMUX_RDP),   
+      sdram_burstcount     => sdramMux_burstcount(SDRAMMUX_RDP),
+      sdram_writeMask      => sdramMux_writeMask(SDRAMMUX_RDP), 
+      sdram_dataWrite      => sdramMux_dataWrite(SDRAMMUX_RDP), 
+      sdram_granted        => sdramMux_granted(SDRAMMUX_RDP),      
+      sdram_done           => sdramMux_done(SDRAMMUX_RDP),      
+      sdram_dataRead       => sdram_dataRead,
+      sdram_valid          => sdram_done,    
+      
+      rdp9fifo_reset       => rdp9fifo_reset,   
+      rdp9fifo_Din         => rdp9fifo_Din,     
+      rdp9fifo_Wr          => rdp9fifo_Wr,      
+      rdp9fifo_nearfull    => rdp9fifo_nearfull,
+      rdp9fifo_empty       => rdp9fifo_empty,
+      
+      RSP_RDP_reg_addr     => 5x"0",   
       RSP_RDP_reg_dataOut  => 32x"0",
       RSP_RDP_reg_read     => '0',   
       RSP_RDP_reg_write    => '0',  
@@ -288,7 +326,8 @@ begin
       rdpfifo_empty    => rdpfifo_empty
    );   
    
-   rdram_request(0 to 1) <= (others => '0');
+   rdram_request(0) <= '0';
+   rdram_request(3 to 7) <= "00000";
    
    -- extern
    iddrram_model : entity work.ddrram_model
@@ -311,6 +350,40 @@ begin
       DDRAM_BE         => DDRAM_BE,        
       DDRAM_WE         => DDRAM_WE        
    );
+   
+   iSDRamMux : entity n64.SDRamMux
+   port map
+   (
+      clk1x                => clk1x,
+                           
+      error                => open,
+                           
+      sdram_ena            => sdram_ena,      
+      sdram_rnw            => sdram_rnw,      
+      sdram_Adr            => sdram_Adr,      
+      sdram_be             => sdram_be,       
+      sdram_dataWrite      => sdram_dataWrite,
+      sdram_done           => sdram_done,     
+      sdram_dataRead       => sdram_dataRead, 
+                           
+      sdramMux_request     => sdramMux_request,   
+      sdramMux_rnw         => sdramMux_rnw,       
+      sdramMux_address     => sdramMux_address,   
+      sdramMux_burstcount  => sdramMux_burstcount,
+      sdramMux_writeMask   => sdramMux_writeMask, 
+      sdramMux_dataWrite   => sdramMux_dataWrite, 
+      sdramMux_granted     => sdramMux_granted,   
+      sdramMux_done        => sdramMux_done,      
+      sdramMux_dataRead    => sdramMux_dataRead,
+      
+      rdp9fifo_reset       => rdp9fifo_reset,   
+      rdp9fifo_Din         => rdp9fifo_Din,     
+      rdp9fifo_Wr          => rdp9fifo_Wr,      
+      rdp9fifo_nearfull    => rdp9fifo_nearfull,
+      rdp9fifo_empty       => rdp9fifo_empty
+   );
+   
+   sdramMux_request(0) <= '0';
    
    isdram_model : entity work.sdram_model
    generic map
@@ -445,6 +518,8 @@ begin
 
          elsif (para_type = x"02") then
          
+            Read(inLine, space);
+            HREAD(inLine, para_data);
             commendIndex := commendIndex + 1;
             commandarray(commendIndex) <= para_data;
          
@@ -486,7 +561,7 @@ begin
       
       file_close(infile);
       
-      wait for 10 ms;
+      wait for 1 ms;
       
       if (cmdCount >= 0) then
          report "DONE" severity failure;

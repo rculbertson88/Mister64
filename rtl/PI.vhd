@@ -17,12 +17,13 @@ entity PI is
       
       error_PI             : out std_logic := '0';
       
-      sdram_ena            : out std_logic;
-      sdram_rnw            : out std_logic;
-      sdram_Adr            : out std_logic_vector(26 downto 0);
-      sdram_be             : out std_logic_vector(3 downto 0);
-      sdram_dataWrite      : out std_logic_vector(31 downto 0);
-      sdram_done           : in  std_logic;  
+      sdram_request        : out std_logic := '0';
+      sdram_rnw            : out std_logic := '0'; 
+      sdram_address        : out unsigned(26 downto 0):= (others => '0');
+      sdram_burstcount     : out unsigned(7 downto 0):= (others => '0');
+      sdram_writeMask      : out std_logic_vector(3 downto 0) := (others => '0'); 
+      sdram_dataWrite      : out std_logic_vector(31 downto 0) := (others => '0');
+      sdram_done           : in  std_logic;
       sdram_dataRead       : in  std_logic_vector(31 downto 0);
       
       RAMMASK              : in  unsigned(23 downto 0);
@@ -99,6 +100,8 @@ architecture arch of PI is
    signal bus_cart_write_latched : std_logic := '0';  
    
    signal sdram_pending          : std_logic := '0';   
+   signal sdram_data             : std_logic_vector(31 downto 0) := (others => '0');   
+   
    signal rdram_pending          : std_logic := '0';   
 
    -- savestates
@@ -112,19 +115,25 @@ begin
    
    rdram_burstcount <= 10x"01";
    
-   sdram_be         <= (others => '1');
+   sdram_writeMask  <= (others => '1');
    sdram_dataWrite  <= (others => '0');
+   sdram_burstcount <= x"01";
    
    process (clk1x)
       variable blocklength_new : integer range 0 to 128;
       variable count_new       : unsigned(24 downto 0);
       variable writemask_new   : std_logic_vector(1 downto 0);
+      variable sdram_dataMuxed : std_logic_vector(31 downto 0);
    begin
       if rising_edge(clk1x) then
       
          error_PI <= '0';
       
-         if (sdram_done = '1') then sdram_pending <= '0'; end if;
+         if (sdram_done = '1') then 
+            sdram_pending <= '0'; 
+            sdram_data    <= sdram_dataRead;
+         end if;
+         
          if (rdram_done = '1') then rdram_pending <= '0'; end if;
       
          if (reset = '1') then
@@ -222,7 +231,7 @@ begin
             -- PI state machine
             bus_cart_done     <= '0';
             bus_cart_dataRead <= (others => '0');
-            sdram_ena         <= '0';
+            sdram_request     <= '0';
             rdram_request     <= '0';
             
             if (writtenTime > 0) then
@@ -258,13 +267,13 @@ begin
                            bus_cart_dataRead <= writtenData;
                            bus_cart_done     <= '1';
                         else
-                           state     <= READROM;
-                           sdram_ena <= '1';
-                           sdram_rnw <= '1';
+                           state         <= READROM;
+                           sdram_request <= '1';
+                           sdram_rnw     <= '1';
                            if (bus_cart_addr(1) = '1') then
-                              sdram_Adr <= std_logic_vector((bus_cart_addr(25 downto 2) & "10") + to_unsigned(16#100004#, 27));
+                              sdram_address <= (bus_cart_addr(25 downto 2) & "10") + to_unsigned(16#800004#, 27);
                            else
-                              sdram_Adr <= std_logic_vector((bus_cart_addr(25 downto 2) & "00") + to_unsigned(16#100000#, 27));
+                              sdram_address <= (bus_cart_addr(25 downto 2) & "00") + to_unsigned(16#800000#, 27);
                            end if;
                         end if;
                      else
@@ -348,7 +357,7 @@ begin
                   first128 <= '0';
                   if (copycnt < blocklength) then
                      state         <= DMA_READCART;
-                     sdram_ena     <= '1';
+                     sdram_request <= '1';
                      sdram_rnw     <= '1';
                      sdram_pending <= '1';
                      
@@ -359,7 +368,7 @@ begin
                         report "SRAM + FLASH DMA read not implemented" severity failure;
                         error_PI      <= '1';
                      elsif (PI_CART_ADDR(28 downto 0) < 16#13FF0000#) then -- game rom
-                        sdram_Adr <= std_logic_vector((PI_CART_ADDR(25 downto 1) & '0') + to_unsigned(16#100000#, 27));
+                        sdram_address <= (PI_CART_ADDR(25 downto 1) & '0') + to_unsigned(16#800000#, 27);
                      else
                         report "Openbus DMA read not implemented" severity failure;
                         error_PI      <= '1';
@@ -373,10 +382,9 @@ begin
                   end if;
                   
                when DMA_READCART =>
-                  if ((sdram_done = '1' or sdram_pending = '0') and (rdram_done = '1' or rdram_pending = '0')) then
+                  if (sdram_pending = '0' and (rdram_done = '1' or rdram_pending = '0')) then
                   
                      state        <= COPYDMABLOCK;
-                     
                      rdram_request   <= '1';
                      rdram_rnw       <= '0';
                      rdram_dataWrite <= (others => '0');
@@ -390,10 +398,10 @@ begin
                         PI_CART_ADDR <= PI_CART_ADDR + 4;
                      
                         if (PI_DRAM_ADDR(2) = '1') then
-                           rdram_dataWrite(63 downto 32) <= sdram_dataRead(31 downto 0); 
+                           rdram_dataWrite(63 downto 32) <= sdram_data(31 downto 0); 
                            rdram_writeMask <= "11110000";
                         else
-                           rdram_dataWrite(31 downto 0) <= sdram_dataRead(31 downto 0); 
+                           rdram_dataWrite(31 downto 0) <= sdram_data(31 downto 0); 
                            rdram_writeMask <= "00001111";
                         end if;
                   
@@ -412,10 +420,10 @@ begin
                         end if;
                         
                         case (PI_DRAM_ADDR(2 downto 1)) is
-                           when "00" => rdram_dataWrite(15 downto  0) <= sdram_dataRead(15 downto 0); rdram_writeMask <= "000000" & writemask_new;
-                           when "01" => rdram_dataWrite(31 downto 16) <= sdram_dataRead(15 downto 0); rdram_writeMask <= "0000" & writemask_new & "00";
-                           when "10" => rdram_dataWrite(47 downto 32) <= sdram_dataRead(15 downto 0); rdram_writeMask <= "00" & writemask_new & "0000";
-                           when "11" => rdram_dataWrite(63 downto 48) <= sdram_dataRead(15 downto 0); rdram_writeMask <= writemask_new & "000000";
+                           when "00" => rdram_dataWrite(15 downto  0) <= sdram_data(15 downto 0); rdram_writeMask <= "000000" & writemask_new;
+                           when "01" => rdram_dataWrite(31 downto 16) <= sdram_data(15 downto 0); rdram_writeMask <= "0000" & writemask_new & "00";
+                           when "10" => rdram_dataWrite(47 downto 32) <= sdram_data(15 downto 0); rdram_writeMask <= "00" & writemask_new & "0000";
+                           when "11" => rdram_dataWrite(63 downto 48) <= sdram_data(15 downto 0); rdram_writeMask <= writemask_new & "000000";
                            when others => null;
                         end case;
                         

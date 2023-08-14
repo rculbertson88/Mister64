@@ -106,6 +106,10 @@ begin
       pause                 => '0',
       errorCodesOn          => '1',
       
+      write9                => '1',
+      read9                 => '1',
+      wait9                 => '1',
+      
       -- savestates              
       increaseSSHeaderCount => '1',
       save_state            => n64_SaveState(0),

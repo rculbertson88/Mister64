@@ -41,6 +41,7 @@ set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_BlendC
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_pipeline.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) DDR3Mux.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) SDRamMux.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) statemanager.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) savestates.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) n64top.vhd ]

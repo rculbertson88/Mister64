@@ -25,6 +25,7 @@ vcom -2008 -quiet -work sim/n64 ^
 ../../rtl/RDP_BlendColor.vhd ^
 ../../rtl/RDP_pipeline.vhd ^
 ../../rtl/RDP.vhd ^
+../../rtl/SDRamMux.vhd ^
 ../../rtl/DDR3Mux.vhd
 
 vcom -2008 -quiet -work sim/tb ^

@@ -70,6 +70,7 @@ src/tb/cpu_mul.vhd ^
 ../../rtl/RDP_pipeline.vhd ^
 ../../rtl/RDP.vhd ^
 ../../rtl/DDR3Mux.vhd ^
+../../rtl/SDRamMux.vhd ^
 ../../rtl/statemanager.vhd ^
 ../../rtl/savestates.vhd ^
 ../../rtl/n64top.vhd 

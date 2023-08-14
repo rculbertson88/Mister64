@@ -233,15 +233,35 @@ parameter CONF_STR = {
    "FS1,N64z64,Load;",
    "-;",
 	"O[36],Savestates to SDCard,On,Off;",
-	"O[68],Autoincrement Slot,Off,On;",
+	"O[3],Autoincrement Slot,Off,On;",
 	"O[38:37],Savestate Slot,1,2,3,4;",
 	"RH,Save state (Alt-F1);",
 	"RI,Restore state (F1);",
+	"-;",
+   "O[11],Write Bit 9,Off,On;",
+   "O[12],Read Bit 9,Off,On;",
+   "O[13],Wait Bit 9,Off,On;",
 	"-;",
    "O[1],Swap Interlaced,Off,On;",
    "O[2],Error Overlay,Off,On;",
    "O[10:9],EEPROM type,None,4 KBit,16 KBit;",
    "O[8:7],Stereo Mix,None,25%,50%,100%;",
+   "-;",
+   
+   "P2,System settings;",
+	"P2-;",
+   "P2-,WIP-no function yet!;",
+	"P2O[64],Auto Detect,On,Off;",
+   "P2O[70],RAM size,8MByte,4MByte;",
+   "P2O[80:79],System Type,NTSC,PAL;",
+	"P2O[68:65],CIC,6101,6102,7101,7102,6103,7103,6105,7105,6106,7106,8303,8401,5167,DDUS;",
+   "P2O[71],ControllerPak,Off,On;",
+   "P2O[72],RumblePak,Off,On;",
+   "P2O[73],TransferPak,Off,On;",
+   "P2O[74],RTC,Off,On;",
+   "P2O[77:75],Save Type,None,EEPROM4,EEPROM16,SRAM32,SRAM96,Flash;",
+   "-;",
+   
 	"R0,Reset;",
    "J1,A,B,Start,L,R,Z,C Up,C Right,C Down,C Left,Savestates;",
 	"jn,A,B,Start,L,R,Z,C Up,C Right,C Down,C Left;",
@@ -373,7 +393,7 @@ wire       ramdownload_ready;
 reg        cart_download;
 reg        cart_loaded = 0;
 
-localparam CART_START = 1048576;
+localparam CART_START = 8388608;
 
 always @(posedge clk_1x) begin
 
@@ -418,6 +438,7 @@ sdram sdram
 	.ch1_dout(sdram_dataRead),
 	.ch1_req(sdram_ena),
 	.ch1_rnw(sdram_rnw),
+	.ch1_be(sdram_be),
 	.ch1_ready(sdram_done),
 
 	.ch2_addr (ramdownload_wraddr),
@@ -455,7 +476,7 @@ savestate_ui savestate_ui
 	.joyRewind      (0             ),
 	.rewindEnable   (0             ), 
 	.status_slot    (status[38:37] ),
-	.autoincslot    (status[68]    ),
+	.autoincslot    (status[3]     ),
 	.OSD_saveload   (status[18:17] ),
 	.ss_save        (ss_save       ),
 	.ss_load        (ss_load       ),
@@ -484,6 +505,10 @@ n64top n64top
    .reset(reset_or),
    .pause(OSD_STATUS),
    .errorCodesOn(status[2]),
+   
+   .write9(status[11]), 
+   .read9(status[12]),  
+   .wait9(status[13]),  
    
    // savestates              
    .increaseSSHeaderCount (!status[36]),

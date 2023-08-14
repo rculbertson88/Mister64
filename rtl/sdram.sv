@@ -37,9 +37,10 @@ module sdram
 
 	input      [26:0] ch1_addr,    // 25 bit address for 8bit mode. addr[0] = 0 for 16bit mode for correct operations.
 	output reg [31:0] ch1_dout,    // data output to cpu
-	input      [15:0] ch1_din,     // data input from cpu
+	input      [31:0] ch1_din,     // data input from cpu
 	input             ch1_req,     // request
 	input             ch1_rnw,     // 1 - read, 0 - write
+   input      [3:0]  ch1_be,
 	output reg        ch1_ready,
 	
 	input      [26:0] ch2_addr,    // 25 bit address for 8bit mode. addr[0] = 0 for 16bit mode for correct operations.
@@ -110,6 +111,7 @@ always @(posedge clk) begin
 	reg        saved_wr;
 	reg [12:0] cas_addr;
 	reg [31:0] saved_data;
+   reg  [3:0] saved_be;
 	reg [15:0] dq_reg;
 	reg  [3:0] state = STATE_STARTUP;
 
@@ -211,11 +213,16 @@ always @(posedge clk) begin
 				// Priority is to issue a refresh if one is outstanding
 				state <= STATE_IDLE_1;
 			end
-			else if(ch1_rq) begin
-				{cas_addr[12:9],SDRAM_BA,SDRAM_A,cas_addr[8:0]} <= {2'b00, 1'b1, ch1_addr[25:1]};
+			else if(ch1_rq | ch1_req) begin
+				if (~ch1_rnw) begin
+               {cas_addr[12:9],SDRAM_BA,SDRAM_A,cas_addr[8:0]} <= {~ch1_be[1:0], 1'b1, ch1_addr[25:1]};
+            end else begin
+               {cas_addr[12:9],SDRAM_BA,SDRAM_A,cas_addr[8:0]} <= {2'b00, 1'b1, ch1_addr[25:1]};
+            end
 				chip       <= ch1_addr[26];
 				saved_data <= ch1_din;
 				saved_wr   <= ~ch1_rnw;
+            saved_be   <= ch1_be;
 				ch         <= 0;
 				ch1_rq     <= 0;
 				command    <= CMD_ACTIVE;
@@ -228,6 +235,7 @@ always @(posedge clk) begin
 				saved_wr   <= ~ch2_rnw;
 				ch         <= 1;
 				ch2_rq     <= 0;
+            saved_be   <= 4'b1111;
 				command    <= CMD_ACTIVE;
 				state      <= STATE_WAIT;
 			end
@@ -238,6 +246,7 @@ always @(posedge clk) begin
 				saved_wr   <= ~ch3_rnw;
 				ch         <= 2;
 				ch3_rq     <= 0;
+            saved_be   <= 4'b1111;
 				command    <= CMD_ACTIVE;
 				state      <= STATE_WAIT;
 			end
@@ -249,13 +258,7 @@ always @(posedge clk) begin
 			if(saved_wr) begin
 				command  <= CMD_WRITE;
 				SDRAM_DQ <= saved_data[15:0];
-				if(!ch) begin
-					ch1_ready  <= 1;
-					state <= STATE_IDLE_2;
-				end
-				else begin
-					state <= STATE_RW2;
-				end
+				state <= STATE_RW2;
 			end
 			else begin
 				command <= CMD_READ;
@@ -267,22 +270,16 @@ always @(posedge clk) begin
 		end
 
 		STATE_RW2: begin
-			if(ch == 1) begin
-				state       <= STATE_IDLE_2;
-				SDRAM_A[10] <= 1;
-				SDRAM_A[0]  <= 1;
-				command     <= CMD_WRITE;
-				SDRAM_DQ    <= saved_data[31:16];
-				ch2_ready   <= 1;
-			end
-			else begin
-				state       <= STATE_IDLE_2;
-				SDRAM_A[10] <= 1;
-				SDRAM_A[1]  <= 1;
-				command     <= CMD_WRITE;
-				SDRAM_DQ    <= saved_data[31:16];
-				ch3_ready   <= 1;
-			end
+			state          <= STATE_IDLE_2;
+			SDRAM_A[10]    <= 1;
+			SDRAM_A[0]     <= 1;
+			command        <= CMD_WRITE;
+			SDRAM_DQ       <= saved_data[31:16];
+         SDRAM_A[12:11] <= ~saved_be[3:2];
+         if(ch == 0)      ch1_ready <= 1;
+			else if(ch == 1) ch2_ready <= 1;
+			else             ch3_ready <= 1;
+         
 		end
 	endcase
 

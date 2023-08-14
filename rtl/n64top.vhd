@@ -5,6 +5,7 @@ use IEEE.numeric_std.all;
 library MEM;
 use work.pexport.all;
 use work.pDDR3.all;
+use work.pSDRAM.all;
 
 entity n64top is
    generic
@@ -20,6 +21,10 @@ entity n64top is
       reset                   : in  std_logic;
       pause                   : in  std_logic;
       errorCodesOn            : in  std_logic;
+      
+      write9                  : in  std_logic;
+      read9                   : in  std_logic;
+      wait9                   : in  std_logic;
       
       -- savestates
       increaseSSHeaderCount   : in  std_logic;
@@ -127,7 +132,7 @@ architecture arch of n64top is
    signal irqRequest             : std_logic;
    signal irqVector              : std_logic_vector(5 downto 0);        
    
-   -- DDR3/RDRAm mux
+   -- DDR3/RDRAM mux
    signal rdram_request          : tDDDR3Single;
    signal rdram_rnw              : tDDDR3Single;    
    signal rdram_address          : tDDDR3ReqAddr;
@@ -150,6 +155,23 @@ architecture arch of n64top is
    signal rdpfifo_Wr             : std_logic;  
    signal rdpfifo_nearfull       : std_logic;    
    signal rdpfifo_empty          : std_logic;    
+   
+   -- SDRAM Mux
+   signal sdramMux_request       : tSDRAMSingle;
+   signal sdramMux_rnw           : tSDRAMSingle;    
+   signal sdramMux_address       : tSDRAMReqAddr;
+   signal sdramMux_burstcount    : tSDRAMBurstcount;  
+   signal sdramMux_writeMask     : tSDRAMBwriteMask;  
+   signal sdramMux_dataWrite     : tSDRAMBwriteData;
+   signal sdramMux_granted       : tSDRAMSingle;
+   signal sdramMux_done          : tSDRAMSingle;
+   signal sdramMux_dataRead      : std_logic_vector(31 downto 0);
+   
+   signal rdp9fifo_reset         : std_logic; 
+   signal rdp9fifo_Din           : std_logic_vector(49 downto 0);
+   signal rdp9fifo_Wr            : std_logic;  
+   signal rdp9fifo_nearfull      : std_logic;  
+   signal rdp9fifo_empty         : std_logic;
    
    -- Memory mux
    signal mem_request            : std_logic;
@@ -422,6 +444,10 @@ begin
       
       command_error        => errorRDP_command,
       errorCombine         => errorRDP_combine,
+      
+      write9               => write9,
+      read9                => read9,
+      wait9                => wait9,
 
       irq_out              => irqVector(5),
                            
@@ -448,6 +474,23 @@ begin
       fifoout_Wr           => rdpfifo_Wr,      
       fifoout_nearfull     => rdpfifo_nearfull,
       fifoout_empty        => rdpfifo_empty,
+      
+      sdram_request        => sdramMux_request(SDRAMMUX_RDP),   
+      sdram_rnw            => sdramMux_rnw(SDRAMMUX_RDP),       
+      sdram_address        => sdramMux_address(SDRAMMUX_RDP),   
+      sdram_burstcount     => sdramMux_burstcount(SDRAMMUX_RDP),
+      sdram_writeMask      => sdramMux_writeMask(SDRAMMUX_RDP), 
+      sdram_dataWrite      => sdramMux_dataWrite(SDRAMMUX_RDP), 
+      sdram_granted        => sdramMux_granted(SDRAMMUX_RDP),      
+      sdram_done           => sdramMux_done(SDRAMMUX_RDP),      
+      sdram_dataRead       => sdram_dataRead,
+      sdram_valid          => sdram_done,    
+                              
+      rdp9fifo_reset       => rdp9fifo_reset,   
+      rdp9fifo_Din         => rdp9fifo_Din,     
+      rdp9fifo_Wr          => rdp9fifo_Wr,      
+      rdp9fifo_nearfull    => rdp9fifo_nearfull,
+      rdp9fifo_empty       => rdp9fifo_empty,
       
       RSP_RDP_reg_addr     => RSP_RDP_reg_addr,   
       RSP_RDP_reg_dataOut  => RSP_RDP_reg_dataOut,
@@ -644,14 +687,15 @@ begin
       
       error_PI             => error_PI,
                            
-      sdram_ena            => sdram_ena,      
-      sdram_rnw            => sdram_rnw,     
-      sdram_Adr            => sdram_Adr,      
-      sdram_be             => sdram_be,       
-      sdram_dataWrite      => sdram_dataWrite,
-      sdram_done           => sdram_done,     
-      sdram_dataRead       => sdram_dataRead, 
-      
+      sdram_request        => sdramMux_request(SDRAMMUX_PI),   
+      sdram_rnw            => sdramMux_rnw(SDRAMMUX_PI),       
+      sdram_address        => sdramMux_address(SDRAMMUX_PI),   
+      sdram_burstcount     => sdramMux_burstcount(SDRAMMUX_PI),
+      sdram_writeMask      => sdramMux_writeMask(SDRAMMUX_PI), 
+      sdram_dataWrite      => sdramMux_dataWrite(SDRAMMUX_PI), 
+      sdram_done           => sdramMux_done(SDRAMMUX_PI),      
+      sdram_dataRead       => sdramMux_dataRead,
+                             
       RAMMASK              => RAMMASK,
       rdram_request        => rdram_request(DDR3MUX_PI),   
       rdram_rnw            => rdram_rnw(DDR3MUX_PI),       
@@ -786,6 +830,38 @@ begin
       rdpfifo_Wr       => rdpfifo_Wr,      
       rdpfifo_nearfull => rdpfifo_nearfull,
       rdpfifo_empty    => rdpfifo_empty
+   );
+   
+   iSDRamMux : entity work.SDRamMux
+   port map
+   (
+      clk1x                => clk1x,
+                           
+      error                => open,
+                           
+      sdram_ena            => sdram_ena,      
+      sdram_rnw            => sdram_rnw,      
+      sdram_Adr            => sdram_Adr,      
+      sdram_be             => sdram_be,       
+      sdram_dataWrite      => sdram_dataWrite,
+      sdram_done           => sdram_done,     
+      sdram_dataRead       => sdram_dataRead, 
+                           
+      sdramMux_request     => sdramMux_request,   
+      sdramMux_rnw         => sdramMux_rnw,       
+      sdramMux_address     => sdramMux_address,   
+      sdramMux_burstcount  => sdramMux_burstcount,
+      sdramMux_writeMask   => sdramMux_writeMask, 
+      sdramMux_dataWrite   => sdramMux_dataWrite, 
+      sdramMux_granted     => sdramMux_granted,   
+      sdramMux_done        => sdramMux_done,      
+      sdramMux_dataRead    => sdramMux_dataRead,
+      
+      rdp9fifo_reset       => rdp9fifo_reset,   
+      rdp9fifo_Din         => rdp9fifo_Din,     
+      rdp9fifo_Wr          => rdp9fifo_Wr,      
+      rdp9fifo_nearfull    => rdp9fifo_nearfull,
+      rdp9fifo_empty       => rdp9fifo_empty
    );
    
    imemorymux : entity work.memorymux

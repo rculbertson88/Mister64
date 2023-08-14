@@ -17,6 +17,10 @@ entity RDP is
       
       command_error        : out std_logic;
       errorCombine         : out std_logic;
+      
+      write9                  : in  std_logic;
+      read9                   : in  std_logic;
+      wait9                   : in  std_logic;
             
       irq_out              : out std_logic := '0';
             
@@ -43,6 +47,23 @@ entity RDP is
       fifoout_Wr           : out std_logic := '0';  
       fifoout_nearfull     : in  std_logic;   
       fifoout_empty        : in  std_logic;  
+      
+      sdram_request        : out std_logic := '0';
+      sdram_rnw            : out std_logic := '0'; 
+      sdram_address        : out unsigned(26 downto 0):= (others => '0');
+      sdram_burstcount     : out unsigned(7 downto 0):= (others => '0');
+      sdram_writeMask      : out std_logic_vector(3 downto 0) := (others => '0'); 
+      sdram_dataWrite      : out std_logic_vector(31 downto 0) := (others => '0');
+      sdram_granted        : in  std_logic;
+      sdram_done           : in  std_logic;
+      sdram_dataRead       : in  std_logic_vector(31 downto 0);
+      sdram_valid          : in  std_logic;
+      
+      rdp9fifo_reset       : out std_logic := '0'; 
+      rdp9fifo_Din         : out std_logic_vector(49 downto 0) := (others => '0'); -- 32bit data + 18 bit address
+      rdp9fifo_Wr          : out std_logic := '0';  
+      rdp9fifo_nearfull    : in  std_logic;  
+      rdp9fifo_empty       : in  std_logic;
             
       RSP_RDP_reg_addr     : in  unsigned(4 downto 0);
       RSP_RDP_reg_dataOut  : in  unsigned(31 downto 0);
@@ -100,6 +121,7 @@ architecture arch of RDP is
    signal DPC_END                   : unsigned(23 downto 0) := (others => '0');
    
    signal RDRAM_fillAddr            : unsigned(9 downto 0) := (others => '0');
+   signal SDRAM_fillAddr            : unsigned(7 downto 0) := (others => '0');
    
    signal commandRAMstore           : std_logic := '0';
    signal commandRAMReady           : std_logic := '0';
@@ -123,12 +145,19 @@ architecture arch of RDP is
    
    -- Framebuffer request
    signal FBreq                     : std_logic;
+   signal FBRAMgrant                : std_logic;
+   signal rdram_finished            : std_logic;
+   signal sdram_finished            : std_logic;
+   signal FB_req_addr               : unsigned(25 downto 0);
    signal FBaddr                    : unsigned(25 downto 0);
    signal FBodd                     : std_logic;
    signal FBdone                    : std_logic := '0';
    signal FBRAMstore                : std_logic := '0';
+   signal FBRAM9store               : std_logic := '0';
    signal FBReadAddr                : unsigned(10 downto 0);
+   signal FBReadAddr9               : unsigned(7 downto 0);
    signal FBReadData                : std_logic_vector(31 downto 0);
+   signal FBReadData9               : std_logic_vector(31 downto 0);
    
    type tmemState is 
    (  
@@ -169,6 +198,8 @@ architecture arch of RDP is
    signal TextureReadAddr           : unsigned(11 downto 0) := (others => '0');    
    
    -- Fill line
+   signal stall_raster              : std_logic := '0';
+   
    signal fillWrite                 : std_logic;
    signal fillBE                    : unsigned(7 downto 0);
    signal fillColor                 : unsigned(63 downto 0);
@@ -182,7 +213,8 @@ architecture arch of RDP is
    signal pipeIn_trigger            : std_logic;
    signal pipeIn_valid              : std_logic;
    signal pipeIn_Addr               : unsigned(25 downto 0);
-   signal pipeIn_xIndex             : unsigned(11 downto 0);
+   signal pipeIn_xIndexPx           : unsigned(11 downto 0);
+   signal pipeIn_xIndex9            : unsigned(11 downto 0);
    signal pipeIn_X                  : unsigned(11 downto 0);
    signal pipeIn_Y                  : unsigned(11 downto 0);
    signal pipeIn_cvgValue           : unsigned(7 downto 0);
@@ -198,6 +230,7 @@ architecture arch of RDP is
    signal writePixelY               : unsigned(11 downto 0);
    signal writePixelColor           : tcolor3_u8;
    signal writePixelCvg             : unsigned(2 downto 0);
+   signal writePixelFBData9         : unsigned(31 downto 0);
    
    signal writePixelData16          : unsigned(15 downto 0);
    signal writePixelData32          : unsigned(31 downto 0);
@@ -208,6 +241,11 @@ architecture arch of RDP is
    signal pixel64addr               : std_logic_vector(19 downto 0) := (others => '0');
    signal pixel64filled             : std_logic := '0';
    signal pixel64timeout            : integer range 0 to 15;
+   
+   -- Bit 9 writing
+   signal pixel9data                : std_logic_vector(31 downto 0) := (others => '0');
+   signal pixel9addr                : std_logic_vector(17 downto 0) := (others => '0');
+   signal pixel9filled              : std_logic := '0';
 
    -- savestates
    type t_ssarray is array(0 to 1) of unsigned(63 downto 0);
@@ -248,15 +286,20 @@ begin
    reg_dataWrite <= std_logic_vector(RSP_RDP_reg_dataOut) when (RSP_RDP_reg_write = '1') else bus_dataWrite;
 
    rdram_rnw <= '1';
+   
+   FB_req_addr <= settings_colorImage.FB_base + FBaddr;
 
    process (clk1x)
-      variable var_dataRead : std_logic_vector(31 downto 0) := (others => '0');
+      variable var_dataRead         : std_logic_vector(31 downto 0) := (others => '0');
+      variable rdram_finished_new   : std_logic;
+      variable sdram_finished_new   : std_logic;
    begin
       if rising_edge(clk1x) then
       
          irq_out             <= '0';
          RSP2RDP_req         <= '0';
          rdram_request       <= '0';
+         sdram_request       <= '0';
          TextureReqRAMReady  <= '0';
          FBdone              <= '0';
       
@@ -433,9 +476,18 @@ begin
                   rdram_burstcount  <= to_unsigned(32, 10);
                elsif (FBreq = '1') then
                   memState          <= WAITFBDATA;
+                  FBRAMgrant        <= '0';
+                  rdram_finished    <= '0';
+                  sdram_finished    <= (not wait9) or (not read9); --'0';
+                  
                   rdram_request     <= '1';
-                  rdram_address     <= "00" & (settings_colorImage.FB_base + FBaddr);
+                  rdram_address     <= "00" & FB_req_addr(25 downto 3) & "000";
                   rdram_burstcount  <= to_unsigned(32, 10);
+                  
+                  sdram_request     <= read9; --'1';
+                  sdram_address     <= 7x"0" & FB_req_addr(22 downto 5) & "00";
+                  sdram_burstcount  <= to_unsigned(8, 8);
+                  
                elsif (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1') then
                   if (DPC_CURRENT < DPC_END) then
                      memState          <= WAITCOMMANDDATA;
@@ -470,7 +522,15 @@ begin
                end if;            
                
             when WAITFBDATA =>
-               if (rdram_done = '1') then
+               rdram_finished_new := rdram_finished;
+               sdram_finished_new := sdram_finished;
+               if (rdram_granted = '1') then FBRAMgrant <= '1'; end if;
+               if (rdram_done = '1' and FBRAMgrant = '1')  then rdram_finished_new := '1'; end if;
+               if (sdram_done = '1' and FBRAM9store = '1') then sdram_finished_new := '1'; end if;
+               rdram_finished <= rdram_finished_new;
+               sdram_finished <= sdram_finished_new;
+               
+               if (rdram_finished_new = '1' and sdram_finished_new = '1') then
                   FBdone   <= '1';
                   memState <= MEMIDLE;
                end if;
@@ -619,12 +679,13 @@ begin
       q_b         => TextureReqRAMData
    );
    
-   
    iRDP_raster : entity work.RDP_raster
    port map
    (
       clk1x                   => clk1x,        
-      reset                   => reset,        
+      reset                   => reset,       
+
+      stall_raster            => stall_raster,
                               
       settings_poly           => settings_poly,      
       settings_scissor        => settings_scissor,   
@@ -671,7 +732,8 @@ begin
       pipeIn_trigger          => pipeIn_trigger,
       pipeIn_valid            => pipeIn_valid,  
       pipeIn_Addr             => pipeIn_Addr,   
-      pipeIn_xIndex           => pipeIn_xIndex,      
+      pipeIn_xIndexPx         => pipeIn_xIndexPx,      
+      pipeIn_xIndex9          => pipeIn_xIndex9,      
       pipeIn_X                => pipeIn_X,      
       pipeIn_Y                => pipeIn_Y, 
       pipeIn_cvgValue         => pipeIn_cvgValue, 
@@ -741,7 +803,7 @@ begin
    (
       clock_a     => clk2x,
       address_a   => std_logic_vector(RDRAM_fillAddr),
-      data_a      => byteswap64(ddr3_DOUT),
+      data_a      => ddr3_DOUT,
       wren_a      => (ddr3_DOUT_READY and FBRAMstore),
       
       clock_b     => clk1x,
@@ -750,6 +812,53 @@ begin
       wren_b      => '0',
       q_b         => FBReadData
    );
+   
+   iFBRAM9: entity mem.dpram_dif
+   generic map 
+   ( 
+      addr_width_a => 8,
+      data_width_a => 32,
+      addr_width_b => 8,
+      data_width_b => 32
+   )
+   port map
+   (
+      clock_a     => clk1x,
+      address_a   => std_logic_vector(SDRAM_fillAddr),
+      data_a      => sdram_dataRead,
+      wren_a      => (sdram_valid and FBRAM9store),
+      
+      clock_b     => clk1x,
+      address_b   => std_logic_vector(FBReadAddr9),
+      data_b      => 32x"0",
+      wren_b      => '0',
+      q_b         => FBReadData9
+   );
+   
+   sdram_rnw       <= '1';  
+   sdram_writeMask <= x"0";
+   sdram_dataWrite <= (others => '0');
+   
+   process (clk1x)
+   begin
+      if rising_edge(clk1x) then
+         
+         if (sdram_granted = '1') then
+            SDRAM_fillAddr <= (others => '0');
+            if (memState = WAITFBDATA) then
+               FBRAM9store       <= '1';
+               SDRAM_fillAddr(7) <= FBodd;
+            end if;
+         elsif (sdram_valid = '1') then
+            SDRAM_fillAddr(6 downto 0) <= SDRAM_fillAddr(6 downto 0) + 1;
+         end if;
+         
+         if (sdram_done = '1') then
+            FBRAM9store <= '0';
+         end if;
+         
+      end if;
+   end process;
 
    iRDP_pipeline : entity work.RDP_pipeline
    port map
@@ -775,7 +884,8 @@ begin
       pipeIn_trigger          => pipeIn_trigger,
       pipeIn_valid            => pipeIn_valid,  
       pipeIn_Addr             => pipeIn_Addr,   
-      pipeIn_xIndex           => pipeIn_xIndex,      
+      pipeIn_xIndexPx         => pipeIn_xIndexPx,      
+      pipeIn_xIndex9          => pipeIn_xIndex9,      
       pipeIn_X                => pipeIn_X,      
       pipeIn_Y                => pipeIn_Y,      
       pipeIn_cvgValue         => pipeIn_cvgValue,  
@@ -790,6 +900,9 @@ begin
       
       FBAddr                  => FBReadAddr,
       FBData                  => FBReadData,
+      
+      FBAddr9                 => FBReadAddr9,
+      FBData9                 => FBReadData9,
      
       -- synthesis translate_off
       pipeIn_cvg16            => pipeIn_cvg16,  
@@ -812,7 +925,8 @@ begin
       writePixelX             => writePixelX,    
       writePixelY             => writePixelY,   
       writePixelColor         => writePixelColor,
-      writePixelCvg           => writePixelCvg
+      writePixelCvg           => writePixelCvg,
+      writePixelFBData9       => writePixelFBData9
    );
    
    writePixelData16 <= writePixelColor(0)(7 downto 3) & writePixelColor(1)(7 downto 3) & writePixelColor(2)(7 downto 3) & writePixelCvg(2);
@@ -821,6 +935,8 @@ begin
    process (clk1x)
    begin
       if rising_edge(clk1x) then
+      
+         stall_raster <= fifoout_nearfull or rdp9fifo_nearfull;
       
          --fifoOut_Wr_1 <= fifoOut_Wr; -- fifoOut_Wr_1 used for idle test
       
@@ -871,7 +987,53 @@ begin
             end if;
             
          end if;
+
+      end if;
+   end process;
+   
+   process (clk1x)
+   begin
+      if rising_edge(clk1x) then
+      
+         rdp9fifo_Wr   <= '0';
+         rdp9fifo_Din  <= pixel9Addr & pixel9data;
          
+         if (fillWrite = '1') then
+         
+            if (pixel9filled = '0' or fillAddr(22 downto 5) /= unsigned(pixel9Addr)) then
+               rdp9fifo_Wr  <= pixel9filled and write9;
+               pixel9Addr   <= std_logic_vector(fillAddr(22 downto 5));
+               pixel9filled <= '1';
+            end if;
+            
+            case (fillAddr(4 downto 3)) is
+               when "00" => pixel9data( 7 downto  0) <= fillColor(56) & fillColor(56) & fillColor(40) & fillColor(40) & fillColor(24) & fillColor(24) & fillColor(8) & fillColor(8);
+               when "01" => pixel9data(15 downto  8) <= fillColor(56) & fillColor(56) & fillColor(40) & fillColor(40) & fillColor(24) & fillColor(24) & fillColor(8) & fillColor(8);
+               when "10" => pixel9data(23 downto 16) <= fillColor(56) & fillColor(56) & fillColor(40) & fillColor(40) & fillColor(24) & fillColor(24) & fillColor(8) & fillColor(8);
+               when "11" => pixel9data(31 downto 24) <= fillColor(56) & fillColor(56) & fillColor(40) & fillColor(40) & fillColor(24) & fillColor(24) & fillColor(8) & fillColor(8);
+               when others => null;
+            end case;
+         
+         elsif (writePixel = '1' and writePixelAddr(25 downto 23) = 0) then -- todo: move max ram check to ddr3mux
+         
+            if (pixel9filled = '0' or writePixelAddr(22 downto 5) /= unsigned(pixel9Addr)) then
+               pixel9data   <= std_logic_vector(writePixelFBData9); -- must fill in old data because only 2 bits are updated, byte enable not possible
+               rdp9fifo_Wr  <= pixel9filled and write9;
+               pixel9Addr   <= std_logic_vector(writePixelAddr(22 downto 5));
+               pixel9filled <= '1';
+            end if;
+            
+            if (settings_colorImage.FB_size = SIZE_16BIT) then
+               pixel9data((to_integer(writePixelAddr(4 downto 1)) * 2) + 1) <= writePixelCvg(1);
+               pixel9data((to_integer(writePixelAddr(4 downto 1)) * 2) + 0) <= writePixelCvg(0);
+            end if;
+         
+         elsif (poly_done = '1') then
+
+            pixel9filled  <= '0';
+            rdp9fifo_Wr   <= pixel9filled and write9;
+            
+         end if;
 
       end if;
    end process;

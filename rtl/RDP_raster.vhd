@@ -11,6 +11,8 @@ entity RDP_raster is
       clk1x                   : in  std_logic;
       reset                   : in  std_logic;
    
+      stall_raster            : in  std_logic;
+   
       settings_poly           : in  tsettings_poly := SETTINGSPOLYINIT;
       settings_scissor        : in  tsettings_scissor := SETTINGSSCISSORINIT;
       settings_otherModes     : in  tsettings_otherModes;
@@ -56,7 +58,8 @@ entity RDP_raster is
       pipeIn_trigger          : out std_logic := '0';
       pipeIn_valid            : out std_logic := '0';
       pipeIn_Addr             : out unsigned(25 downto 0) := (others => '0');
-      pipeIn_xIndex           : out unsigned(11 downto 0) := (others => '0');
+      pipeIn_xIndexPx         : out unsigned(11 downto 0) := (others => '0');
+      pipeIn_xIndex9          : out unsigned(11 downto 0) := (others => '0');
       pipeIn_X                : out unsigned(11 downto 0) := (others => '0');
       pipeIn_Y                : out unsigned(11 downto 0) := (others => '0');
       pipeIn_cvgValue         : out unsigned(7 downto 0) := (others => '0');
@@ -223,7 +226,9 @@ architecture arch of RDP_raster is
       LINEIDLE, 
       PREPARELINE,
       DRAWLINE,
-      FILLLINE
+      STALLDRAW,
+      FILLLINE,
+      STALLFILL
    ); 
    signal linestate  : tlineState := LINEIDLE;    
    
@@ -232,6 +237,8 @@ architecture arch of RDP_raster is
    signal line_posX        : unsigned(11 downto 0) := (others => '0');
    signal line_endX        : unsigned(11 downto 0) := (others => '0');
    signal line_indexX      : unsigned(11 downto 0) := (others => '0');
+   signal line_offsetPx    : unsigned(2 downto 0) := (others => '0');
+   signal line_offset9     : unsigned(3 downto 0) := (others => '0');
    
    signal xDiff            : signed(11 downto 0);
    
@@ -741,16 +748,26 @@ begin
                   lineCVGInfo.invalidLine <= invalidLine;
                   
                   line_posY   <= lineInfo.Y;
-                  line_indexX <= (others => '0');
+                  
                   if (settings_poly.lft = '1' or settings_otherModes.cycleType = "11") then
                      line_posX   <= lineInfo.xStart;
                      line_endX   <= lineInfo.xEnd;
+                     line_indexX <= (others => '0');
                   else
                      line_posX   <= lineInfo.xEnd;
                      line_endX   <= lineInfo.xStart;
+                     line_indexX <= lineInfo.xEnd - lineInfo.xStart;
                   end if;
                   
-                   if (settings_poly.lft = '1') then
+                  case (settings_colorImage.FB_size) is
+                     when SIZE_8BIT  => line_offsetPx <= lineInfo.xStart(2 downto 0);
+                     when SIZE_16BIT => line_offsetPx <= "0" & lineInfo.xStart(1 downto 0);
+                     when SIZE_32BIT => line_offsetPx <= "00" & lineInfo.xStart(0);
+                     when others => null;
+                  end case;
+                  line_offset9 <= lineInfo.xStart(3 downto 0);
+                  
+                  if (settings_poly.lft = '1') then
                      xDiff       <= signed(lineInfo.xStart) - lineInfo.unscrx(11 downto 0);
                      line_DrDx   <= settings_poly.shade_DrDx(31 downto 5) & "00000";
                      line_DgDx   <= settings_poly.shade_DgDx(31 downto 5) & "00000";
@@ -796,11 +813,16 @@ begin
                   pixel_Z         <= pixel_Z         + resize(xDiff * line_DzDx,32);        
                
                when DRAWLINE =>
-                  line_indexX <= line_indexX + 1;
+                  if (stall_raster = '1') then
+                     linestate <= STALLDRAW;
+                  end if;
+               
                   if (settings_poly.lft = '1') then
-                     line_posX <= line_posX + 1;
+                     line_posX   <= line_posX + 1;
+                     line_indexX <= line_indexX + 1;
                   else
-                     line_posX <= line_posX - 1;
+                     line_posX   <= line_posX - 1;
+                     line_indexX <= line_indexX - 1;
                   end if;
                   if (drawLineDone = '1') then
                      linestate <= LINEIDLE;
@@ -809,7 +831,8 @@ begin
                   pipeIn_trigger  <= '1';
                   pipeIn_valid    <= '1';
                   pipeIn_Addr     <= calcPixelAddr;
-                  pipeIn_xIndex   <= line_indexX;
+                  pipeIn_xIndexPx <= line_indexX + line_offsetPx;
+                  pipeIn_xIndex9  <= line_indexX + line_offset9;
                   pipeIn_X        <= line_posX;
                   pipeIn_Y        <= line_posY;
                   pipeIn_cvgValue <= (cvg(0) or cvg(1)) & (cvg(2) or cvg(3));
@@ -847,8 +870,16 @@ begin
                   pixel_Texture_W <= pixel_Texture_W + line_DwDx;
                   pixel_Z         <= pixel_Z         + line_DzDx;
 
+               when STALLDRAW =>
+                  if (stall_raster = '0') then
+                     linestate <= DRAWLINE;
+                  end if;
                   
                when FILLLINE =>
+                  if (stall_raster = '1') then
+                     linestate <= STALLFILL;
+                  end if;
+               
                   fillWrite      <= '1';
                   fillAddr       <= calcPixelAddr;
                   fillX          <= line_posX;
@@ -891,6 +922,11 @@ begin
                   if (drawLineDone = '1') then
                      linestate <= LINEIDLE;
                      fillWrite <= '0';
+                  end if;
+                  
+               when STALLFILL =>
+                  if (stall_raster = '0') then
+                     linestate <= FILLLINE;
                   end if;
 
             end case; -- linestate

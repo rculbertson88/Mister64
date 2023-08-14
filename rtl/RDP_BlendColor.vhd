@@ -14,9 +14,12 @@ entity RDP_BlendColor is
       settings_otherModes     : in  tsettings_otherModes;
       settings_blendcolor     : in  tsettings_blendcolor;
      
+      blend_ena               : in  std_logic;
       combine_color           : in  tcolor3_u8;
       combine_alpha           : in  unsigned(7 downto 0);
       FB_color                : in  tcolor4_u8;
+      blend_shift_a           : in unsigned(2 downto 0);
+      blend_shift_b           : in unsigned(2 downto 0);
       
       blender_color           : out tcolor3_u8
    );
@@ -54,9 +57,7 @@ begin
    -- todo: more mux selects
    process (all)
    begin
-   
-      blend <= settings_otherModes.forceBlend;
-      
+
       -- todo: also disable for step 2
       if (mode_1_A = 0 and mode_2_A = 0 and combine_alpha = 255) then
          blend <= '0';
@@ -134,9 +135,8 @@ begin
 
    end process;
    
-   color_1_A_reduced <= color_1_A(7 downto 3);
-   color_2_A_reduced <= color_2_A(7 downto 3);
-   -- todo: blender shift when mode_2_A = 1 
+   color_1_A_reduced <= shift_right(color_1_A(7 downto 5), to_integer(blend_shift_a)) & "00" when (mode_2_A = 1) else color_1_A(7 downto 3);
+   color_2_A_reduced <= shift_right(color_2_A(7 downto 5), to_integer(blend_shift_b)) & "11" when (mode_2_A = 1) else color_2_A(7 downto 3);
    
    gcalc: for i in 0 to 2 generate
    begin
@@ -153,7 +153,8 @@ begin
       
          if (trigger = '1') then 
          
-            if (blend = '1') then
+            --if (blend_ena = '1') then
+            if (blend_ena = '1' and settings_otherModes.forceBlend = '1') then -- hack until special blend mode for AA is implemented
             
                for i in 0 to 2 loop
                   blender_color(i) <= blend_add(i)(12 downto 5);
