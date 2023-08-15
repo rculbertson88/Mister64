@@ -8,7 +8,7 @@ name: Test Build (Single SDRAM)
 on:
   push:
     branches:
-      - master
+      - main
     paths-ignore:
       - '**.md'
       - '.github/FUNDING.yml'
