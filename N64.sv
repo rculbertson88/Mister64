@@ -506,6 +506,8 @@ n64top n64top
    .pause(OSD_STATUS),
    .errorCodesOn(status[2]),
    
+   .CICTYPE(status[68:65]),
+   
    .write9(status[11]), 
    .read9(status[12]),  
    .wait9(status[13]),  

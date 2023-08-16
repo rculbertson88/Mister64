@@ -22,6 +22,8 @@ entity n64top is
       pause                   : in  std_logic;
       errorCodesOn            : in  std_logic;
       
+      CICTYPE                 : in  std_logic_vector(3 downto 0);
+      
       write9                  : in  std_logic;
       read9                   : in  std_logic;
       wait9                   : in  std_logic;
@@ -734,6 +736,7 @@ begin
       ce                   => ce_1x,           
       reset                => reset_intern_1x,   
 
+      CICTYPE              => CICTYPE,
       EEPROMTYPE           => EEPROMTYPE,
       
       error                => error_pif,

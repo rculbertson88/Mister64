@@ -106,6 +106,8 @@ begin
       pause                 => '0',
       errorCodesOn          => '1',
       
+      CICTYPE               => "0000",
+      
       write9                => '1',
       read9                 => '1',
       wait9                 => '1',
