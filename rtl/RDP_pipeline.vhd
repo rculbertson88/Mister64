@@ -12,6 +12,7 @@ entity RDP_pipeline is
       reset                   : in  std_logic;
       
       errorCombine            : out std_logic;
+      error_combineAlpha      : out std_logic;
       
       pipe_busy               : out std_logic;
    
@@ -478,6 +479,8 @@ begin
    (
       clk1x                   => clk1x,
       trigger                 => pipeIn_trigger,
+      
+      error_combineAlpha      => error_combineAlpha,
                               
       settings_otherModes     => settings_otherModes,
       settings_combineMode    => settings_combineMode,

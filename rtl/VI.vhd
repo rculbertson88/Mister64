@@ -16,7 +16,8 @@ entity VI is
       irq_out          : out std_logic := '0';
       
       errorEna         : in  std_logic;
-      errorCode        : in  unsigned(11 downto 0);
+      errorCode        : in  unsigned(15 downto 0);
+      fpscountOn       : in  std_logic;
       
       rdram_request    : out std_logic := '0';
       rdram_rnw        : out std_logic := '0'; 
@@ -96,6 +97,13 @@ architecture arch of VI is
    signal VI_STAGED_DATA                  : unsigned(31 downto 0) := (others => '0');  -- 0x0440003C (RW): [31:0] STAGED_DATA<31:0>: Diagnostics only, usage unknown 
 
    signal newLine                         : std_logic;
+   
+   -- fps counter
+   signal fpscountBCD               : unsigned(7 downto 0) := (others => '0');
+   signal fpscountBCD_next          : unsigned(7 downto 0) := (others => '0');
+   signal fps_SecondCounter         : integer range 0 to 62499999 := 0;
+   signal fps_VI_ORIGIN_last        : unsigned(23 downto 0) := (others => '0');
+   signal fps_vsync                 : std_logic := '0';
 
    -- savestates
    type t_ssarray is array(0 to 7) of std_logic_vector(63 downto 0);
@@ -150,7 +158,9 @@ begin
             VI_X_SCALE_OFFSET              <= unsigned(ss_in(5)(27 downto 16));             
             VI_Y_SCALE_FACTOR              <= unsigned(ss_in(5)(43 downto 32));             
             VI_Y_SCALE_OFFSET              <= unsigned(ss_in(5)(59 downto 48));                         
-            VI_STAGED_DATA                 <= unsigned(ss_in(4)(63 downto 32));                      
+            VI_STAGED_DATA                 <= unsigned(ss_in(4)(63 downto 32));  
+
+            fpscountBCD_next               <= (others => '0');            
 
          elsif (ce = '1') then
          
@@ -255,6 +265,28 @@ begin
                   when others   => null;                  
                end case;
             end if;
+            
+            -- fps counter
+            fps_vsync <= video_vsync;
+            if (video_vsync = '1' and fps_vsync = '0') then
+               fps_VI_ORIGIN_last <= VI_ORIGIN;
+               if (VI_ORIGIN /= fps_VI_ORIGIN_last) then
+                  if (fpscountBCD_next(3 downto 0) = x"9") then
+                     fpscountBCD_next(7 downto 4) <= fpscountBCD_next(7 downto 4) + 1;
+                     fpscountBCD_next(3 downto 0) <= x"0";
+                  else
+                     fpscountBCD_next(3 downto 0) <= fpscountBCD_next(3 downto 0) + 1;
+                  end if;
+               end if;
+            end if;
+            
+            if (fps_SecondCounter = 62499999) then
+               fps_SecondCounter <= 0;
+               fpscountBCD       <= fpscountBCD_next;
+               fpscountBCD_next  <= (others => '0');       
+            else
+               fps_SecondCounter <= fps_SecondCounter + 1;            
+            end if;
 
          end if;
       end if;
@@ -272,6 +304,9 @@ begin
   
       errorEna             => errorEna, 
       errorCode            => errorCode,
+      
+      fpscountOn           => fpscountOn, 
+      fpscountBCD          => fpscountBCD,
       
       VI_CTRL_TYPE         => VI_CTRL_TYPE,
       VI_CTRL_SERRATE      => VI_CTRL_SERRATE,

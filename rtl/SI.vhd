@@ -16,7 +16,7 @@ entity SI is
       SIPIF_ramreq     : out std_logic := '0';
       SIPIF_addr       : out unsigned(5 downto 0) := (others => '0');
       SIPIF_writeEna   : out std_logic := '0'; 
-      SIPIF_writeData  : out std_logic_vector(7 downto 0);
+      SIPIF_writeData  : out std_logic_vector(7 downto 0) := (others => '0');
       SIPIF_ramgrant   : in  std_logic;
       SIPIF_readData   : in  std_logic_vector(7 downto 0);
       

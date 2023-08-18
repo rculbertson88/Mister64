@@ -1,6 +1,7 @@
 library IEEE;
 use IEEE.std_logic_1164.all;  
 use IEEE.numeric_std.all; 
+use STD.textio.all;
 
 library mem;
 
@@ -265,6 +266,46 @@ begin
       
       end if;
    end process;
+   
+--##############################################################
+--############################### export
+--##############################################################
+   
+   -- synthesis translate_off
+   goutput : if 1 = 1 generate
+      signal out_count        : unsigned(31 downto 0) := (others => '0');
+   begin
+   
+      process
+         file outfile          : text;
+         variable f_status     : FILE_OPEN_STATUS;
+         variable line_out     : line;
+         variable stringbuffer : string(1 to 31);
+      begin
+   
+         file_open(f_status, outfile, "R:\\AI_n64_sim.txt", write_mode);
+         file_close(outfile);
+         file_open(f_status, outfile, "R:\\AI_n64_sim.txt", append_mode);
+         
+         while (true) loop
+            
+            wait until rising_edge(clk1x);
+
+            if (state = FETCHNEXT and rdram_done = '1') then
+               wait until rising_edge(clk1x);
+               
+               write(line_out, to_hstring(sound_out_left & sound_out_right));
+               writeline(outfile, line_out);
+               out_count <= out_count + 1;
+            end if;
+            
+         end loop;
+         
+      end process;
+   
+   end generate goutput;
+
+   -- synthesis translate_on  
 
 end architecture;
 

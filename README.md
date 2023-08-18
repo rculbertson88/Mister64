@@ -27,6 +27,8 @@ List of Errors:
 - Bit 9 - RSP stall timeout
 - Bit 10 - RDP command not implemented
 - Bit 11 - RDP combine mode not implemented
+- Bit 12 - RDP combine alpha functionality not implemented
+- Bit 13 - SDRAM Mux timeout
   
 ## Status
 
