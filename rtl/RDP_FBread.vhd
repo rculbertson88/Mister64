@@ -55,11 +55,10 @@ begin
    begin
       if rising_edge(clk1x) then
          
-         muxselect <= xIndexPx(0);
-         
-         muxselect9 <= xIndex9(3 downto 0);
-         
          if (trigger = '1') then
+         
+            muxselect  <= xIndexPx(0);
+            muxselect9 <= xIndex9(3 downto 0);
          
             FBData9_old <= FBData9;
          

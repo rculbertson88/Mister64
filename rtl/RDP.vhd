@@ -193,6 +193,10 @@ architecture arch of RDP is
    signal TextureRam1Data           : std_logic_vector(15 downto 0) := (others => '0');
    signal TextureRam2Data           : std_logic_vector(15 downto 0) := (others => '0');
    signal TextureRam3Data           : std_logic_vector(15 downto 0) := (others => '0');
+   signal TextureRam4Data           : std_logic_vector(15 downto 0) := (others => '0');
+   signal TextureRam5Data           : std_logic_vector(15 downto 0) := (others => '0');
+   signal TextureRam6Data           : std_logic_vector(15 downto 0) := (others => '0');
+   signal TextureRam7Data           : std_logic_vector(15 downto 0) := (others => '0');
    signal TextureRamWE              : std_logic_vector(7 downto 0)  := (others => '0');
    signal TextureRamDataIn          : tTextureRamData;
    signal TextureReadData           : tTextureRamData;
@@ -224,6 +228,10 @@ architecture arch of RDP is
    signal pipeInColor               : tcolor4_s16;
    signal pipeIn_S                  : signed(15 downto 0);
    signal pipeIn_T                  : signed(15 downto 0);
+   signal pipeInWShift              : integer range 0 to 14;
+   signal pipeInWNormLow            : unsigned(7 downto 0);
+   signal pipeInWtemppoint          : signed(15 downto 0);
+   signal pipeInWtempslope          : unsigned(7 downto 0);
    
    signal writePixel                : std_logic;
    signal writePixelAddr            : unsigned(25 downto 0);
@@ -484,11 +492,11 @@ begin
                   
                   rdram_request     <= '1';
                   rdram_address     <= "00" & FB_req_addr(25 downto 3) & "000";
-                  rdram_burstcount  <= to_unsigned(32, 10);
+                  rdram_burstcount  <= to_unsigned(65, 10);
                   
                   sdram_request     <= read9; --'1';
                   sdram_address     <= 7x"0" & FB_req_addr(22 downto 5) & "00";
-                  sdram_burstcount  <= to_unsigned(8, 8);
+                  sdram_burstcount  <= to_unsigned(17, 8);
                   
                elsif (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1') then
                   if (DPC_CURRENT < DPC_END) then
@@ -712,6 +720,10 @@ begin
       TextureRam1Data         => TextureRam1Data,
       TextureRam2Data         => TextureRam2Data,
       TextureRam3Data         => TextureRam3Data,
+      TextureRam4Data         => TextureRam4Data,
+      TextureRam5Data         => TextureRam5Data,
+      TextureRam6Data         => TextureRam6Data,
+      TextureRam7Data         => TextureRam7Data,
       TextureRamWE            => TextureRamWE,   
       
       FBreq                   => FBreq, 
@@ -744,6 +756,10 @@ begin
       pipeInColor             => pipeInColor, 
       pipeIn_S                => pipeIn_S,
       pipeIn_T                => pipeIn_T,
+      pipeInWShift            => pipeInWShift,   
+      pipeInWNormLow          => pipeInWNormLow, 
+      pipeInWtemppoint        => pipeInWtemppoint,
+      pipeInWtempslope        => pipeInWtempslope,
 
       -- synthesis translate_off
       pipeIn_cvg16            => pipeIn_cvg16, 
@@ -763,10 +779,10 @@ begin
    TextureRamDataIn(1) <= TextureRam1Data;
    TextureRamDataIn(2) <= TextureRam2Data;
    TextureRamDataIn(3) <= TextureRam3Data;
-   TextureRamDataIn(4) <= TextureRam0Data;
-   TextureRamDataIn(5) <= TextureRam1Data;
-   TextureRamDataIn(6) <= TextureRam2Data;
-   TextureRamDataIn(7) <= TextureRam3Data;
+   TextureRamDataIn(4) <= TextureRam4Data;
+   TextureRamDataIn(5) <= TextureRam5Data;
+   TextureRamDataIn(6) <= TextureRam6Data;
+   TextureRamDataIn(7) <= TextureRam7Data;
    
    gTextureRam: for i in 0 to 7 generate
    begin
@@ -785,6 +801,7 @@ begin
          wren_a      => TextureRamWE(i),
          
          clock_b     => clk1x,
+         clken_b     => pipeIn_trigger,
          address_b   => std_logic_vector(TextureReadAddr(11 downto 3)),
          data_b      => 16x"0",
          wren_b      => '0',
@@ -809,6 +826,7 @@ begin
       wren_a      => (ddr3_DOUT_READY and FBRAMstore),
       
       clock_b     => clk1x,
+      clken_b     => pipeIn_trigger,
       address_b   => std_logic_vector(FBReadAddr),
       data_b      => 32x"0",
       wren_b      => '0',
@@ -831,6 +849,7 @@ begin
       wren_a      => (sdram_valid and FBRAM9store),
       
       clock_b     => clk1x,
+      clken_b     => pipeIn_trigger,
       address_b   => std_logic_vector(FBReadAddr9),
       data_b      => 32x"0",
       wren_b      => '0',
@@ -897,6 +916,10 @@ begin
       pipeInColor             => pipeInColor,     
       pipeIn_S                => pipeIn_S,
       pipeIn_T                => pipeIn_T,    
+      pipeInWShift            => pipeInWShift,   
+      pipeInWNormLow          => pipeInWNormLow, 
+      pipeInWtemppoint         => pipeInWtemppoint,
+      pipeInWtempslope         => pipeInWtempslope,
 
       TextureAddr             => TextureReadAddr,
       TextureRamData          => TextureReadData,

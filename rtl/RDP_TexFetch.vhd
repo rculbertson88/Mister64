@@ -8,6 +8,7 @@ entity RDP_TexFetch is
    port 
    (
       clk1x             : in  std_logic;
+      trigger           : in  std_logic;
          
       settings_tile     : in  tsettings_tile;
       index_S           : in  unsigned(9 downto 0);
@@ -36,6 +37,7 @@ architecture arch of RDP_TexFetch is
    signal dataSelect      : integer range 0 to 3;
    
    signal dataMuxed16     : unsigned(15 downto 0);
+   signal dataMuxed32     : unsigned(31 downto 0);
   
    -- synthesis translate_off
    signal addr_base_1     : unsigned(11 downto 0);
@@ -81,6 +83,7 @@ begin
             else
                addr_calc(1) := not addr_calc(1);
             end if;
+            
             case (settings_tile.Tile_format) is
                when FORMAT_RGBA => null;
                when FORMAT_YUV => null;
@@ -91,8 +94,15 @@ begin
             end case;
          
          when SIZE_32BIT =>
+            addr_calc := (addr_base(8 downto 0) & "000") + (index_S & '0');
+            if (index_T(0) = '1') then
+               addr_calc(2 downto 1) := not addr_calc(2 downto 1);
+            else
+               addr_calc(1) := not addr_calc(1);
+            end if;
+         
             case (settings_tile.Tile_format) is
-               when FORMAT_RGBA => null;
+               when FORMAT_RGBA =>
                when FORMAT_YUV => null;
                when FORMAT_CI => null;
                when FORMAT_IA => null;
@@ -113,17 +123,23 @@ begin
    begin
       if rising_edge(clk1x) then
       
-         dataSelect <= dataSelect_next;
+         if (trigger = '1') then
          
-         -- synthesis translate_off
-         addr_base_1 <= addr_base;
-         -- synthesis translate_on
+            dataSelect <= dataSelect_next;
+            
+            -- synthesis translate_off
+            addr_base_1 <= addr_base;
+            -- synthesis translate_on
+            
+         end if;
       
       end if;
    end process;
    
    -- data select
    dataMuxed16 <= unsigned(tex_data(dataSelect));
+   
+   dataMuxed32 <= unsigned(tex_data(dataSelect)) & unsigned(tex_data(dataSelect + 4)); 
    
    process (all)
    begin
@@ -188,7 +204,21 @@ begin
          
          when SIZE_32BIT =>
             case (settings_tile.Tile_format) is
-               when FORMAT_RGBA => null;
+               when FORMAT_RGBA =>
+                  tex_color(0) <= dataMuxed32(31 downto 24);
+                  tex_color(1) <= dataMuxed32(23 downto 16);
+                  tex_color(2) <= dataMuxed32(15 downto  8);
+                  tex_alpha    <= dataMuxed32( 7 downto  0);
+                  -- synthesis translate_off
+                  export_TexFt_addr <= (others => '0');
+                  export_TexFt_data(31 downto 24) <= dataMuxed32( 7 downto  0);
+                  export_TexFt_data(23 downto 16) <= dataMuxed32(31 downto 24);
+                  export_TexFt_data(15 downto  8) <= dataMuxed32(23 downto 16);
+                  export_TexFt_data( 7 downto  0) <= dataMuxed32(15 downto  8);
+                  export_TexFt_db1  <= resize(addr_base_1 & '0', 32);
+                  export_TexFt_db3  <= dataMuxed32;
+                  -- synthesis translate_on
+               
                when FORMAT_YUV => null;
                when FORMAT_CI => null;
                when FORMAT_IA => null;
