@@ -186,7 +186,7 @@ begin
             when IDLE =>
                savestate_pause   <= '0';
                unstallwait       <= 1023;
-               if (reset_in_1 = '1' and reset_in = '0') then
+               if (reset_in = '1') then
                   state                <= WAITPAUSE;
                   reset_intern         <= '1';
                   ss_reset             <= '1';
@@ -503,11 +503,12 @@ begin
                end if;
                
             when RESETTING =>
-               settle <= settle + 1;
                if (settle < 8) then
                   reset_intern <= '1';
                end if;
-               if (settle = 16) then
+               if (settle < 16) then
+                  settle <= settle + 1;
+               elsif (reset_in = '0') then
                   state          <= IDLE;
                   loading_ss     <= '0';
                   load_done      <= not resetMode;
