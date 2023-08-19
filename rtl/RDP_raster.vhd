@@ -36,6 +36,10 @@ entity RDP_raster is
       TextureRam1Data         : out std_logic_vector(15 downto 0) := (others => '0');
       TextureRam2Data         : out std_logic_vector(15 downto 0) := (others => '0');
       TextureRam3Data         : out std_logic_vector(15 downto 0) := (others => '0');
+      TextureRam4Data         : out std_logic_vector(15 downto 0) := (others => '0');
+      TextureRam5Data         : out std_logic_vector(15 downto 0) := (others => '0');
+      TextureRam6Data         : out std_logic_vector(15 downto 0) := (others => '0');
+      TextureRam7Data         : out std_logic_vector(15 downto 0) := (others => '0');
       TextureRamWE            : out std_logic_vector(7 downto 0)  := (others => '0');
      
       FBreq                   : out std_logic := '0';
@@ -68,6 +72,10 @@ entity RDP_raster is
       pipeInColor             : out tcolor4_s16 := (others => (others => '0'));
       pipeIn_S                : out signed(15 downto 0) := (others => '0');
       pipeIn_T                : out signed(15 downto 0) := (others => '0');
+      pipeInWShift            : out integer range 0 to 14 := 0;
+      pipeInWNormLow          : out unsigned(7 downto 0) := (others => '0');
+      pipeInWtemppoint        : out signed(15 downto 0) := (others => '0');
+      pipeInWtempslope        : out unsigned(7 downto 0) := (others => '0');
       
       -- synthesis translate_off
       pipeIn_cvg16            : out unsigned(15 downto 0) := (others => '0');
@@ -280,6 +288,35 @@ architecture arch of RDP_raster is
    signal line_DwDx        : signed(31 downto 0) := (others => '0');
    signal line_DzDx        : signed(31 downto 0) := (others => '0'); 
    
+   -- perspective correction
+   signal wShift           : integer range 0 to 14;
+   signal wShifted         : unsigned(13 downto 0);
+   
+   type tnormPoint is array(0 to 63) of signed(15 downto 0);
+   constant normPoint : tnormPoint := 
+   ( 
+      x"4000", x"3f04", x"3e10", x"3d22", x"3c3c", x"3b5d", x"3a83", x"39b1",
+      x"38e4", x"381c", x"375a", x"369d", x"35e5", x"3532", x"3483", x"33d9",
+      x"3333", x"3291", x"31f4", x"3159", x"30c3", x"3030", x"2fa1", x"2f15",
+      x"2e8c", x"2e06", x"2d83", x"2d03", x"2c86", x"2c0b", x"2b93", x"2b1e",
+      x"2aab", x"2a3a", x"29cc", x"2960", x"28f6", x"288e", x"2828", x"27c4",
+      x"2762", x"2702", x"26a4", x"2648", x"25ed", x"2594", x"253d", x"24e7",
+      x"2492", x"243f", x"23ee", x"239e", x"234f", x"2302", x"22b6", x"226c",
+      x"2222", x"21da", x"2193", x"214d", x"2108", x"20c5", x"2082", x"2041"
+   );
+   type tnormSlope is array(0 to 63) of unsigned(7 downto 0);
+   constant normSlope : tnormSlope := 
+   (
+      x"03", x"0b", x"11", x"19", x"20", x"25", x"2d", x"32",
+      x"37", x"3d", x"42", x"47", x"4c", x"50", x"55", x"59",
+      x"5d", x"62", x"64", x"69", x"6c", x"70", x"73", x"76",
+      x"79", x"7c", x"7f", x"82", x"84", x"87", x"8a", x"8c",
+      x"8e", x"91", x"93", x"95", x"97", x"99", x"9b", x"9d",
+      x"9f", x"a1", x"a3", x"a4", x"a6", x"a8", x"a9", x"aa",
+      x"ac", x"ae", x"af", x"b0", x"b2", x"b3", x"b5", x"b5",
+      x"b7", x"b8", x"b9", x"ba", x"bc", x"bc", x"be", x"be"
+   );
+   
    -- comb calculation
    signal calcPixelAddr    : unsigned(25 downto 0);
    
@@ -287,7 +324,8 @@ architecture arch of RDP_raster is
    type tloadState is 
    (  
       LOADIDLE,
-      LOADRAM,      
+      LOADRAM,   
+      LOADRAM2,      
       LOADLINE
    ); 
    signal loadState  : tloadState := LOADIDLE;  
@@ -326,6 +364,8 @@ architecture arch of RDP_raster is
    signal load_Ram1Data       : std_logic_vector(15 downto 0) := (others => '0');
    signal load_Ram2Data       : std_logic_vector(15 downto 0) := (others => '0');
    signal load_Ram3Data       : std_logic_vector(15 downto 0) := (others => '0');
+   signal TextureRAMData_1    : std_logic_vector(63 downto 0);
+   signal TextureRAMDataMuxed : std_logic_vector(63 downto 0);
    
    -- export only
    -- synthesis translate_off
@@ -711,7 +751,20 @@ begin
    maskx <= cvg(to_integer(offy));
    
    offx <= cvgOffXTable(to_integer(maskx));
-    
+   
+   -- perspective correction
+   process (pixel_Texture_W)
+   begin
+      wShift <= 14;
+      for i in 1 to 14 loop
+         if (pixel_Texture_W(i + 16) = '1') then
+            wShift <= 14 - i;
+         end if;
+      end loop;
+   end process;
+   
+   wShifted <= unsigned(pixel_Texture_W(29 downto 16)) sll wShift;
+   
    process (clk1x)
    begin
       if rising_edge(clk1x) then
@@ -828,27 +881,32 @@ begin
                      linestate <= LINEIDLE;
                   end if;
 
-                  pipeIn_trigger  <= '1';
-                  pipeIn_valid    <= '1';
-                  pipeIn_Addr     <= calcPixelAddr;
-                  pipeIn_xIndexPx <= line_indexX + line_offsetPx;
-                  pipeIn_xIndex9  <= line_indexX + line_offset9;
-                  pipeIn_X        <= line_posX;
-                  pipeIn_Y        <= line_posY;
-                  pipeIn_cvgValue <= (cvg(0) or cvg(1)) & (cvg(2) or cvg(3));
-                  pipeIn_offX     <= offx;
-                  pipeIn_offY     <= offy;
+                  pipeIn_trigger    <= '1';
+                  pipeIn_valid      <= '1';
+                  pipeIn_Addr       <= calcPixelAddr;
+                  pipeIn_xIndexPx   <= line_indexX + line_offsetPx;
+                  pipeIn_xIndex9    <= line_indexX + line_offset9;
+                  pipeIn_X          <= line_posX;
+                  pipeIn_Y          <= line_posY;
+                  pipeIn_cvgValue   <= (cvg(0) or cvg(1)) & (cvg(2) or cvg(3));
+                  pipeIn_offX       <= offx;
+                  pipeIn_offY       <= offy;
+                     
+                  pipeInColor(0)    <= pixel_Color_R(31 downto 16);
+                  pipeInColor(1)    <= pixel_Color_G(31 downto 16);
+                  pipeInColor(2)    <= pixel_Color_B(31 downto 16);
+                  pipeInColor(3)    <= pixel_Color_A(31 downto 16);
+                     
+                  pipeIn_S          <= pixel_Texture_S(31 downto 16);
+                  pipeIn_T          <= pixel_Texture_T(31 downto 16);
                   
-                  pipeInColor(0)  <= pixel_Color_R(31 downto 16);
-                  pipeInColor(1)  <= pixel_Color_G(31 downto 16);
-                  pipeInColor(2)  <= pixel_Color_B(31 downto 16);
-                  pipeInColor(3)  <= pixel_Color_A(31 downto 16);
-                  
-                  pipeIn_S        <= pixel_Texture_S(31 downto 16);
-                  pipeIn_T        <= pixel_Texture_T(31 downto 16);
+                  pipeInWShift      <= 14 - wShift;
+                  pipeInWNormLow    <= wShifted(7 downto 0);
+                  pipeInWtemppoint  <= normPoint(to_integer(wShifted(13 downto 8)));
+                  pipeInWtempslope  <= normSlope(to_integer(wShifted(13 downto 8))) + 1;
                   
                   -- synthesis translate_off
-                  pipeIn_cvg16    <= cvg(0) & cvg(1) & cvg(2) & cvg(3);
+                  pipeIn_cvg16      <= cvg(0) & cvg(1) & cvg(2) & cvg(3);
                   
                   pipeInColorFull(0) <= pixel_Color_R;
                   pipeInColorFull(1) <= pixel_Color_G;
@@ -861,15 +919,15 @@ begin
                   pipeInSTWZ(3)      <= pixel_Z;
                   -- synthesis translate_on
 
-                  pixel_Color_R   <= pixel_Color_R   + line_DrDx;
-                  pixel_Color_G   <= pixel_Color_G   + line_DgDx;
-                  pixel_Color_B   <= pixel_Color_B   + line_DbDx;
-                  pixel_Color_A   <= pixel_Color_A   + line_DaDx;
-                  pixel_Texture_S <= pixel_Texture_S + line_DsDx;
-                  pixel_Texture_T <= pixel_Texture_T + line_DtDx;
-                  pixel_Texture_W <= pixel_Texture_W + line_DwDx;
-                  pixel_Z         <= pixel_Z         + line_DzDx;
-
+                  pixel_Color_R     <= pixel_Color_R   + line_DrDx;
+                  pixel_Color_G     <= pixel_Color_G   + line_DgDx;
+                  pixel_Color_B     <= pixel_Color_B   + line_DbDx;
+                  pixel_Color_A     <= pixel_Color_A   + line_DaDx;
+                  pixel_Texture_S   <= pixel_Texture_S + line_DsDx;
+                  pixel_Texture_T   <= pixel_Texture_T + line_DtDx;
+                  pixel_Texture_W   <= pixel_Texture_W + line_DwDx;
+                  pixel_Z           <= pixel_Z         + line_DzDx;
+                  
                when STALLDRAW =>
                   if (stall_raster = '0') then
                      linestate <= DRAWLINE;
@@ -979,10 +1037,19 @@ begin
    load_Ram2Addr <= load_tmemAddr0(10 downto 2) & "11";
    load_Ram3Addr <= load_tmemAddr0(10 downto 2) & "10";
    
-   load_Ram0Data <= TextureReqRAMData(63 downto 48) when (load_T_corrected(0) = '0') else TextureReqRAMData(31 downto 16);
-   load_Ram1Data <= TextureReqRAMData(47 downto 32) when (load_T_corrected(0) = '0') else TextureReqRAMData(15 downto  0);
-   load_Ram2Data <= TextureReqRAMData(31 downto 16) when (load_T_corrected(0) = '0') else TextureReqRAMData(63 downto 48);
-   load_Ram3Data <= TextureReqRAMData(15 downto  0) when (load_T_corrected(0) = '0') else TextureReqRAMData(47 downto 32);
+   TextureRAMDataMuxed <= TextureRAMData_1                                                when (load_MemAddr(2 downto 0) = "000") else
+                          TextureRAMData_1(55 downto  0) & TextureReqRAMData(63 downto 56) when (load_MemAddr(2 downto 0) = "001") else 
+                          TextureRAMData_1(47 downto  0) & TextureReqRAMData(63 downto 48) when (load_MemAddr(2 downto 0) = "010") else 
+                          TextureRAMData_1(39 downto  0) & TextureReqRAMData(63 downto 40) when (load_MemAddr(2 downto 0) = "011") else 
+                          TextureRAMData_1(31 downto  0) & TextureReqRAMData(63 downto 32) when (load_MemAddr(2 downto 0) = "100") else 
+                          TextureRAMData_1(23 downto  0) & TextureReqRAMData(63 downto 24) when (load_MemAddr(2 downto 0) = "101") else 
+                          TextureRAMData_1(15 downto  0) & TextureReqRAMData(63 downto 16) when (load_MemAddr(2 downto 0) = "110") else 
+                          TextureRAMData_1( 7 downto  0) & TextureReqRAMData(63 downto  8);
+   
+   load_Ram0Data <= TextureRAMDataMuxed(63 downto 48) when (load_T_corrected(0) = '0' or settings_textureImage.tex_size = SIZE_32BIT) else TextureRAMDataMuxed(31 downto 16);
+   load_Ram1Data <= TextureRAMDataMuxed(47 downto 32) when (load_T_corrected(0) = '0' or settings_textureImage.tex_size = SIZE_32BIT) else TextureRAMDataMuxed(15 downto  0);
+   load_Ram2Data <= TextureRAMDataMuxed(31 downto 16) when (load_T_corrected(0) = '0' or settings_textureImage.tex_size = SIZE_32BIT) else TextureRAMDataMuxed(63 downto 48);
+   load_Ram3Data <= TextureRAMDataMuxed(15 downto  0) when (load_T_corrected(0) = '0' or settings_textureImage.tex_size = SIZE_32BIT) else TextureRAMDataMuxed(47 downto 32);
    
    process (clk1x)
    begin
@@ -1025,16 +1092,22 @@ begin
                   end if;  
                     
                when LOADRAM =>
-                  TextureReqRAM_index <= (others => '0'); -- todo: needs additional read and muxing for unaligned addresses
+                  TextureReqRAM_index <= (others => '0');
                   if (TextureReqRAMReady = '1') then
-                     loadstate <= LOADLINE;
+                     loadstate <= LOADRAM2;
                   end if;
+                  
+               when LOADRAM2 =>
+                  loadstate           <= LOADLINE;
+                  TextureRAMData_1    <= TextureReqRAMData;
+                  TextureReqRAM_index <= TextureReqRAM_index + 1;
                
                when LOADLINE =>
                   load_posX    <= load_posX + spanAdvance;
                   load_MemAddr <= load_MemAddr + memAdvance;
                   
                   TextureReqRAM_index <= TextureReqRAM_index + 1;
+                  TextureRAMData_1    <= TextureReqRAMData;
                   
                   if (TextureReqRAM_index /= 31) then
                      load_MemAddr <= load_MemAddr + memAdvance;
@@ -1051,14 +1124,18 @@ begin
                   loadTexture_T <= loadTexture_T + (settings_poly.tex_DtDx(31 downto 5) & "00000");
                   
                   TextureRamAddr  <= load_Ram0Addr(10 downto 2);
-                  TextureRam0Data <= load_Ram1Data;
-                  TextureRam1Data <= load_Ram0Data;
-                  TextureRam2Data <= load_Ram3Data;
-                  TextureRam3Data <= load_Ram2Data;
                   
                   if (settings_tile.Tile_format = FORMAT_YUV) then
                      report "texture loading in YUV format" severity failure;  -- todo: implement
                   elsif (settings_tile.Tile_format = FORMAT_RGBA and settings_textureImage.tex_size = SIZE_32BIT) then
+                     TextureRam0Data <= load_Ram2Data;
+                     TextureRam1Data <= load_Ram0Data;
+                     TextureRam2Data <= load_Ram2Data;
+                     TextureRam3Data <= load_Ram0Data;
+                     TextureRam4Data <= load_Ram3Data;
+                     TextureRam5Data <= load_Ram1Data;
+                     TextureRam6Data <= load_Ram3Data;
+                     TextureRam7Data <= load_Ram1Data;
                      if (load_bit3flipped = '1') then
                         TextureRamWE(0) <= '0';
                         TextureRamWE(1) <= '0';
@@ -1079,6 +1156,10 @@ begin
                         TextureRamWE(7) <= '0';
                      end if;
                   else
+                     TextureRam0Data <= load_Ram1Data;
+                     TextureRam1Data <= load_Ram0Data;
+                     TextureRam2Data <= load_Ram3Data;
+                     TextureRam3Data <= load_Ram2Data;
                      TextureRamWE(0) <= not load_Ram0Addr(10);
                      TextureRamWE(1) <= not load_Ram0Addr(10);
                      TextureRamWE(2) <= not load_Ram0Addr(10);
@@ -1099,21 +1180,35 @@ begin
                   export_loadFetch.debug2 <= 19x"0" & unsigned(load_S_corrected);
                   export_loadFetch.debug3 <= 19x"0" & unsigned(load_T_corrected);
                   
-                  export_loadData.addr   <= resize(load_tmemAddr0, 32);
-                  export_loadData.data   <= unsigned(TextureReqRAMData);
+                  export_loadData.addr   <= resize(load_tmemAddr0(9 downto 0), 32);
+                  export_loadData.data   <= unsigned(TextureRAMDataMuxed);
                   export_loadData.x      <= 15x"0" & load_bit3flipped;
                   export_loadData.y      <= 15x"0" & load_hibit;
-                  export_loadData.debug1 <= resize(load_tmemAddr1, 32);
-                  export_loadData.debug2 <= resize(load_tmemAddr2, 32);
-                  export_loadData.debug3 <= resize(load_tmemAddr3, 32);
+                  export_loadData.debug1 <= resize(load_tmemAddr1(9 downto 0), 32);
+                  export_loadData.debug2 <= resize(load_tmemAddr2(9 downto 0), 32);
+                  export_loadData.debug3 <= resize(load_tmemAddr3(9 downto 0), 32);
                   
-                  export_loadValue.addr   <= 21x"0" & load_Ram0Addr;
-                  export_loadValue.data   <= 48x"0" & unsigned(load_Ram0Data);
                   export_loadValue.x      <= (others => '0');
                   export_loadValue.y      <= (others => '0');
-                  export_loadValue.debug1 <= 16x"0" & unsigned(load_Ram1Data);
-                  export_loadValue.debug2 <= 16x"0" & unsigned(load_Ram2Data);
-                  export_loadValue.debug3 <= 16x"0" & unsigned(load_Ram3Data);
+                  if (settings_tile.Tile_format = FORMAT_YUV) then
+                     -- todo: implement
+                  elsif (settings_tile.Tile_format = FORMAT_RGBA and settings_textureImage.tex_size = SIZE_32BIT) then
+                     if (load_bit3flipped = '1') then
+                        export_loadValue.addr   <= 21x"0" & load_Ram2Addr;
+                     else
+                        export_loadValue.addr   <= 21x"0" & load_Ram0Addr;
+                     end if;
+                     export_loadValue.data   <= 48x"0" & unsigned(load_Ram0Data);
+                     export_loadValue.debug1 <= 16x"0" & unsigned(load_Ram2Data);
+                     export_loadValue.debug2 <= 16x"0" & unsigned(load_Ram1Data);
+                     export_loadValue.debug3 <= 16x"0" & unsigned(load_Ram3Data);
+                  else
+                     export_loadValue.addr   <= 21x"0" & load_Ram0Addr;
+                     export_loadValue.data   <= 48x"0" & unsigned(load_Ram0Data);
+                     export_loadValue.debug1 <= 16x"0" & unsigned(load_Ram1Data);
+                     export_loadValue.debug2 <= 16x"0" & unsigned(load_Ram2Data);
+                     export_loadValue.debug3 <= 16x"0" & unsigned(load_Ram3Data);
+                  end if;
                   -- synthesis translate_on
             
             end case; -- loadstate

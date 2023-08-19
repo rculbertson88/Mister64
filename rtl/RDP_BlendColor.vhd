@@ -59,6 +59,7 @@ begin
    begin
 
       -- todo: also disable for step 2
+      blend <= blend_ena;
       if (mode_1_A = 0 and mode_2_A = 0 and combine_alpha = 255) then
          blend <= '0';
       end if;
@@ -154,7 +155,7 @@ begin
          if (trigger = '1') then 
          
             --if (blend_ena = '1') then
-            if (blend_ena = '1' and settings_otherModes.forceBlend = '1') then -- hack until special blend mode for AA is implemented
+            if (blend = '1' and settings_otherModes.forceBlend = '1') then -- hack until special blend mode for AA is implemented
             
                for i in 0 to 2 loop
                   blender_color(i) <= blend_add(i)(12 downto 5);
