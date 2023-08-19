@@ -188,7 +188,7 @@ architecture arch of RDP is
    signal settings_loadtype         : tsettings_loadtype;
    
    -- Texture RAM
-   signal TextureRamAddr            : unsigned(8 downto 0) := (others => '0');    
+   signal TextureRamAddr            : unsigned(7 downto 0) := (others => '0');    
    signal TextureRam0Data           : std_logic_vector(15 downto 0) := (others => '0');
    signal TextureRam1Data           : std_logic_vector(15 downto 0) := (others => '0');
    signal TextureRam2Data           : std_logic_vector(15 downto 0) := (others => '0');
@@ -790,7 +790,7 @@ begin
       iTextureRAM: entity mem.dpram
       generic map 
       ( 
-         addr_width  => 9,
+         addr_width  => 8,
          data_width  => 16
       )
       port map
@@ -802,7 +802,7 @@ begin
          
          clock_b     => clk1x,
          clken_b     => pipeIn_trigger,
-         address_b   => std_logic_vector(TextureReadAddr(11 downto 3)),
+         address_b   => std_logic_vector(TextureReadAddr(10 downto 3)),
          data_b      => 16x"0",
          wren_b      => '0',
          q_b         => TextureReadData(i)

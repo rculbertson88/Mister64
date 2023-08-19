@@ -31,7 +31,7 @@ entity RDP_raster is
       TextureReqRAMData       : in  std_logic_vector(63 downto 0);
       TextureReqRAMReady      : in  std_logic;
       
-      TextureRamAddr          : out unsigned(8 downto 0) := (others => '0');    
+      TextureRamAddr          : out unsigned(7 downto 0) := (others => '0');    
       TextureRam0Data         : out std_logic_vector(15 downto 0) := (others => '0');
       TextureRam1Data         : out std_logic_vector(15 downto 0) := (others => '0');
       TextureRam2Data         : out std_logic_vector(15 downto 0) := (others => '0');
@@ -1123,7 +1123,7 @@ begin
                   loadTexture_S <= loadTexture_S + (settings_poly.tex_DsDx(31 downto 5) & "00000");
                   loadTexture_T <= loadTexture_T + (settings_poly.tex_DtDx(31 downto 5) & "00000");
                   
-                  TextureRamAddr  <= load_Ram0Addr(10 downto 2);
+                  TextureRamAddr  <= load_Ram0Addr(9 downto 2);
                   
                   if (settings_tile.Tile_format = FORMAT_YUV) then
                      report "texture loading in YUV format" severity failure;  -- todo: implement
@@ -1160,6 +1160,10 @@ begin
                      TextureRam1Data <= load_Ram0Data;
                      TextureRam2Data <= load_Ram3Data;
                      TextureRam3Data <= load_Ram2Data;
+                     TextureRam4Data <= load_Ram1Data;
+                     TextureRam5Data <= load_Ram0Data;
+                     TextureRam6Data <= load_Ram3Data;
+                     TextureRam7Data <= load_Ram2Data;
                      TextureRamWE(0) <= not load_Ram0Addr(10);
                      TextureRamWE(1) <= not load_Ram0Addr(10);
                      TextureRamWE(2) <= not load_Ram0Addr(10);

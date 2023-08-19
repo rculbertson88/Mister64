@@ -31,16 +31,18 @@ end entity;
 
 architecture arch of RDP_TexFetch is
 
-   signal addr_base       : unsigned(11 downto 0);
+   signal addr_base           : unsigned(11 downto 0);
    
-   signal dataSelect_next : integer range 0 to 3;
-   signal dataSelect      : integer range 0 to 3;
+   signal dataSelect_next16   : integer range 0 to 7;
+   signal dataSelect_next32   : integer range 0 to 3;
+   signal dataSelect16        : integer range 0 to 7;
+   signal dataSelect32        : integer range 0 to 3;
    
-   signal dataMuxed16     : unsigned(15 downto 0);
-   signal dataMuxed32     : unsigned(31 downto 0);
+   signal dataMuxed16         : unsigned(15 downto 0);
+   signal dataMuxed32         : unsigned(31 downto 0);
   
    -- synthesis translate_off
-   signal addr_base_1     : unsigned(11 downto 0);
+   signal addr_base_1         : unsigned(11 downto 0);
    -- synthesis translate_on
   
 begin 
@@ -115,7 +117,8 @@ begin
       
       tex_addr <= addr_calc;
       
-      dataSelect_next <= to_integer(addr_calc(2 downto 1));
+      dataSelect_next16 <= to_integer(addr_calc(11) & addr_calc(2 downto 1));
+      dataSelect_next32 <= to_integer(addr_calc(2 downto 1));
       
    end process;
    
@@ -125,7 +128,8 @@ begin
       
          if (trigger = '1') then
          
-            dataSelect <= dataSelect_next;
+            dataSelect16 <= dataSelect_next16;
+            dataSelect32 <= dataSelect_next32;
             
             -- synthesis translate_off
             addr_base_1 <= addr_base;
@@ -137,9 +141,9 @@ begin
    end process;
    
    -- data select
-   dataMuxed16 <= unsigned(tex_data(dataSelect));
+   dataMuxed16 <= unsigned(tex_data(dataSelect16));
    
-   dataMuxed32 <= unsigned(tex_data(dataSelect)) & unsigned(tex_data(dataSelect + 4)); 
+   dataMuxed32 <= unsigned(tex_data(dataSelect32)) & unsigned(tex_data(dataSelect32 + 4)); 
    
    process (all)
    begin
