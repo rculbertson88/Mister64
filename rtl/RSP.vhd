@@ -55,7 +55,19 @@ entity RSP is
       fifoout_Din          : out std_logic_vector(84 downto 0) := (others => '0'); -- 64bit data + 21 bit address
       fifoout_Wr           : out std_logic := '0';  
       fifoout_nearfull     : in  std_logic;   
-      fifoout_empty        : in  std_logic    
+      fifoout_empty        : in  std_logic;
+
+      SS_reset              : in  std_logic;
+      SS_DataWrite          : in  std_logic_vector(63 downto 0);
+      SS_Adr                : in  unsigned(8 downto 0);
+      SS_wren_RSP           : in  std_logic;
+      SS_rden_RSP           : in  std_logic;
+      SS_wren_IMEM          : in  std_logic;
+      SS_rden_IMEM          : in  std_logic;      
+      SS_wren_DMEM          : in  std_logic;
+      SS_rden_DMEM          : in  std_logic;
+      SS_DataRead           : out std_logic_vector(63 downto 0);
+      SS_idle               : out std_logic      
    );
 end entity;
 
@@ -297,8 +309,8 @@ begin
                when x"40010" => 
                   var_dataRead(0)  := SP_STATUS_halt;    
                   var_dataRead(1)  := SP_STATUS_broke;    
-                  var_dataRead(2)  := SP_STATUS_dmabusy;    
-                  var_dataRead(3)  := SP_STATUS_dmafull or SP_STATUS_dmabusy;  -- games check for busy right after starting DMA in previous cycle
+                  var_dataRead(2)  := SP_STATUS_dmabusy or SP_STATUS_dmafull; -- games check for busy right after starting DMA in previous cycle
+                  var_dataRead(3)  := SP_STATUS_dmafull;  
                   var_dataRead(4)  := SP_STATUS_iofull;    
                   var_dataRead(5)  := SP_STATUS_singlestep;    
                   var_dataRead(6)  := SP_STATUS_irqonbreak;    
@@ -311,7 +323,7 @@ begin
                   var_dataRead(13) := SP_STATUS_signal6set;    
                   var_dataRead(14) := SP_STATUS_signal7set;    
                when x"40014" => var_dataRead(0) := SP_STATUS_dmafull;    
-               when x"40018" => var_dataRead(0) := SP_STATUS_dmabusy;    
+               when x"40018" => var_dataRead(0) := SP_STATUS_dmabusy or SP_STATUS_dmafull; -- games check for busy right after starting DMA in previous cycle  
                when x"4001C" => 
                   var_dataRead(0) := SP_SEMAPHORE;   
                   if (bus_reg_req_read = '1' or core_reg_RSP_read = '1') then       
@@ -596,8 +608,17 @@ begin
             
             end case;
             
+         else  -- no ce -> savestates
+            
+            imem_wren_a   <= SS_wren_IMEM;
+            dmem_wren_a   <= SS_wren_DMEM;
+            mem_address_a <= std_logic_vector(SS_Adr);
+            mem_be_a      <= x"FF";
+            mem_data_a    <= SS_DataWrite;
+            
          end if;
-      end if;
+         
+      end if; -- clk
    end process;
    
    rdram_writeMask <= x"FF";
@@ -738,6 +759,9 @@ begin
       error_instr           => error_instr,
       error_stall           => error_stall
    );
+        
+   SS_DataRead <= (others => '0');
+   SS_idle     <= '1';
         
 end architecture;
 

@@ -105,6 +105,9 @@ begin
       reset                 => reset,
       pause                 => '0',
       errorCodesOn          => '1',
+      fpscountOn            => '1',
+      
+      CICTYPE               => "0000",
       
       write9                => '1',
       read9                 => '1',

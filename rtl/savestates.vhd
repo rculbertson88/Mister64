@@ -76,8 +76,8 @@ architecture arch of savestates is
       ( 10240,       8),    -- SI           8 
       ( 11264,       8),    -- VI           9 
       ( 16384,    4096),    -- CPU          10
-      ( 32768,       8),    -- DMEM         11
-      ( 65536,       8),    -- IMEM         12   
+      ( 32768,     512),    -- DMEM         11
+      ( 65536,     512),    -- IMEM         12   
       (1048576,1048576)     -- RAM          13
    );
 
@@ -485,7 +485,7 @@ begin
             when LOADMEMORY_WRITE_RDRAM =>
                if (rdram_done = '1') then
                   state <= LOADMEMORY_WRITE_NEXT;
-                  if (FASTSIM = '1' and count = 8) then
+                  if (FASTSIM = '1' and count = 512) then
                      count <= maxcount;
                   end if;
                end if;

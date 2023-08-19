@@ -17,10 +17,11 @@ entity RDP is
       
       command_error        : out std_logic;
       errorCombine         : out std_logic;
+      error_combineAlpha   : out std_logic;
       
-      write9                  : in  std_logic;
-      read9                   : in  std_logic;
-      wait9                   : in  std_logic;
+      write9               : in  std_logic;
+      read9                : in  std_logic;
+      wait9                : in  std_logic;
             
       irq_out              : out std_logic := '0';
             
@@ -452,9 +453,10 @@ begin
                elsif (DPC_STATUS_dma_busy = '1' and DPC_CURRENT = DPC_END) then
                
                   if (DPC_STATUS_end_pending = '1') then
-                     DPC_STATUS_end_pending <= '0';
-                     DPC_CURRENT            <= DPC_START_NEXT;
-                     DPC_END                <= DPC_END_NEXT;
+                     DPC_STATUS_start_pending <= '0';
+                     DPC_STATUS_end_pending   <= '0';
+                     DPC_CURRENT              <= DPC_START_NEXT;
+                     DPC_END                  <= DPC_END_NEXT;
                   else
                      DPC_STATUS_dma_busy <= '0';
                   end if;
@@ -867,6 +869,7 @@ begin
       reset                   => reset,   
 
       errorCombine            => errorCombine,
+      error_combineAlpha      => error_combineAlpha,
       
       pipe_busy               => pipe_busy,
                                                       

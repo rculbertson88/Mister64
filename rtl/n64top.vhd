@@ -21,6 +21,9 @@ entity n64top is
       reset                   : in  std_logic;
       pause                   : in  std_logic;
       errorCodesOn            : in  std_logic;
+      fpscountOn              : in  std_logic;
+      
+      CICTYPE                 : in  std_logic_vector(3 downto 0);
       
       write9                  : in  std_logic;
       read9                   : in  std_logic;
@@ -113,7 +116,7 @@ architecture arch of n64top is
    
    -- error codes
    signal errorEna               : std_logic;
-   signal errorCode              : unsigned(11 downto 0) := (others => '0');
+   signal errorCode              : unsigned(15 downto 0) := (others => '0');
    
    signal errorMEMMUX            : std_logic;
    signal errorCPU_instr         : std_logic;
@@ -127,7 +130,9 @@ architecture arch of n64top is
    signal errorRSP_stall         : std_logic;
    signal errorRDP_command       : std_logic;
    signal errorRDP_combine       : std_logic;
-   
+   signal errorRDP_combineAlpha  : std_logic;
+   signal error_sdramMux         : std_logic;
+  
    -- irq
    signal irqRequest             : std_logic;
    signal irqVector              : std_logic_vector(5 downto 0);        
@@ -292,6 +297,7 @@ architecture arch of n64top is
    signal SS_rden                : std_logic_vector(13 downto 0);
    signal SS_DataRead_AI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_RDP        : std_logic_vector(63 downto 0);
+   signal SS_DataRead_RSP        : std_logic_vector(63 downto 0);
    signal SS_DataRead_MI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_PI         : std_logic_vector(63 downto 0);
    signal SS_DataRead_PIF        : std_logic_vector(63 downto 0);
@@ -353,20 +359,22 @@ begin
    end process;
    
    -- error codes
-   process (reset_intern_1x, errorMEMMUX       ) begin if (errorMEMMUX        = '1') then errorCode( 0) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 0) <= '0'; end if; end process;
-   process (reset_intern_1x, errorCPU_instr    ) begin if (errorCPU_instr     = '1') then errorCode( 1) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 1) <= '0'; end if; end process;
-   process (reset_intern_1x, errorCPU_stall    ) begin if (errorCPU_stall     = '1') then errorCode( 2) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 2) <= '0'; end if; end process;
-   process (reset_intern_1x, errorDDR3         ) begin if (errorDDR3          = '1') then errorCode( 3) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 3) <= '0'; end if; end process;
-   process (reset_intern_1x, errorCPU_FPU      ) begin if (errorCPU_FPU       = '1') then errorCode( 4) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 4) <= '0'; end if; end process;
-   process (reset_intern_1x, error_PI          ) begin if (error_PI           = '1') then errorCode( 5) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 5) <= '0'; end if; end process;
-   process (reset_intern_1x, errorCPU_exception) begin if (errorCPU_exception = '1') then errorCode( 6) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 6) <= '0'; end if; end process;
-   process (reset_intern_1x, error_pif         ) begin if (error_pif          = '1') then errorCode( 7) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 7) <= '0'; end if; end process;
-   process (reset_intern_1x, errorRSP_instr    ) begin if (errorRSP_instr     = '1') then errorCode( 8) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 8) <= '0'; end if; end process;
-   process (reset_intern_1x, errorRSP_stall    ) begin if (errorRSP_stall     = '1') then errorCode( 9) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 9) <= '0'; end if; end process;
-   process (reset_intern_1x, errorRDP_command  ) begin if (errorRDP_command   = '1') then errorCode(10) <= '1'; elsif (reset_intern_1x = '1') then errorCode(10) <= '0'; end if; end process;
-   process (reset_intern_1x, errorRDP_combine  ) begin if (errorRDP_combine   = '1') then errorCode(11) <= '1'; elsif (reset_intern_1x = '1') then errorCode(11) <= '0'; end if; end process;
+   process (reset_intern_1x, errorMEMMUX          ) begin if (errorMEMMUX           = '1') then errorCode( 0) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 0) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_instr       ) begin if (errorCPU_instr        = '1') then errorCode( 1) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 1) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_stall       ) begin if (errorCPU_stall        = '1') then errorCode( 2) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 2) <= '0'; end if; end process;
+   process (reset_intern_1x, errorDDR3            ) begin if (errorDDR3             = '1') then errorCode( 3) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 3) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_FPU         ) begin if (errorCPU_FPU          = '1') then errorCode( 4) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 4) <= '0'; end if; end process;
+   process (reset_intern_1x, error_PI             ) begin if (error_PI              = '1') then errorCode( 5) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 5) <= '0'; end if; end process;
+   process (reset_intern_1x, errorCPU_exception   ) begin if (errorCPU_exception    = '1') then errorCode( 6) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 6) <= '0'; end if; end process;
+   process (reset_intern_1x, error_pif            ) begin if (error_pif             = '1') then errorCode( 7) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 7) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRSP_instr       ) begin if (errorRSP_instr        = '1') then errorCode( 8) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 8) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRSP_stall       ) begin if (errorRSP_stall        = '1') then errorCode( 9) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 9) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRDP_command     ) begin if (errorRDP_command      = '1') then errorCode(10) <= '1'; elsif (reset_intern_1x = '1') then errorCode(10) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRDP_combine     ) begin if (errorRDP_combine      = '1') then errorCode(11) <= '1'; elsif (reset_intern_1x = '1') then errorCode(11) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRDP_combineAlpha) begin if (errorRDP_combineAlpha = '1') then errorCode(12) <= '1'; elsif (reset_intern_1x = '1') then errorCode(12) <= '0'; end if; end process;
+   process (reset_intern_1x, error_sdramMux       ) begin if (error_sdramMux        = '1') then errorCode(13) <= '1'; elsif (reset_intern_1x = '1') then errorCode(13) <= '0'; end if; end process;
    
-   --errorCode(11 downto 11) <= "0";
+   errorCode(15 downto 14) <= "00";
    
    process (clk1x)
    begin
@@ -429,7 +437,19 @@ begin
       fifoout_Din          => rspfifo_Din,     
       fifoout_Wr           => rspfifo_Wr,      
       fifoout_nearfull     => rspfifo_nearfull,
-      fifoout_empty        => rspfifo_empty
+      fifoout_empty        => rspfifo_empty,
+      
+      SS_reset             => SS_reset,
+      SS_DataWrite         => SS_DataWrite,
+      SS_Adr               => SS_Adr(8 downto 0),
+      SS_wren_RSP          => SS_wren(7),
+      SS_rden_RSP          => SS_rden(7),
+      SS_wren_IMEM         => SS_wren(12),
+      SS_rden_IMEM         => SS_rden(12),
+      SS_wren_DMEM         => SS_wren(11),
+      SS_rden_DMEM         => SS_rden(11),
+      SS_DataRead          => SS_DataRead_RSP,
+      SS_idle              => open
    );
    
    rdram_dataWrite(DDR3MUX_RSP) <= (others => '0');
@@ -444,6 +464,7 @@ begin
       
       command_error        => errorRDP_command,
       errorCombine         => errorRDP_combine,
+      error_combineAlpha   => errorRDP_combineAlpha,
       
       write9               => write9,
       read9                => read9,
@@ -551,6 +572,7 @@ begin
       
       errorEna             => errorEna, 
       errorCode            => errorCode,
+      fpscountOn           => fpscountOn,
                            
       rdram_request        => rdram_request(DDR3MUX_VI),   
       rdram_rnw            => rdram_rnw(DDR3MUX_VI),       
@@ -734,6 +756,7 @@ begin
       ce                   => ce_1x,           
       reset                => reset_intern_1x,   
 
+      CICTYPE              => CICTYPE,
       EEPROMTYPE           => EEPROMTYPE,
       
       error                => error_pif,
@@ -837,7 +860,7 @@ begin
    (
       clk1x                => clk1x,
                            
-      error                => open,
+      error                => error_sdramMux,
                            
       sdram_ena            => sdram_ena,      
       sdram_rnw            => sdram_rnw,      

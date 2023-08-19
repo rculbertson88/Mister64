@@ -230,7 +230,7 @@ wire reset_or = RESET | buttons[1] | status[0] | cart_download;
 `include "build_id.v"
 parameter CONF_STR = {
 	"N64;SS3C000000:1000000;",
-   "FS1,N64z64,Load;",
+   "FS1,N64z64n64v64,Load;",
    "-;",
 	"O[36],Savestates to SDCard,On,Off;",
 	"O[3],Autoincrement Slot,Off,On;",
@@ -244,6 +244,7 @@ parameter CONF_STR = {
 	"-;",
    "O[1],Swap Interlaced,Off,On;",
    "O[2],Error Overlay,Off,On;",
+   "O[28],FPS Overlay,Off,On;",
    "O[10:9],EEPROM type,None,4 KBit,16 KBit;",
    "O[8:7],Stereo Mix,None,25%,50%,100%;",
    "-;",
@@ -505,6 +506,9 @@ n64top n64top
    .reset(reset_or),
    .pause(OSD_STATUS),
    .errorCodesOn(status[2]),
+   .fpscountOn(status[28]),
+   
+   .CICTYPE(status[68:65]),
    
    .write9(status[11]), 
    .read9(status[12]),  

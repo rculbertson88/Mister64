@@ -12,6 +12,7 @@ entity pif is
       ce                   : in  std_logic;
       reset                : in  std_logic;
       
+      CICTYPE              : in  std_logic_vector(3 downto 0);
       EEPROMTYPE           : in  std_logic_vector(1 downto 0); -- 00 -> off, 01 -> 4kbit, 10 -> 16kbit
       
       error                : out std_logic := '0';
@@ -67,6 +68,25 @@ entity pif is
 end entity;
 
 architecture arch of pif is
+   
+   constant CIC_TYPE_6101 : std_logic_vector(3 downto 0) := "0000";
+   constant CIC_TYPE_6102 : std_logic_vector(3 downto 0) := "0001";
+   constant CIC_TYPE_7101 : std_logic_vector(3 downto 0) := "0010";
+   constant CIC_TYPE_7102 : std_logic_vector(3 downto 0) := "0011";
+   constant CIC_TYPE_6103 : std_logic_vector(3 downto 0) := "0100";
+   constant CIC_TYPE_7103 : std_logic_vector(3 downto 0) := "0101";
+   constant CIC_TYPE_6105 : std_logic_vector(3 downto 0) := "0110";
+   constant CIC_TYPE_7105 : std_logic_vector(3 downto 0) := "0111";
+   constant CIC_TYPE_6106 : std_logic_vector(3 downto 0) := "1000";
+   constant CIC_TYPE_7106 : std_logic_vector(3 downto 0) := "1001";
+   constant CIC_TYPE_8303 : std_logic_vector(3 downto 0) := "1010";
+   constant CIC_TYPE_8401 : std_logic_vector(3 downto 0) := "1011";
+   constant CIC_TYPE_5167 : std_logic_vector(3 downto 0) := "1100";
+   constant CIC_TYPE_DDUS : std_logic_vector(3 downto 0) := "1101";
+   
+   signal cic_seed         : std_logic_vector(7 downto 0);
+   signal cic_version      : std_logic;
+   signal cic_type         : std_logic;
 
    signal bus_read_rom     : std_logic := '0';
    signal bus_read_ram     : std_logic := '0';
@@ -213,6 +233,31 @@ begin
    
    SS_DataRead <= (others => '0');
    SS_idle     <= '1';
+   
+   
+   process (CICTYPE)
+   begin
+      cic_seed    <= x"3F"; 
+      cic_version <= '0'; 
+      cic_type    <= '0';
+      case (CICTYPE) is
+         when CIC_TYPE_6101 => cic_seed <= x"3F"; cic_version <= '1'; cic_type <= '0';
+         when CIC_TYPE_6102 => cic_seed <= x"3F"; cic_version <= '1'; cic_type <= '0';
+         when CIC_TYPE_7101 => cic_seed <= x"3F"; cic_version <= '0'; cic_type <= '0';
+         when CIC_TYPE_7102 => cic_seed <= x"3F"; cic_version <= '0'; cic_type <= '0';
+         when CIC_TYPE_6103 => cic_seed <= x"78"; cic_version <= '0'; cic_type <= '0';
+         when CIC_TYPE_7103 => cic_seed <= x"78"; cic_version <= '0'; cic_type <= '0';
+         when CIC_TYPE_6105 => cic_seed <= x"91"; cic_version <= '0'; cic_type <= '0';
+         when CIC_TYPE_7105 => cic_seed <= x"91"; cic_version <= '0'; cic_type <= '0';
+         when CIC_TYPE_6106 => cic_seed <= x"85"; cic_version <= '0'; cic_type <= '0';
+         when CIC_TYPE_7106 => cic_seed <= x"85"; cic_version <= '0'; cic_type <= '0';
+         when CIC_TYPE_8303 => cic_seed <= x"DD"; cic_version <= '0'; cic_type <= '1';
+         when CIC_TYPE_8401 => cic_seed <= x"DD"; cic_version <= '0'; cic_type <= '1';
+         when CIC_TYPE_5167 => cic_seed <= x"3F"; cic_version <= '0'; cic_type <= '0';
+         when CIC_TYPE_DDUS => cic_seed <= x"DE"; cic_version <= '0'; cic_type <= '1';
+         when others => null;
+      end case;
+   end process;
 
    process (clk1x)
    begin
@@ -323,13 +368,13 @@ begin
                when WRITESTARTUP2 =>
                   state          <= WRITESTARTUP3;
                   ram_address_b  <= 6x"26";
-                  ram_data_b     <= x"3F"; -- seed, depends on CIC
+                  ram_data_b     <= cic_seed; -- seed, depends on CIC
                   ram_wren_b     <= '1';
                
                when WRITESTARTUP3 =>
                   state            <= IDLE;  
                   ram_address_b    <= 6x"25";
-                  ram_data_b       <= x"00"; -- version and type, depends on CIC
+                  ram_data_b       <= x"0" & cic_type & cic_version & "00"; -- version and type, depends on CIC
                   ram_wren_b       <= '1';   
                   startup_complete <= '1';
             

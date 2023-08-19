@@ -15,7 +15,10 @@ entity VI_videoout is
       reset_1x             : in  std_logic;
       
       errorEna             : in  std_logic;
-      errorCode            : in  unsigned(11 downto 0);
+      errorCode            : in  unsigned(15 downto 0);
+      
+      fpscountOn           : in  std_logic;
+      fpscountBCD          : in  unsigned(7 downto 0);  
       
       VI_CTRL_TYPE         : in unsigned(1 downto 0);
       VI_CTRL_SERRATE      : in std_logic;
@@ -109,7 +112,11 @@ architecture arch of VI_videoout is
    signal overlay_data        : std_logic_vector(23 downto 0);
    signal overlay_ena         : std_logic;
    
-   signal errortext           : unsigned(23 downto 0);
+   signal fpstext             : unsigned(15 downto 0);
+   signal overlay_fps_data    : std_logic_vector(23 downto 0);
+   signal overlay_fps_ena     : std_logic;
+   
+   signal errortext           : unsigned(31 downto 0);
    signal overlay_error_data  : std_logic_vector(23 downto 0);
    signal overlay_error_ena   : std_logic;   
    
@@ -270,10 +277,27 @@ begin
    );   
    
    -- texts
-   errortext( 7 downto  0) <= resize(errorCode( 3 downto 0), 8) + 16#30# when (errorCode( 3 downto 0) < 10) else resize(errorCode( 3 downto 0), 8) + 16#37#;
-   errortext(15 downto  8) <= resize(errorCode( 7 downto 4), 8) + 16#30# when (errorCode( 7 downto 4) < 10) else resize(errorCode( 7 downto 4), 8) + 16#37#;
-   errortext(23 downto 16) <= resize(errorCode(11 downto 8), 8) + 16#30# when (errorCode(11 downto 8) < 10) else resize(errorCode(11 downto 8), 8) + 16#37#;
-   ioverlayError : entity work.VI_overlay generic map (4, 4, 44, x"0000FF")
+   fpstext( 7 downto 0) <= resize(fpscountBCD(3 downto 0), 8) + 16#30#;
+   fpstext(15 downto 8) <= resize(fpscountBCD(7 downto 4), 8) + 16#30#;
+   
+   ioverlayFPS : entity work.VI_overlay generic map (2, 4, 4, x"0000FF")
+   port map
+   (
+      clk                    => clk1x,
+      ce                     => videoout_out.ce,
+      ena                    => fpscountOn,                    
+      i_pixel_out_x          => videoout_request.xpos,
+      i_pixel_out_y          => to_integer(videoout_request.lineDisp),
+      o_pixel_out_data       => overlay_fps_data,
+      o_pixel_out_ena        => overlay_fps_ena,
+      textstring             => fpstext
+   );
+   
+   errortext( 7 downto  0) <= resize(errorCode( 3 downto  0), 8) + 16#30# when (errorCode( 3 downto  0) < 10) else resize(errorCode( 3 downto  0), 8) + 16#37#;
+   errortext(15 downto  8) <= resize(errorCode( 7 downto  4), 8) + 16#30# when (errorCode( 7 downto  4) < 10) else resize(errorCode( 7 downto  4), 8) + 16#37#;
+   errortext(23 downto 16) <= resize(errorCode(11 downto  8), 8) + 16#30# when (errorCode(11 downto  8) < 10) else resize(errorCode(11 downto  8), 8) + 16#37#;
+   errortext(31 downto 24) <= resize(errorCode(15 downto 12), 8) + 16#30# when (errorCode(15 downto 12) < 10) else resize(errorCode(15 downto 12), 8) + 16#37#;
+   ioverlayError : entity work.VI_overlay generic map (5, 4, 44, x"0000FF")
    port map
    (
       clk                    => clk1x,
@@ -286,9 +310,10 @@ begin
       textstring             => x"45" & errortext
    ); 
    
-   overlay_ena <= overlay_error_ena;
+   overlay_ena <= overlay_fps_ena or overlay_error_ena;
    
-   overlay_data <= overlay_error_data when (overlay_error_ena = '1') else
+   overlay_data <= overlay_fps_data   when (overlay_fps_ena = '1') else
+                   overlay_error_data when (overlay_error_ena = '1') else
                    (others => '0');
    
 end architecture;
