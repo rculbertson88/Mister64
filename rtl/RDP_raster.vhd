@@ -44,6 +44,7 @@ entity RDP_raster is
      
       FBreq                   : out std_logic := '0';
       FBaddr                  : out unsigned(25 downto 0) := (others => '0');
+      FBsize                  : out unsigned(11 downto 0) := (others => '0');
       FBodd                   : out std_logic := '0';
       FBdone                  : in  std_logic;
      
@@ -656,6 +657,7 @@ begin
                   polystate <= WAITREADRAM;
                   FBreq     <= '1';
                   FBaddr    <= calcFBAddr;
+                  FBsize    <= lineInfo.xEnd - lineInfo.xStart;
                   FBodd     <= lineInfo.y(0);
                   
                when WAITREADRAM =>

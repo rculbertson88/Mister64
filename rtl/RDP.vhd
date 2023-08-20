@@ -152,6 +152,7 @@ architecture arch of RDP is
    signal sdram_finished            : std_logic;
    signal FB_req_addr               : unsigned(25 downto 0);
    signal FBaddr                    : unsigned(25 downto 0);
+   signal FBsize                    : unsigned(11 downto 0);
    signal FBodd                     : std_logic;
    signal FBdone                    : std_logic := '0';
    signal FBRAMstore                : std_logic := '0';
@@ -493,11 +494,20 @@ begin
                   
                   rdram_request     <= '1';
                   rdram_address     <= "00" & FB_req_addr(25 downto 3) & "000";
-                  rdram_burstcount  <= to_unsigned(65, 10);
+                  
+                  -- todo: must increase line size if games really use more than 2048 pixels in 16bit mode or 1024 pixels in 32 bit mode
+                  -- todo: fetching could be optimized to only read 1 additional word when border between words was really crossed
+                  if (settings_colorImage.FB_size = SIZE_4BIT or settings_colorImage.FB_size = SIZE_8BIT) then
+                     rdram_burstcount  <= '0' & to_unsigned((to_integer(FBsize) + 15) / 8,9);
+                  elsif (settings_colorImage.FB_size = SIZE_16BIT) then
+                     rdram_burstcount  <= '0' & to_unsigned((to_integer(FBsize) + 7) / 4,9);
+                  else
+                     rdram_burstcount  <= '0' & to_unsigned((to_integer(FBsize) + 3) / 2,9);
+                  end if;
                   
                   sdram_request     <= read9; --'1';
                   sdram_address     <= 7x"0" & FB_req_addr(22 downto 5) & "00";
-                  sdram_burstcount  <= to_unsigned(17, 8);
+                  sdram_burstcount  <=  '0' & to_unsigned((to_integer(FBsize) + 31) / 16,7);
                   
                elsif (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1' and commandAbort = '0') then
                   if (DPC_CURRENT < DPC_END) then
@@ -730,6 +740,7 @@ begin
       
       FBreq                   => FBreq, 
       FBaddr                  => FBaddr,
+      FBsize                  => FBsize,
       FBodd                   => FBodd, 
       FBdone                  => FBdone,
       
