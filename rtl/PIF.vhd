@@ -39,22 +39,28 @@ entity pif is
       bus_dataRead         : out std_logic_vector(31 downto 0) := (others => '0');
       bus_done             : out std_logic := '0';
       
-      pad_0_A              : in  std_logic;
-      pad_0_B              : in  std_logic;
-      pad_0_Z              : in  std_logic;
-      pad_0_START          : in  std_logic;
-      pad_0_DPAD_UP        : in  std_logic;
-      pad_0_DPAD_DOWN      : in  std_logic;
-      pad_0_DPAD_LEFT      : in  std_logic;
-      pad_0_DPAD_RIGHT     : in  std_logic;
-      pad_0_L              : in  std_logic;
-      pad_0_R              : in  std_logic;
-      pad_0_C_UP           : in  std_logic;
-      pad_0_C_DOWN         : in  std_logic;
-      pad_0_C_LEFT         : in  std_logic;
-      pad_0_C_RIGHT        : in  std_logic;
+      pad_A                : in  std_logic_vector(3 downto 0);
+      pad_B                : in  std_logic_vector(3 downto 0);
+      pad_Z                : in  std_logic_vector(3 downto 0);
+      pad_START            : in  std_logic_vector(3 downto 0);
+      pad_DPAD_UP          : in  std_logic_vector(3 downto 0);
+      pad_DPAD_DOWN        : in  std_logic_vector(3 downto 0);
+      pad_DPAD_LEFT        : in  std_logic_vector(3 downto 0);
+      pad_DPAD_RIGHT       : in  std_logic_vector(3 downto 0);
+      pad_L                : in  std_logic_vector(3 downto 0);
+      pad_R                : in  std_logic_vector(3 downto 0);
+      pad_C_UP             : in  std_logic_vector(3 downto 0);
+      pad_C_DOWN           : in  std_logic_vector(3 downto 0);
+      pad_C_LEFT           : in  std_logic_vector(3 downto 0);
+      pad_C_RIGHT          : in  std_logic_vector(3 downto 0);
       pad_0_analog_h       : in  std_logic_vector(7 downto 0);
-      pad_0_analog_v       : in  std_logic_vector(7 downto 0);
+      pad_0_analog_v       : in  std_logic_vector(7 downto 0);      
+      pad_1_analog_h       : in  std_logic_vector(7 downto 0);
+      pad_1_analog_v       : in  std_logic_vector(7 downto 0);      
+      pad_2_analog_h       : in  std_logic_vector(7 downto 0);
+      pad_2_analog_v       : in  std_logic_vector(7 downto 0);      
+      pad_3_analog_h       : in  std_logic_vector(7 downto 0);
+      pad_3_analog_v       : in  std_logic_vector(7 downto 0);
       
       SS_reset             : in  std_logic;
       loading_savestate    : in  std_logic;
@@ -589,26 +595,30 @@ begin
                   if (EXT_receive > 4) then
                      EXT_over         <= '1';
                   end if;
-                  EXT_responsedata(0)(7) <= pad_0_A;         
-                  EXT_responsedata(0)(6) <= pad_0_B;         
-                  EXT_responsedata(0)(5) <= pad_0_Z;         
-                  EXT_responsedata(0)(4) <= pad_0_START;     
-                  EXT_responsedata(0)(3) <= pad_0_DPAD_UP;   
-                  EXT_responsedata(0)(2) <= pad_0_DPAD_DOWN; 
-                  EXT_responsedata(0)(1) <= pad_0_DPAD_LEFT; 
-                  EXT_responsedata(0)(0) <= pad_0_DPAD_RIGHT;
+                  EXT_responsedata(0)(7) <= pad_A(to_integer(EXT_channel(1 downto 0)));         
+                  EXT_responsedata(0)(6) <= pad_B(to_integer(EXT_channel(1 downto 0)));         
+                  EXT_responsedata(0)(5) <= pad_Z(to_integer(EXT_channel(1 downto 0)));         
+                  EXT_responsedata(0)(4) <= pad_START(to_integer(EXT_channel(1 downto 0)));     
+                  EXT_responsedata(0)(3) <= pad_DPAD_UP(to_integer(EXT_channel(1 downto 0)));   
+                  EXT_responsedata(0)(2) <= pad_DPAD_DOWN(to_integer(EXT_channel(1 downto 0))); 
+                  EXT_responsedata(0)(1) <= pad_DPAD_LEFT(to_integer(EXT_channel(1 downto 0))); 
+                  EXT_responsedata(0)(0) <= pad_DPAD_RIGHT(to_integer(EXT_channel(1 downto 0)));
                   
                   EXT_responsedata(1)(7 downto 6) <= "00";      
-                  EXT_responsedata(1)(5) <= pad_0_L;      
-                  EXT_responsedata(1)(4) <= pad_0_R;      
-                  EXT_responsedata(1)(3) <= pad_0_C_UP;   
-                  EXT_responsedata(1)(2) <= pad_0_C_DOWN; 
-                  EXT_responsedata(1)(1) <= pad_0_C_LEFT; 
-                  EXT_responsedata(1)(0) <= pad_0_C_RIGHT;
+                  EXT_responsedata(1)(5) <= pad_L(to_integer(EXT_channel(1 downto 0)));      
+                  EXT_responsedata(1)(4) <= pad_R(to_integer(EXT_channel(1 downto 0)));      
+                  EXT_responsedata(1)(3) <= pad_C_UP(to_integer(EXT_channel(1 downto 0)));   
+                  EXT_responsedata(1)(2) <= pad_C_DOWN(to_integer(EXT_channel(1 downto 0))); 
+                  EXT_responsedata(1)(1) <= pad_C_LEFT(to_integer(EXT_channel(1 downto 0))); 
+                  EXT_responsedata(1)(0) <= pad_C_RIGHT(to_integer(EXT_channel(1 downto 0)));
                   
-                  EXT_responsedata(2) <= pad_0_analog_h;
-                  EXT_responsedata(3) <= std_logic_vector(-signed(pad_0_analog_v));
-                  
+                  case (EXT_channel(1 downto 0)) is
+                     when "00"   => EXT_responsedata(2) <= pad_0_analog_h; EXT_responsedata(3) <= std_logic_vector(-signed(pad_0_analog_v));
+                     when "01"   => EXT_responsedata(2) <= pad_1_analog_h; EXT_responsedata(3) <= std_logic_vector(-signed(pad_1_analog_v));
+                     when "10"   => EXT_responsedata(2) <= pad_2_analog_h; EXT_responsedata(3) <= std_logic_vector(-signed(pad_2_analog_v));
+                     when others => EXT_responsedata(2) <= pad_3_analog_h; EXT_responsedata(3) <= std_logic_vector(-signed(pad_3_analog_v));
+                  end case;
+
                -- responses for EEProm/RTC
                when EXTCOMM_EEPROMINFO =>
                   state <= EXTCOMM_RESPONSE_VALIDOVER;

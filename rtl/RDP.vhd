@@ -134,6 +134,7 @@ architecture arch of RDP is
    signal commandRAMPtr             : unsigned(4 downto 0);
    signal commandIsIdle             : std_logic;
    signal commandWordDone           : std_logic;
+   signal commandAbort              : std_logic;
    signal commandSyncFull           : std_logic;
    
    -- Texture request ram
@@ -458,7 +459,7 @@ begin
 
                   end case;
                   
-               elsif (DPC_STATUS_dma_busy = '1' and DPC_CURRENT = DPC_END) then
+               elsif ((DPC_STATUS_dma_busy = '1' and DPC_CURRENT = DPC_END) or commandAbort = '1') then
                
                   if (DPC_STATUS_end_pending = '1') then
                      DPC_STATUS_start_pending <= '0';
@@ -498,7 +499,7 @@ begin
                   sdram_address     <= 7x"0" & FB_req_addr(22 downto 5) & "00";
                   sdram_burstcount  <= to_unsigned(17, 8);
                   
-               elsif (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1') then
+               elsif (DPC_STATUS_freeze = '0' and commandRAMReady = '0' and commandIsIdle = '1' and commandWordDone = '0' and DPC_STATUS_dma_busy = '1' and commandAbort = '0') then
                   if (DPC_CURRENT < DPC_END) then
                      memState          <= WAITCOMMANDDATA;
                      commandRAMMux     <= DPC_STATUS_xbus_dmem_dma;
@@ -640,6 +641,7 @@ begin
       commandRAMPtr_out       => commandRAMPtr,  
       commandIsIdle           => commandIsIdle,  
       commandWordDone         => commandWordDone,
+      commandAbort            => commandAbort,
          
       poly_done               => poly_done,       
       settings_poly           => settings_poly,       

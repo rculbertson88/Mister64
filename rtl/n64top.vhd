@@ -62,22 +62,28 @@ entity n64top is
       sdram_dataRead          : in  std_logic_vector(31 downto 0);
       
       -- PAD
-      pad_0_A                 : in  std_logic;
-      pad_0_B                 : in  std_logic;
-      pad_0_Z                 : in  std_logic;
-      pad_0_START             : in  std_logic;
-      pad_0_DPAD_UP           : in  std_logic;
-      pad_0_DPAD_DOWN         : in  std_logic;
-      pad_0_DPAD_LEFT         : in  std_logic;
-      pad_0_DPAD_RIGHT        : in  std_logic;
-      pad_0_L                 : in  std_logic;
-      pad_0_R                 : in  std_logic;
-      pad_0_C_UP              : in  std_logic;
-      pad_0_C_DOWN            : in  std_logic;
-      pad_0_C_LEFT            : in  std_logic;
-      pad_0_C_RIGHT           : in  std_logic;
+      pad_A                   : in  std_logic_vector(3 downto 0);
+      pad_B                   : in  std_logic_vector(3 downto 0);
+      pad_Z                   : in  std_logic_vector(3 downto 0);
+      pad_START               : in  std_logic_vector(3 downto 0);
+      pad_DPAD_UP             : in  std_logic_vector(3 downto 0);
+      pad_DPAD_DOWN           : in  std_logic_vector(3 downto 0);
+      pad_DPAD_LEFT           : in  std_logic_vector(3 downto 0);
+      pad_DPAD_RIGHT          : in  std_logic_vector(3 downto 0);
+      pad_L                   : in  std_logic_vector(3 downto 0);
+      pad_R                   : in  std_logic_vector(3 downto 0);
+      pad_C_UP                : in  std_logic_vector(3 downto 0);
+      pad_C_DOWN              : in  std_logic_vector(3 downto 0);
+      pad_C_LEFT              : in  std_logic_vector(3 downto 0);
+      pad_C_RIGHT             : in  std_logic_vector(3 downto 0);
       pad_0_analog_h          : in  std_logic_vector(7 downto 0);
-      pad_0_analog_v          : in  std_logic_vector(7 downto 0);
+      pad_0_analog_v          : in  std_logic_vector(7 downto 0);      
+      pad_1_analog_h          : in  std_logic_vector(7 downto 0);
+      pad_1_analog_v          : in  std_logic_vector(7 downto 0);      
+      pad_2_analog_h          : in  std_logic_vector(7 downto 0);
+      pad_2_analog_v          : in  std_logic_vector(7 downto 0);      
+      pad_3_analog_h          : in  std_logic_vector(7 downto 0);
+      pad_3_analog_v          : in  std_logic_vector(7 downto 0);
       
       -- audio
       sound_out_left          : out std_logic_vector(15 downto 0);
@@ -783,23 +789,29 @@ begin
       bus_dataRead         => bus_PIF_dataRead, 
       bus_done             => bus_PIF_done,
       
-      pad_0_A              => pad_0_A,         
-      pad_0_B              => pad_0_B,         
-      pad_0_Z              => pad_0_Z,         
-      pad_0_START          => pad_0_START,     
-      pad_0_DPAD_UP        => pad_0_DPAD_UP,   
-      pad_0_DPAD_DOWN      => pad_0_DPAD_DOWN, 
-      pad_0_DPAD_LEFT      => pad_0_DPAD_LEFT, 
-      pad_0_DPAD_RIGHT     => pad_0_DPAD_RIGHT,
-      pad_0_L              => pad_0_L,         
-      pad_0_R              => pad_0_R,         
-      pad_0_C_UP           => pad_0_C_UP,      
-      pad_0_C_DOWN         => pad_0_C_DOWN,    
-      pad_0_C_LEFT         => pad_0_C_LEFT,    
-      pad_0_C_RIGHT        => pad_0_C_RIGHT,   
-      pad_0_analog_h       => pad_0_analog_h,  
+      pad_A                => pad_A,         
+      pad_B                => pad_B,         
+      pad_Z                => pad_Z,         
+      pad_START            => pad_START,     
+      pad_DPAD_UP          => pad_DPAD_UP,   
+      pad_DPAD_DOWN        => pad_DPAD_DOWN, 
+      pad_DPAD_LEFT        => pad_DPAD_LEFT,
+      pad_DPAD_RIGHT       => pad_DPAD_RIGHT,
+      pad_L                => pad_L,         
+      pad_R                => pad_R,         
+      pad_C_UP             => pad_C_UP,      
+      pad_C_DOWN           => pad_C_DOWN,    
+      pad_C_LEFT           => pad_C_LEFT,    
+      pad_C_RIGHT          => pad_C_RIGHT,   
+      pad_0_analog_h       => pad_0_analog_h,
       pad_0_analog_v       => pad_0_analog_v,
-      
+      pad_1_analog_h       => pad_1_analog_h,
+      pad_1_analog_v       => pad_1_analog_v,
+      pad_2_analog_h       => pad_2_analog_h,
+      pad_2_analog_v       => pad_2_analog_v,
+      pad_3_analog_h       => pad_3_analog_h,
+      pad_3_analog_v       => pad_3_analog_v,
+
       SS_reset             => SS_reset,
       loading_savestate    => loading_savestate,
       SS_DataWrite         => SS_DataWrite,

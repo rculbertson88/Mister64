@@ -245,7 +245,6 @@ parameter CONF_STR = {
    "O[1],Swap Interlaced,Off,On;",
    "O[2],Error Overlay,Off,On;",
    "O[28],FPS Overlay,Off,On;",
-   "O[10:9],EEPROM type,None,4 KBit,16 KBit;",
    "O[8:7],Stereo Mix,None,25%,50%,100%;",
    "-;",
    
@@ -496,6 +495,10 @@ wire Interlaced;
 
 assign DDRAM_CLK = clk_2x;
 
+wire [1:0] eepromtype = (status[77:75] == 3'b001) ? 2'b01 : 
+                        (status[77:75] == 3'b010) ? 2'b10 :
+                        2'b00; 
+
 n64top n64top
 (
    .clk1x(clk_1x),          
@@ -547,29 +550,35 @@ n64top n64top
    .sdram_dataRead   (sdram_dataRead ),
       
    // pad
-   .pad_0_A          (joy[4]),
-   .pad_0_B          (joy[5]),
-   .pad_0_Z          (joy[9]),
-   .pad_0_START      (joy[6]),
-   .pad_0_DPAD_UP    (joy[3]),
-   .pad_0_DPAD_DOWN  (joy[2]),
-   .pad_0_DPAD_LEFT  (joy[1]),
-   .pad_0_DPAD_RIGHT (joy[0]),
-   .pad_0_L          (joy[7]),
-   .pad_0_R          (joy[8]),
-   .pad_0_C_UP       (joy[10]),
-   .pad_0_C_DOWN     (joy[12]),
-   .pad_0_C_LEFT     (joy[13]),
-   .pad_0_C_RIGHT    (joy[11]),
+   .pad_A            ({joy4[ 4],joy3[ 4],joy2[ 4],joy[ 4]}),
+   .pad_B            ({joy4[ 5],joy3[ 5],joy2[ 5],joy[ 5]}),
+   .pad_Z            ({joy4[ 9],joy3[ 9],joy2[ 9],joy[ 9]}),
+   .pad_START        ({joy4[ 6],joy3[ 6],joy2[ 6],joy[ 6]}),
+   .pad_DPAD_UP      ({joy4[ 3],joy3[ 3],joy2[ 3],joy[ 3]}),
+   .pad_DPAD_DOWN    ({joy4[ 2],joy3[ 2],joy2[ 2],joy[ 2]}),
+   .pad_DPAD_LEFT    ({joy4[ 1],joy3[ 1],joy2[ 1],joy[ 1]}),
+   .pad_DPAD_RIGHT   ({joy4[ 0],joy3[ 0],joy2[ 0],joy[ 0]}),
+   .pad_L            ({joy4[ 7],joy3[ 7],joy2[ 7],joy[ 7]}),
+   .pad_R            ({joy4[ 8],joy3[ 8],joy2[ 8],joy[ 8]}),
+   .pad_C_UP         ({joy4[10],joy3[10],joy2[10],joy[10]}),
+   .pad_C_DOWN       ({joy4[12],joy3[12],joy2[12],joy[12]}),
+   .pad_C_LEFT       ({joy4[13],joy3[13],joy2[13],joy[13]}),
+   .pad_C_RIGHT      ({joy4[11],joy3[11],joy2[11],joy[11]}),
    .pad_0_analog_h   (joystick_analog_l0[7:0]),
    .pad_0_analog_v   (joystick_analog_l0[15:8]),
-      
+   .pad_1_analog_h   (joystick_analog_l1[7:0]),
+   .pad_1_analog_v   (joystick_analog_l1[15:8]),
+   .pad_2_analog_h   (joystick_analog_l2[7:0]),
+   .pad_2_analog_v   (joystick_analog_l2[15:8]),
+   .pad_3_analog_h   (joystick_analog_l3[7:0]),
+   .pad_3_analog_v   (joystick_analog_l3[15:8]),
+   
    // audio
    .sound_out_left   (AUDIO_L),
    .sound_out_right  (AUDIO_R),  
    
    // Saves
-   .EEPROMTYPE       (status[10:9]),
+   .EEPROMTYPE       (eepromtype),
    
    // video out   
    .video_hsync      (VGA_HS),
