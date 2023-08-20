@@ -20,6 +20,7 @@ entity RDP_command is
       commandRAMPtr_out       : out unsigned(4 downto 0) := (others => '0');
       commandIsIdle           : out std_logic;
       commandWordDone         : out std_logic := '0';
+      commandAbort            : out std_logic := '0';
                
       poly_done               : in  std_logic;
       settings_poly           : out tsettings_poly := SETTINGSPOLYINIT;
@@ -148,6 +149,7 @@ begin
       
          error           <= '0';
          commandWordDone <= '0';
+         commandAbort    <= '0';
          poly_start      <= '0';
          sync_full       <= '0';
          tileSettings_we <= '0';
@@ -205,19 +207,22 @@ begin
                         
                      -- triangle commands
                      when 6x"08" | 6x"09" | 6x"0A" | 6x"0B" | 6x"0C" | 6x"0D" | 6x"0E" | 6x"0F" =>
-                        shade <= CommandData(58); 
-                        texture <= CommandData(57); 
-                        zbuffer <= CommandData(56); 
-                        tile_RdAddr <= std_logic_vector(CommandData(50 downto 48));
-                        state <= IDLE;
-                        if (CommandData(61 downto 56) = 6x"08" and commandAvailable >=  3) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
-                        if (CommandData(61 downto 56) = 6x"09" and commandAvailable >=  5) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
-                        if (CommandData(61 downto 56) = 6x"0A" and commandAvailable >= 11) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
-                        if (CommandData(61 downto 56) = 6x"0B" and commandAvailable >= 13) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
-                        if (CommandData(61 downto 56) = 6x"0C" and commandAvailable >= 11) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
-                        if (CommandData(61 downto 56) = 6x"0D" and commandAvailable >= 13) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
-                        if (CommandData(61 downto 56) = 6x"0E" and commandAvailable >= 19) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
-                        if (CommandData(61 downto 56) = 6x"0F" and commandAvailable >= 21) then commandWordDone <= '1'; state <= EVALTRIANGLE; end if;
+                        shade          <= CommandData(58); 
+                        texture        <= CommandData(57); 
+                        zbuffer        <= CommandData(56); 
+                        tile_RdAddr    <= std_logic_vector(CommandData(50 downto 48));
+                        state          <= IDLE;
+                        if (commandRAMPtr = 1) then
+                           commandAbort   <= '1';
+                        end if;
+                        if (CommandData(61 downto 56) = 6x"08" and commandAvailable >=  3) then commandWordDone <= '1'; state <= EVALTRIANGLE; commandAbort <= '0'; end if;
+                        if (CommandData(61 downto 56) = 6x"09" and commandAvailable >=  5) then commandWordDone <= '1'; state <= EVALTRIANGLE; commandAbort <= '0'; end if;
+                        if (CommandData(61 downto 56) = 6x"0A" and commandAvailable >= 11) then commandWordDone <= '1'; state <= EVALTRIANGLE; commandAbort <= '0'; end if;
+                        if (CommandData(61 downto 56) = 6x"0B" and commandAvailable >= 13) then commandWordDone <= '1'; state <= EVALTRIANGLE; commandAbort <= '0'; end if;
+                        if (CommandData(61 downto 56) = 6x"0C" and commandAvailable >= 11) then commandWordDone <= '1'; state <= EVALTRIANGLE; commandAbort <= '0'; end if;
+                        if (CommandData(61 downto 56) = 6x"0D" and commandAvailable >= 13) then commandWordDone <= '1'; state <= EVALTRIANGLE; commandAbort <= '0'; end if;
+                        if (CommandData(61 downto 56) = 6x"0E" and commandAvailable >= 19) then commandWordDone <= '1'; state <= EVALTRIANGLE; commandAbort <= '0'; end if;
+                        if (CommandData(61 downto 56) = 6x"0F" and commandAvailable >= 21) then commandWordDone <= '1'; state <= EVALTRIANGLE; commandAbort <= '0'; end if;
                         triCnt                    <= (others => '0');
                         settings_poly.lft         <= CommandData(55);
                         settings_poly.maxLODlevel <= CommandData(53 downto 51);
@@ -235,6 +240,9 @@ begin
                            end if;
                         else
                            state           <= IDLE;
+                           if (commandRAMPtr = 1) then
+                              commandAbort   <= '1';
+                           end if;
                         end if;
                      
                         tile_RdAddr            <= std_logic_vector(CommandData(26 downto 24));
