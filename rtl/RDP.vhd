@@ -22,6 +22,8 @@ entity RDP is
       write9               : in  std_logic;
       read9                : in  std_logic;
       wait9                : in  std_logic;
+      writeZ               : in  std_logic;
+      readZ                : in  std_logic;
             
       irq_out              : out std_logic := '0';
             
@@ -47,7 +49,13 @@ entity RDP is
       fifoout_Din          : out std_logic_vector(91 downto 0) := (others => '0'); -- 64bit data + 20 bit address + 8 byte enables
       fifoout_Wr           : out std_logic := '0';  
       fifoout_nearfull     : in  std_logic;   
-      fifoout_empty        : in  std_logic;  
+      fifoout_empty        : in  std_logic;        
+      
+      fifooutZ_reset       : out std_logic := '0'; 
+      fifooutZ_Din         : out std_logic_vector(91 downto 0) := (others => '0'); -- 64bit data + 20 bit address + 8 byte enables
+      fifooutZ_Wr          : out std_logic := '0';  
+      fifooutZ_nearfull    : in  std_logic;   
+      fifooutZ_empty       : in  std_logic;  
       
       sdram_request        : out std_logic := '0';
       sdram_rnw            : out std_logic := '0'; 
@@ -65,6 +73,12 @@ entity RDP is
       rdp9fifo_Wr          : out std_logic := '0';  
       rdp9fifo_nearfull    : in  std_logic;  
       rdp9fifo_empty       : in  std_logic;
+      
+      rdp9fifoZ_reset      : out std_logic := '0'; 
+      rdp9fifoZ_Din        : out std_logic_vector(49 downto 0) := (others => '0'); -- 32bit data + 18 bit address
+      rdp9fifoZ_Wr         : out std_logic := '0';  
+      rdp9fifoZ_nearfull   : in  std_logic;  
+      rdp9fifoZ_empty      : in  std_logic;
             
       RSP_RDP_reg_addr     : in  unsigned(4 downto 0);
       RSP_RDP_reg_dataOut  : in  unsigned(31 downto 0);
@@ -148,19 +162,30 @@ architecture arch of RDP is
    -- Framebuffer request
    signal FBreq                     : std_logic;
    signal FBRAMgrant                : std_logic;
+   signal FBRAMZgrant               : std_logic;
    signal rdram_finished            : std_logic;
-   signal sdram_finished            : std_logic;
+   signal sdram_finished            : std_logic;   
+   signal rdramZ_finished           : std_logic;
+   signal sdramZ_finished           : std_logic;
    signal FB_req_addr               : unsigned(25 downto 0);
+   signal FB_reqZ_addr              : unsigned(25 downto 0);
    signal FBaddr                    : unsigned(25 downto 0);
+   signal FBZaddr                   : unsigned(25 downto 0);
    signal FBsize                    : unsigned(11 downto 0);
    signal FBodd                     : std_logic;
+   signal FBoddSaved                : std_logic;
    signal FBdone                    : std_logic := '0';
    signal FBRAMstore                : std_logic := '0';
+   signal FBRAMstoreZ               : std_logic := '0';
    signal FBRAM9store               : std_logic := '0';
+   signal FBRAM9storeZ              : std_logic := '0';
    signal FBReadAddr                : unsigned(10 downto 0);
    signal FBReadAddr9               : unsigned(7 downto 0);
+   signal FBReadAddrZ               : unsigned(11 downto 0);
    signal FBReadData                : std_logic_vector(31 downto 0);
+   signal FBReadDataZ               : std_logic_vector(15 downto 0);
    signal FBReadData9               : std_logic_vector(31 downto 0);
+   signal FBReadData9Z              : std_logic_vector(31 downto 0);
    
    type tmemState is 
    (  
@@ -177,6 +202,7 @@ architecture arch of RDP is
    signal poly_loading_mode         : std_logic;
    signal poly_done                 : std_logic;
    signal settings_scissor          : tsettings_scissor;
+   signal settings_Z                : tsettings_Z;
    signal settings_otherModes       : tsettings_otherModes;
    signal settings_fillcolor        : tsettings_fillcolor;
    signal settings_fogcolor         : tsettings_fogcolor;
@@ -186,6 +212,7 @@ architecture arch of RDP is
    signal settings_combineMode      : tsettings_combineMode;
    signal settings_colorImage       : tsettings_colorImage;
    signal settings_textureImage     : tsettings_textureImage;
+   signal settings_Z_base           : unsigned(24 downto 0);
    signal settings_tile             : tsettings_tile;
    signal settings_loadtype         : tsettings_loadtype;
    
@@ -220,6 +247,7 @@ architecture arch of RDP is
    signal pipeIn_trigger            : std_logic;
    signal pipeIn_valid              : std_logic;
    signal pipeIn_Addr               : unsigned(25 downto 0);
+   signal pipeIn_AddrZ              : unsigned(25 downto 0);
    signal pipeIn_xIndexPx           : unsigned(11 downto 0);
    signal pipeIn_xIndex9            : unsigned(11 downto 0);
    signal pipeIn_X                  : unsigned(11 downto 0);
@@ -234,6 +262,8 @@ architecture arch of RDP is
    signal pipeInWNormLow            : unsigned(7 downto 0);
    signal pipeInWtemppoint          : signed(15 downto 0);
    signal pipeInWtempslope          : unsigned(7 downto 0);
+   signal pipeIn_Z                  : signed(21 downto 0);
+   signal pipeIn_dzPix              : unsigned(15 downto 0);
    
    signal writePixel                : std_logic;
    signal writePixelAddr            : unsigned(25 downto 0);
@@ -245,6 +275,11 @@ architecture arch of RDP is
    
    signal writePixelData16          : unsigned(15 downto 0);
    signal writePixelData32          : unsigned(31 downto 0);
+   
+   signal writePixelZ               : std_logic;
+   signal writePixelAddrZ           : unsigned(25 downto 0);
+   signal writePixelDataZ           : unsigned(17 downto 0);
+   signal writePixelFBData9Z        : unsigned(31 downto 0);
 
    -- Pixel merging
    signal pixel64data               : std_logic_vector(63 downto 0) := (others => '0');
@@ -253,10 +288,22 @@ architecture arch of RDP is
    signal pixel64filled             : std_logic := '0';
    signal pixel64timeout            : integer range 0 to 15;
    
-   -- Bit 9 writing
+   -- Z Buffer
+   signal pixel64Zdata              : std_logic_vector(63 downto 0) := (others => '0');
+   signal pixel64ZBE                : std_logic_vector(7 downto 0) := (others => '0');
+   signal pixel64Zaddr              : std_logic_vector(19 downto 0) := (others => '0');
+   signal pixel64Zfilled            : std_logic := '0';
+   signal pixel64Ztimeout           : integer range 0 to 15;
+   
+   -- FB Bit 9 writing
    signal pixel9data                : std_logic_vector(31 downto 0) := (others => '0');
    signal pixel9addr                : std_logic_vector(17 downto 0) := (others => '0');
    signal pixel9filled              : std_logic := '0';
+   
+   -- Z Buffer Bit 9 
+   signal pixel9Zdata               : std_logic_vector(31 downto 0) := (others => '0');
+   signal pixel9Zaddr               : std_logic_vector(17 downto 0) := (others => '0');
+   signal pixel9Zfilled             : std_logic := '0';
 
    -- savestates
    type t_ssarray is array(0 to 1) of unsigned(63 downto 0);
@@ -285,6 +332,7 @@ architecture arch of RDP is
    signal export_TexColor           : rdp_export_type;
    signal export_Comb               : rdp_export_type;
    signal export_FBMem              : rdp_export_type;
+   signal export_Z                  : rdp_export_type;
    
    signal pipeIn_cvg16              : unsigned(15 downto 0);
    signal pipeInColorFull           : tcolor4_s32;
@@ -298,12 +346,15 @@ begin
 
    rdram_rnw <= '1';
    
-   FB_req_addr <= settings_colorImage.FB_base + FBaddr;
+   FB_req_addr  <= settings_colorImage.FB_base + FBaddr;
+   FB_reqZ_addr <= settings_Z_base + FBZaddr;
 
    process (clk1x)
       variable var_dataRead         : std_logic_vector(31 downto 0) := (others => '0');
       variable rdram_finished_new   : std_logic;
-      variable sdram_finished_new   : std_logic;
+      variable sdram_finished_new   : std_logic;      
+      variable rdramZ_finished_new  : std_logic;
+      variable sdramZ_finished_new  : std_logic;
    begin
       if rising_edge(clk1x) then
       
@@ -488,9 +539,13 @@ begin
                   rdram_burstcount  <= to_unsigned(32, 10);
                elsif (FBreq = '1') then
                   memState          <= WAITFBDATA;
+                  FBoddSaved        <= FBodd;
                   FBRAMgrant        <= '0';
+                  FBRAMZgrant       <= '0';
                   rdram_finished    <= '0';
                   sdram_finished    <= (not wait9) or (not read9); --'0';
+                  rdramZ_finished   <= '0';
+                  sdramZ_finished   <= (not wait9) or (not read9); --'0';
                   
                   rdram_request     <= '1';
                   rdram_address     <= "00" & FB_req_addr(25 downto 3) & "000";
@@ -543,15 +598,43 @@ begin
                end if;            
                
             when WAITFBDATA =>
-               rdram_finished_new := rdram_finished;
-               sdram_finished_new := sdram_finished;
-               if (rdram_granted = '1') then FBRAMgrant <= '1'; end if;
-               if (rdram_done = '1' and FBRAMgrant = '1')  then rdram_finished_new := '1'; end if;
-               if (sdram_done = '1' and FBRAM9store = '1') then sdram_finished_new := '1'; end if;
-               rdram_finished <= rdram_finished_new;
-               sdram_finished <= sdram_finished_new;
+               rdram_finished_new  := rdram_finished;
+               sdram_finished_new  := sdram_finished;
+               rdramZ_finished_new := rdramZ_finished;
+               sdramZ_finished_new := sdramZ_finished;
                
-               if (rdram_finished_new = '1' and sdram_finished_new = '1') then
+               if (rdram_granted = '1' and rdram_finished = '0') then FBRAMgrant  <= '1'; end if;
+               if (rdram_granted = '1' and rdram_finished = '1') then FBRAMZgrant <= '1'; end if;
+               
+               if (rdram_done = '1' and FBRAMgrant = '1' and FBRAMZgrant = '0') then 
+                  rdram_finished_new := '1'; 
+                  if (settings_otherModes.zCompare = '1' and readZ = '1') then
+                     rdram_request <= '1';
+                     rdram_address <= "00" & FB_reqZ_addr(25 downto 3) & "000";
+                  else
+                     rdramZ_finished_new := '1';
+                  end if;
+               end if;
+               if (rdram_done = '1' and FBRAMZgrant = '1') then rdramZ_finished_new := '1'; end if;
+               
+               if (sdram_done = '1' and FBRAM9store = '1') then 
+                  sdram_finished_new := '1'; 
+                  if (settings_otherModes.zCompare = '1' and read9 = '1') then
+                     sdram_request     <= '1';
+                     sdram_address     <= 7x"0" & FB_reqZ_addr(22 downto 5) & "00";
+                  else
+                     sdramZ_finished_new := '1';
+                  end if;
+               end if;
+               
+               if (sdram_done = '1' and FBRAM9storeZ = '1') then sdramZ_finished_new := '1'; end if;
+               
+               rdram_finished  <= rdram_finished_new;
+               sdram_finished  <= sdram_finished_new;
+               rdramZ_finished <= rdramZ_finished_new;
+               sdramZ_finished <= sdramZ_finished_new;
+               
+               if (rdram_finished_new = '1' and sdram_finished_new = '1' and rdramZ_finished_new = '1' and sdramZ_finished_new = '1') then
                   FBdone   <= '1';
                   memState <= MEMIDLE;
                end if;
@@ -577,9 +660,12 @@ begin
                commandRAMstore <= '1';
             elsif (memState = WAITTEXTUREDATA) then
                TextureReqRAMstore <= '1';            
-            elsif (memState = WAITFBDATA) then
-               FBRAMstore       <= '1';
-               RDRAM_fillAddr(9) <= FBodd;
+            elsif (memState = WAITFBDATA and rdram_finished = '0') then
+               FBRAMstore        <= '1';
+               RDRAM_fillAddr(9) <= FBoddSaved;
+            elsif (memState = WAITFBDATA and rdram_finished = '1') then
+               FBRAMstoreZ       <= '1';
+               RDRAM_fillAddr(9) <= FBoddSaved;
             end if;
          elsif (ddr3_DOUT_READY = '1') then
             RDRAM_fillAddr(8 downto 0) <= RDRAM_fillAddr(8 downto 0) + 1;
@@ -589,6 +675,7 @@ begin
             commandRAMstore    <= '0';
             TextureReqRAMstore <= '0';
             FBRAMstore         <= '0';
+            FBRAMstoreZ        <= '0';
          end if;
          
       end if;
@@ -664,6 +751,7 @@ begin
       -- synthesis translate_on      
                               
       settings_scissor        => settings_scissor,   
+      settings_Z              => settings_Z,   
       settings_otherModes     => settings_otherModes, 
       settings_fillcolor      => settings_fillcolor,  
       settings_fogcolor       => settings_fogcolor, 
@@ -672,6 +760,7 @@ begin
       settings_envcolor       => settings_envcolor, 
       settings_combineMode    => settings_combineMode,
       settings_textureImage   => settings_textureImage,
+      settings_Z_base         => settings_Z_base,
       settings_colorImage     => settings_colorImage,
       settings_tile           => settings_tile,      
       settings_loadtype       => settings_loadtype      
@@ -711,10 +800,12 @@ begin
                               
       settings_poly           => settings_poly,      
       settings_scissor        => settings_scissor,   
+      settings_Z              => settings_Z,   
       settings_otherModes     => settings_otherModes, 
       settings_fillcolor      => settings_fillcolor,  
       settings_colorImage     => settings_colorImage, 
       settings_textureImage   => settings_textureImage,
+      settings_Z_base         => settings_Z_base,
       settings_tile           => settings_tile,    
       settings_loadtype       => settings_loadtype,    
       poly_start              => poly_start,   
@@ -740,6 +831,7 @@ begin
       
       FBreq                   => FBreq, 
       FBaddr                  => FBaddr,
+      FBZaddr                 => FBZaddr,
       FBsize                  => FBsize,
       FBodd                   => FBodd, 
       FBdone                  => FBdone,
@@ -759,6 +851,7 @@ begin
       pipeIn_trigger          => pipeIn_trigger,
       pipeIn_valid            => pipeIn_valid,  
       pipeIn_Addr             => pipeIn_Addr,   
+      pipeIn_AddrZ            => pipeIn_AddrZ,   
       pipeIn_xIndexPx         => pipeIn_xIndexPx,      
       pipeIn_xIndex9          => pipeIn_xIndex9,      
       pipeIn_X                => pipeIn_X,      
@@ -773,6 +866,8 @@ begin
       pipeInWNormLow          => pipeInWNormLow, 
       pipeInWtemppoint        => pipeInWtemppoint,
       pipeInWtempslope        => pipeInWtempslope,
+      pipeIn_Z                => pipeIn_Z,
+      pipeIn_dzPix            => pipeIn_dzPix,
 
       -- synthesis translate_off
       pipeIn_cvg16            => pipeIn_cvg16, 
@@ -846,6 +941,29 @@ begin
       q_b         => FBReadData
    );
    
+   iFBRAMZ: entity mem.dpram_dif
+   generic map 
+   ( 
+      addr_width_a => 10,
+      data_width_a => 64,
+      addr_width_b => 12,
+      data_width_b => 16
+   )
+   port map
+   (
+      clock_a     => clk2x,
+      address_a   => std_logic_vector(RDRAM_fillAddr),
+      data_a      => ddr3_DOUT,
+      wren_a      => (ddr3_DOUT_READY and FBRAMstoreZ),
+      
+      clock_b     => clk1x,
+      clken_b     => pipeIn_trigger,
+      address_b   => std_logic_vector(FBReadAddrZ),
+      data_b      => 16x"0",
+      wren_b      => '0',
+      q_b         => FBReadDataZ
+   );
+   
    iFBRAM9: entity mem.dpram_dif
    generic map 
    ( 
@@ -869,6 +987,29 @@ begin
       q_b         => FBReadData9
    );
    
+   iFBRAM9Z: entity mem.dpram_dif
+   generic map 
+   ( 
+      addr_width_a => 8,
+      data_width_a => 32,
+      addr_width_b => 8,
+      data_width_b => 32
+   )
+   port map
+   (
+      clock_a     => clk1x,
+      address_a   => std_logic_vector(SDRAM_fillAddr),
+      data_a      => sdram_dataRead,
+      wren_a      => (sdram_valid and FBRAM9storeZ),
+      
+      clock_b     => clk1x,
+      clken_b     => pipeIn_trigger,
+      address_b   => std_logic_vector(FBReadAddr9),
+      data_b      => 32x"0",
+      wren_b      => '0',
+      q_b         => FBReadData9Z
+   );
+   
    sdram_rnw       <= '1';  
    sdram_writeMask <= x"0";
    sdram_dataWrite <= (others => '0');
@@ -878,17 +1019,19 @@ begin
       if rising_edge(clk1x) then
          
          if (sdram_granted = '1') then
-            SDRAM_fillAddr <= (others => '0');
-            if (memState = WAITFBDATA) then
+            SDRAM_fillAddr <= FBoddSaved & 7x"0";
+            if (memState = WAITFBDATA and sdram_finished = '0') then
                FBRAM9store       <= '1';
-               SDRAM_fillAddr(7) <= FBodd;
+            elsif (memState = WAITFBDATA and sdram_finished = '1') then
+               FBRAM9storeZ      <= '1';
             end if;
          elsif (sdram_valid = '1') then
             SDRAM_fillAddr(6 downto 0) <= SDRAM_fillAddr(6 downto 0) + 1;
          end if;
          
          if (sdram_done = '1') then
-            FBRAM9store <= '0';
+            FBRAM9store  <= '0';
+            FBRAM9storeZ <= '0';
          end if;
          
       end if;
@@ -919,6 +1062,7 @@ begin
       pipeIn_trigger          => pipeIn_trigger,
       pipeIn_valid            => pipeIn_valid,  
       pipeIn_Addr             => pipeIn_Addr,   
+      pipeIn_AddrZ            => pipeIn_AddrZ,   
       pipeIn_xIndexPx         => pipeIn_xIndexPx,      
       pipeIn_xIndex9          => pipeIn_xIndex9,      
       pipeIn_X                => pipeIn_X,      
@@ -931,8 +1075,10 @@ begin
       pipeIn_T                => pipeIn_T,    
       pipeInWShift            => pipeInWShift,   
       pipeInWNormLow          => pipeInWNormLow, 
-      pipeInWtemppoint         => pipeInWtemppoint,
-      pipeInWtempslope         => pipeInWtempslope,
+      pipeInWtemppoint        => pipeInWtemppoint,
+      pipeInWtempslope        => pipeInWtempslope,
+      pipeIn_Z                => pipeIn_Z,
+      pipeIn_dzPix            => pipeIn_dzPix,
 
       TextureAddr             => TextureReadAddr,
       TextureRamData          => TextureReadData,
@@ -942,6 +1088,10 @@ begin
       
       FBAddr9                 => FBReadAddr9,
       FBData9                 => FBReadData9,
+      FBData9Z                => FBReadData9Z,
+      
+      FBAddrZ                 => FBReadAddrZ,
+      FBDataZ                 => FBReadDataZ,
      
       -- synthesis translate_off
       pipeIn_cvg16            => pipeIn_cvg16,  
@@ -957,6 +1107,7 @@ begin
       export_TexColor         => export_TexColor,   
       export_Comb             => export_Comb,   
       export_FBMem            => export_FBMem,   
+      export_Z                => export_Z,   
       -- synthesis translate_on
       
       writePixel              => writePixel,     
@@ -965,17 +1116,23 @@ begin
       writePixelY             => writePixelY,   
       writePixelColor         => writePixelColor,
       writePixelCvg           => writePixelCvg,
-      writePixelFBData9       => writePixelFBData9
+      writePixelFBData9       => writePixelFBData9,
+      
+      writePixelZ             => writePixelZ,      
+      writePixelAddrZ         => writePixelAddrZ,   
+      writePixelDataZ         => writePixelDataZ,   
+      writePixelFBData9Z      => writePixelFBData9Z
    );
    
    writePixelData16 <= writePixelColor(0)(7 downto 3) & writePixelColor(1)(7 downto 3) & writePixelColor(2)(7 downto 3) & writePixelCvg(2);
    writePixelData32 <= writePixelColor(0) & writePixelColor(1) & writePixelColor(2) & writePixelCvg & "00000";
    
+   -- normal pixels
    process (clk1x)
    begin
       if rising_edge(clk1x) then
       
-         stall_raster <= fifoout_nearfull or rdp9fifo_nearfull;
+         stall_raster <= fifoout_nearfull or rdp9fifo_nearfull or fifooutZ_nearfull or rdp9fifoZ_nearfull;
       
          --fifoOut_Wr_1 <= fifoOut_Wr; -- fifoOut_Wr_1 used for idle test
       
@@ -1030,6 +1187,48 @@ begin
       end if;
    end process;
    
+   -- Z pixels
+   process (clk1x)
+   begin
+      if rising_edge(clk1x) then
+      
+         fifoOutZ_Wr   <= '0';
+         fifoOutZ_Din  <= pixel64ZBE & pixel64ZAddr & pixel64Zdata;
+         
+         if (writePixelZ = '1' and writePixelAddrZ(25 downto 23) = 0) then -- todo: move max ram check to ddr3mux
+         
+            pixel64Ztimeout <= 15;
+         
+            if (pixel64Zfilled = '0' or writePixelAddrZ(22 downto 3) /= unsigned(pixel64ZAddr)) then
+               fifoOutZ_Wr    <= pixel64Zfilled and writeZ;
+               pixel64ZAddr   <= std_logic_vector(writePixelAddrZ(22 downto 3));
+               pixel64ZBE     <= (others => '0');
+               pixel64Zfilled <= '1';
+            end if;
+            
+            case (writePixelAddrZ(2 downto 1)) is
+               when "00" => pixel64Zdata(15 downto  0) <= std_logic_vector(byteswap16(writePixelDataZ(15 downto 0))); pixel64ZBE(1 downto 0) <= "11";
+               when "01" => pixel64Zdata(31 downto 16) <= std_logic_vector(byteswap16(writePixelDataZ(15 downto 0))); pixel64ZBE(3 downto 2) <= "11";
+               when "10" => pixel64Zdata(47 downto 32) <= std_logic_vector(byteswap16(writePixelDataZ(15 downto 0))); pixel64ZBE(5 downto 4) <= "11";
+               when "11" => pixel64Zdata(63 downto 48) <= std_logic_vector(byteswap16(writePixelDataZ(15 downto 0))); pixel64ZBE(7 downto 6) <= "11";
+               when others => null;
+            end case;
+         
+         elsif (pixel64Ztimeout > 0) then
+         
+            pixel64Ztimeout <= pixel64Ztimeout - 1;
+            if (pixel64Ztimeout = 1) then
+               pixel64Zfilled  <= '0';
+               fifoOutZ_Wr     <= writeZ;
+               pixel64Ztimeout <= 0;
+            end if;
+            
+         end if;
+
+      end if;
+   end process;
+   
+   -- bit 9 framebuffer
    process (clk1x)
    begin
       if rising_edge(clk1x) then
@@ -1071,6 +1270,36 @@ begin
 
             pixel9filled  <= '0';
             rdp9fifo_Wr   <= pixel9filled and write9;
+            
+         end if;
+
+      end if;
+   end process;
+   
+   -- bit 9 Z Buffer
+   process (clk1x)
+   begin
+      if rising_edge(clk1x) then
+      
+         rdp9fifoZ_Wr   <= '0';
+         rdp9fifoZ_Din  <= pixel9ZAddr & pixel9Zdata;
+         
+         if (writePixelZ = '1' and writePixelAddrZ(25 downto 23) = 0) then -- todo: move max ram check to ddr3mux
+         
+            if (pixel9filled = '0' or writePixelAddrZ(22 downto 5) /= unsigned(pixel9ZAddr)) then
+               pixel9Zdata   <= std_logic_vector(writePixelFBData9Z); -- must fill in old data because only 2 bits are updated, byte enable not possible
+               rdp9fifoZ_Wr  <= pixel9Zfilled and write9;
+               pixel9ZAddr   <= std_logic_vector(writePixelAddrZ(22 downto 5));
+               pixel9Zfilled <= '1';
+            end if;
+            
+            pixel9Zdata((to_integer(writePixelAddrZ(4 downto 1)) * 2) + 1) <= writePixelDataZ(17);
+            pixel9Zdata((to_integer(writePixelAddrZ(4 downto 1)) * 2) + 0) <= writePixelDataZ(16);
+         
+         elsif (poly_done = '1') then
+
+            pixel9Zfilled  <= '0';
+            rdp9fifoZ_Wr   <= pixel9Zfilled and write9;
             
          end if;
 
@@ -1196,6 +1425,9 @@ begin
                export_gpu32(23, tracecounts_out(23), export_Comb    , outfile); tracecounts_out(23) <= tracecounts_out(23) + 1;
                if (settings_otherModes.imageRead = '1') then
                   export_gpu32(24, tracecounts_out(24), export_FBMem   , outfile); tracecounts_out(24) <= tracecounts_out(24) + 1;
+               end if;               
+               if (settings_otherModes.zCompare = '1') then
+                  export_gpu32(12, tracecounts_out(12), export_Z       , outfile); tracecounts_out(12) <= tracecounts_out(12) + 1;
                end if;
             end if;
             

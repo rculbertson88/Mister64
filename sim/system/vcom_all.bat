@@ -67,6 +67,7 @@ src/tb/cpu_mul.vhd ^
 ../../rtl/RDP_CombineColor.vhd ^
 ../../rtl/RDP_CombineAlpha.vhd ^
 ../../rtl/RDP_BlendColor.vhd ^
+../../rtl/RDP_Zbuffer.vhd ^
 ../../rtl/RDP_pipeline.vhd ^
 ../../rtl/RDP.vhd ^
 ../../rtl/DDR3Mux.vhd ^

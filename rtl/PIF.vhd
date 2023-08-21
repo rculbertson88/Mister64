@@ -183,7 +183,7 @@ architecture arch of pif is
    -- EEPROM
    signal eeprom_addr_a             : std_logic_vector(8 downto 0) := (others => '0');
    signal eeprom_wren_a             : std_logic := '0';
-   signal eeprom_in_a               : std_logic_vector(31 downto 0) := (others => '0');
+   signal eeprom_in_a               : std_logic_vector(31 downto 0) := (others => '1');
    signal eeprom_out_a              : std_logic_vector(31 downto 0) := (others => '0');
       
    signal eeprom_addr_b             : std_logic_vector(10 downto 0) := (others => '0');
@@ -196,7 +196,7 @@ architecture arch of pif is
       EEPROM_IDLE,
       EEPROM_CLEAR
    );
-   signal EEPROMState               : tEEPROMState := EEPROM_IDLE;
+   signal EEPROMState               : tEEPROMState := EEPROM_CLEAR;
    
 begin 
 
@@ -248,9 +248,9 @@ begin
       cic_type    <= '0';
       case (CICTYPE) is
          when CIC_TYPE_6101 => cic_seed <= x"3F"; cic_version <= '1'; cic_type <= '0';
-         when CIC_TYPE_6102 => cic_seed <= x"3F"; cic_version <= '1'; cic_type <= '0';
+         when CIC_TYPE_6102 => cic_seed <= x"3F"; cic_version <= '0'; cic_type <= '0';
          when CIC_TYPE_7101 => cic_seed <= x"3F"; cic_version <= '0'; cic_type <= '0';
-         when CIC_TYPE_7102 => cic_seed <= x"3F"; cic_version <= '0'; cic_type <= '0';
+         when CIC_TYPE_7102 => cic_seed <= x"3F"; cic_version <= '1'; cic_type <= '0';
          when CIC_TYPE_6103 => cic_seed <= x"78"; cic_version <= '0'; cic_type <= '0';
          when CIC_TYPE_7103 => cic_seed <= x"78"; cic_version <= '0'; cic_type <= '0';
          when CIC_TYPE_6105 => cic_seed <= x"91"; cic_version <= '0'; cic_type <= '0';
@@ -780,30 +780,20 @@ begin
       if rising_edge(clk1x) then
       
          eeprom_wren_a <= '0';
-      
-         if (reset = '1') then
          
-            EEPROMState   <= EEPROM_CLEAR;
-            eeprom_addr_a <= (others => '0');
-            eeprom_in_a   <= (others => '1');
+         case (EEPROMState) is
          
-         else
+            when EEPROM_IDLE =>
+               null;
+               
+            when EEPROM_CLEAR =>
+               eeprom_addr_a <= std_logic_vector(unsigned(eeprom_addr_a) + 1);
+               eeprom_wren_a <= '1';
+               if (eeprom_addr_a = 9x"1FF") then
+                   EEPROMState <= EEPROM_IDLE;
+               end if;
          
-            case (EEPROMState) is
-            
-               when EEPROM_IDLE =>
-                  null;
-                  
-               when EEPROM_CLEAR =>
-                  eeprom_addr_a <= std_logic_vector(unsigned(eeprom_addr_a) + 1);
-                  eeprom_wren_a <= '1';
-                  if (eeprom_addr_a = 9x"1FF") then
-                      EEPROMState <= EEPROM_IDLE;
-                  end if;
-            
-            end case;
-         
-         end if;
+         end case;
          
       end if;
    end process;

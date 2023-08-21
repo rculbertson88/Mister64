@@ -23,10 +23,16 @@ entity RDP_FBread is
       
       FBAddr9                 : out unsigned(7 downto 0);
       FBData9                 : in  unsigned(31 downto 0);
+      FBData9Z                : in  unsigned(31 downto 0);
+      
+      FBAddrZ                 : out unsigned(11 downto 0);
+      FBDataZ                 : in  unsigned(15 downto 0);
      
       FBcolor                 : out  tcolor4_u8;
       cvgFB                   : out unsigned(2 downto 0);
-      FBData9_old             : out unsigned(31 downto 0)
+      FBData9_old             : out unsigned(31 downto 0);
+      FBData9_oldZ            : out unsigned(31 downto 0);
+      old_Z_mem               : out unsigned(17 downto 0)
    );
 end entity;
 
@@ -50,6 +56,14 @@ begin
    
    Fbdata16_9(1) <= FBData9((to_integer(muxselect9) * 2) + 1);
    Fbdata16_9(0) <= FBData9((to_integer(muxselect9) * 2) + 0);
+   
+   
+   FBAddrZ <= yOdd & xIndexPx(10 downto 0);
+   
+   old_Z_mem(15 downto 0) <= byteswap16(FBDataZ);
+   
+   old_Z_mem(17) <= FBData9Z((to_integer(muxselect9) * 2) + 1);
+   old_Z_mem(16) <= FBData9Z((to_integer(muxselect9) * 2) + 0);
 
    process (clk1x)
    begin
@@ -60,7 +74,8 @@ begin
             muxselect  <= xIndexPx(0);
             muxselect9 <= xIndex9(3 downto 0);
          
-            FBData9_old <= FBData9;
+            FBData9_old  <= FBData9;
+            FBData9_oldZ <= FBData9Z;
          
             case (settings_colorImage.FB_size) is
                when SIZE_16BIT =>

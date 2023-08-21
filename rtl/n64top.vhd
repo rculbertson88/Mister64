@@ -28,6 +28,8 @@ entity n64top is
       write9                  : in  std_logic;
       read9                   : in  std_logic;
       wait9                   : in  std_logic;
+      writeZ                  : in  std_logic;
+      readZ                   : in  std_logic;
       
       -- savestates
       increaseSSHeaderCount   : in  std_logic;
@@ -167,6 +169,12 @@ architecture arch of n64top is
    signal rdpfifo_nearfull       : std_logic;    
    signal rdpfifo_empty          : std_logic;    
    
+   signal rdpfifoZ_reset         : std_logic; 
+   signal rdpfifoZ_Din           : std_logic_vector(91 downto 0);
+   signal rdpfifoZ_Wr            : std_logic;  
+   signal rdpfifoZ_nearfull      : std_logic;    
+   signal rdpfifoZ_empty         : std_logic;    
+
    -- SDRAM Mux
    signal sdramMux_request       : tSDRAMSingle;
    signal sdramMux_rnw           : tSDRAMSingle;    
@@ -183,6 +191,12 @@ architecture arch of n64top is
    signal rdp9fifo_Wr            : std_logic;  
    signal rdp9fifo_nearfull      : std_logic;  
    signal rdp9fifo_empty         : std_logic;
+   
+   signal rdp9fifoZ_reset        : std_logic; 
+   signal rdp9fifoZ_Din          : std_logic_vector(49 downto 0);
+   signal rdp9fifoZ_Wr           : std_logic;  
+   signal rdp9fifoZ_nearfull     : std_logic;  
+   signal rdp9fifoZ_empty        : std_logic;
    
    -- Memory mux
    signal mem_request            : std_logic;
@@ -475,6 +489,8 @@ begin
       write9               => write9,
       read9                => read9,
       wait9                => wait9,
+      writeZ               => writeZ,
+      readZ                => readZ, 
 
       irq_out              => irqVector(5),
                            
@@ -500,7 +516,13 @@ begin
       fifoout_Din          => rdpfifo_Din,     
       fifoout_Wr           => rdpfifo_Wr,      
       fifoout_nearfull     => rdpfifo_nearfull,
-      fifoout_empty        => rdpfifo_empty,
+      fifoout_empty        => rdpfifo_empty,      
+      
+      fifooutZ_reset       => rdpfifoZ_reset,   
+      fifooutZ_Din         => rdpfifoZ_Din,     
+      fifooutZ_Wr          => rdpfifoZ_Wr,      
+      fifooutZ_nearfull    => rdpfifoZ_nearfull,
+      fifooutZ_empty       => rdpfifoZ_empty,
       
       sdram_request        => sdramMux_request(SDRAMMUX_RDP),   
       sdram_rnw            => sdramMux_rnw(SDRAMMUX_RDP),       
@@ -517,7 +539,13 @@ begin
       rdp9fifo_Din         => rdp9fifo_Din,     
       rdp9fifo_Wr          => rdp9fifo_Wr,      
       rdp9fifo_nearfull    => rdp9fifo_nearfull,
-      rdp9fifo_empty       => rdp9fifo_empty,
+      rdp9fifo_empty       => rdp9fifo_empty,      
+      
+      rdp9fifoZ_reset      => rdp9fifoZ_reset,   
+      rdp9fifoZ_Din        => rdp9fifoZ_Din,     
+      rdp9fifoZ_Wr         => rdp9fifoZ_Wr,      
+      rdp9fifoZ_nearfull   => rdp9fifoZ_nearfull,
+      rdp9fifoZ_empty      => rdp9fifoZ_empty,
       
       RSP_RDP_reg_addr     => RSP_RDP_reg_addr,   
       RSP_RDP_reg_dataOut  => RSP_RDP_reg_dataOut,
@@ -864,7 +892,13 @@ begin
       rdpfifo_Din      => rdpfifo_Din,     
       rdpfifo_Wr       => rdpfifo_Wr,      
       rdpfifo_nearfull => rdpfifo_nearfull,
-      rdpfifo_empty    => rdpfifo_empty
+      rdpfifo_empty    => rdpfifo_empty,      
+      
+      rdpfifoZ_reset   => rdpfifoZ_reset,   
+      rdpfifoZ_Din     => rdpfifoZ_Din,     
+      rdpfifoZ_Wr      => rdpfifoZ_Wr,      
+      rdpfifoZ_nearfull=> rdpfifoZ_nearfull,
+      rdpfifoZ_empty   => rdpfifoZ_empty
    );
    
    iSDRamMux : entity work.SDRamMux
@@ -896,7 +930,13 @@ begin
       rdp9fifo_Din         => rdp9fifo_Din,     
       rdp9fifo_Wr          => rdp9fifo_Wr,      
       rdp9fifo_nearfull    => rdp9fifo_nearfull,
-      rdp9fifo_empty       => rdp9fifo_empty
+      rdp9fifo_empty       => rdp9fifo_empty,
+      
+      rdp9fifoZ_reset      => rdp9fifoZ_reset,   
+      rdp9fifoZ_Din        => rdp9fifoZ_Din,     
+      rdp9fifoZ_Wr         => rdp9fifoZ_Wr,      
+      rdp9fifoZ_nearfull   => rdp9fifoZ_nearfull,
+      rdp9fifoZ_empty      => rdp9fifoZ_empty
    );
    
    imemorymux : entity work.memorymux

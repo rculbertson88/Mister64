@@ -48,6 +48,7 @@ package body pFunctions is
    function to_string_len(inval : integer; inlength: integer) return string is
       variable to_return : string(1 to inlength);
       variable digits : integer;
+      variable lowpos : integer;
    begin
       if (inval < 10) then
          digits := 1;
@@ -57,7 +58,11 @@ package body pFunctions is
       for i in 1 to inlength - digits loop
          to_return(i) := ' ';
       end loop;
-      to_return(inlength - digits + 1 to inlength) := to_string(inval);
+      lowpos := inlength - digits + 1;
+      if (lowpos < 1) then 
+         lowpos := 1;
+      end if;
+      to_return(lowpos to inlength) := to_string(inval);
       return to_return;
    end function to_string_len;
    -- synthesis translate_on

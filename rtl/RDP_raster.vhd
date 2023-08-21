@@ -15,10 +15,12 @@ entity RDP_raster is
    
       settings_poly           : in  tsettings_poly := SETTINGSPOLYINIT;
       settings_scissor        : in  tsettings_scissor := SETTINGSSCISSORINIT;
+      settings_Z              : in  tsettings_Z;
       settings_otherModes     : in  tsettings_otherModes;
       settings_fillcolor      : in  tsettings_fillcolor;
       settings_colorImage     : in  tsettings_colorImage;
       settings_textureImage   : in  tsettings_textureImage;
+      settings_Z_base         : in  unsigned(24 downto 0);
       settings_tile           : in  tsettings_tile;
       settings_loadtype       : in  tsettings_loadtype;
       poly_start              : in  std_logic;
@@ -44,6 +46,7 @@ entity RDP_raster is
      
       FBreq                   : out std_logic := '0';
       FBaddr                  : out unsigned(25 downto 0) := (others => '0');
+      FBZaddr                 : out unsigned(25 downto 0) := (others => '0');
       FBsize                  : out unsigned(11 downto 0) := (others => '0');
       FBodd                   : out std_logic := '0';
       FBdone                  : in  std_logic;
@@ -63,6 +66,7 @@ entity RDP_raster is
       pipeIn_trigger          : out std_logic := '0';
       pipeIn_valid            : out std_logic := '0';
       pipeIn_Addr             : out unsigned(25 downto 0) := (others => '0');
+      pipeIn_AddrZ            : out unsigned(25 downto 0) := (others => '0');
       pipeIn_xIndexPx         : out unsigned(11 downto 0) := (others => '0');
       pipeIn_xIndex9          : out unsigned(11 downto 0) := (others => '0');
       pipeIn_X                : out unsigned(11 downto 0) := (others => '0');
@@ -77,6 +81,8 @@ entity RDP_raster is
       pipeInWNormLow          : out unsigned(7 downto 0) := (others => '0');
       pipeInWtemppoint        : out signed(15 downto 0) := (others => '0');
       pipeInWtempslope        : out unsigned(7 downto 0) := (others => '0');
+      pipeIn_Z                : out signed(21 downto 0) := (others => '0');
+      pipeIn_dzPix            : out unsigned(15 downto 0) := (others => '0');
       
       -- synthesis translate_off
       pipeIn_cvg16            : out unsigned(15 downto 0) := (others => '0');
@@ -134,6 +140,10 @@ architecture arch of RDP_raster is
    signal majorx        : t_majorminor := (others => (others => '0'));
    signal minorx        : t_majorminor := (others => (others => '0'));
    signal invalidLine   : std_logic_vector(3 downto 0) := (others => '0');
+   
+   signal poly_dzPix_baseX : unsigned(15 downto 0);
+   signal poly_dzPix_baseY : unsigned(15 downto 0);
+   signal poly_dzPix_sum   : unsigned(15 downto 0);
    
    -- offset calc
    signal offset_Re     : signed(22 downto 0);
@@ -201,6 +211,7 @@ architecture arch of RDP_raster is
    signal curcross      : std_logic := '0';
    signal invaly        : std_logic := '0'; 
    signal calcFBAddr    : unsigned(25 downto 0);   
+   signal calcZAddr     : unsigned(25 downto 0);   
    
    -- poly accu
    signal poly_Color_R     : signed(31 downto 0) := (others => '0');
@@ -320,6 +331,7 @@ architecture arch of RDP_raster is
    
    -- comb calculation
    signal calcPixelAddr    : unsigned(25 downto 0);
+   signal calcPixelAddrZ   : unsigned(25 downto 0);
    
    -- line loading
    type tloadState is 
@@ -420,15 +432,16 @@ begin
       
    do_offset      <= not (settings_poly.DXHDy(29) xor settings_poly.lft);
    
-   yLLimitMux     <= settings_poly.YL(14 downto 0)           when (loading_mode = '1' or settings_poly.YL(13) = '1') else
-                  "000" & signed(settings_scissor.ScissorYL) when (settings_poly.YL(12) = '1') else
-                  settings_poly.YL(14 downto 0)              when (unsigned(settings_poly.YL(11 downto 0)) < settings_scissor.ScissorYL) else
-                  "000" & signed(settings_scissor.ScissorYL);   
+   yLLimitMux     <= settings_poly.YL(14 downto 0)              when (loading_mode = '1' or settings_poly.YL(13) = '1') else
+                     "000" & signed(settings_scissor.ScissorYL) when (settings_poly.YL(12) = '1') else
+                     settings_poly.YL(14 downto 0)              when (unsigned(settings_poly.YL(11 downto 0)) < settings_scissor.ScissorYL) else
+                     "000" & signed(settings_scissor.ScissorYL);   
                   
-   yHLimitMux     <= settings_poly.YH(14 downto 0)           when (loading_mode = '1' or settings_poly.YH(13) = '1') else
-                  "000" & signed(settings_scissor.ScissorYH) when (settings_poly.YH(12) = '1') else
-                  settings_poly.YH(14 downto 0)              when (settings_poly.YH >= to_integer(settings_scissor.ScissorYH)) else
-                  "000" & signed(settings_scissor.ScissorYH);
+   yHLimitMux     <= settings_poly.YH(14 downto 0)              when (loading_mode = '1') else
+                     "000" & signed(settings_scissor.ScissorYH) when (settings_poly.YH(13) = '1') else
+                     settings_poly.YH(14 downto 0)              when (settings_poly.YH(12) = '1') else
+                     settings_poly.YH(14 downto 0)              when (settings_poly.YH >= to_integer(settings_scissor.ScissorYH)) else
+                     "000" & signed(settings_scissor.ScissorYH);
    
    yhclose        <= yHLimitMux(14 downto 2) & "00";
    
@@ -473,6 +486,13 @@ begin
    calcFBAddr     <= resize(((lineInfo.y * (settings_colorImage.FB_width_m1 + 1)) + lineInfo.xStart) * 2, 26) when (settings_colorImage.FB_size = SIZE_16BIT) else
                      resize(((lineInfo.y * (settings_colorImage.FB_width_m1 + 1)) + lineInfo.xStart) * 4, 26);
    
+   calcZAddr      <= resize(((lineInfo.y * (settings_colorImage.FB_width_m1 + 1)) + lineInfo.xStart) * 2, 26);
+   
+   -- z values
+   poly_dzPix_baseX <= '0' & (not unsigned(settings_poly.zBuffer_DzDx(30 downto 16))) when (settings_poly.zBuffer_DzDx(31) = '1') else '0' & unsigned(settings_poly.zBuffer_DzDx(30 downto 16));
+   poly_dzPix_baseY <= '0' & (not unsigned(settings_poly.zBuffer_DzDy(30 downto 16))) when (settings_poly.zBuffer_DzDy(31) = '1') else '0' & unsigned(settings_poly.zBuffer_DzDy(30 downto 16));
+   
+   
    process (clk1x)
       variable unscrx_new : signed(12 downto 0) := (others => '0');
       variable maxxmx_new : unsigned(11 downto 0) := (others => '0');
@@ -486,6 +506,30 @@ begin
       
          poly_done  <= '0';
          FBreq      <= '0';
+         
+         poly_dzPix_sum <= poly_dzPix_baseX + poly_dzPix_baseY;
+         
+         if (settings_otherModes.zSourceSel = '1') then
+            pipeIn_dzPix <= settings_Z.Delta_Z;
+         else
+            if (poly_dzPix_sum(15 downto 14) > 0) then pipeIn_dzPix <= x"8000";
+            elsif (poly_dzPix_sum(13) = '1')      then pipeIn_dzPix <= x"4000";
+            elsif (poly_dzPix_sum(12) = '1')      then pipeIn_dzPix <= x"2000";
+            elsif (poly_dzPix_sum(11) = '1')      then pipeIn_dzPix <= x"1000";
+            elsif (poly_dzPix_sum(10) = '1')      then pipeIn_dzPix <= x"0800";
+            elsif (poly_dzPix_sum( 9) = '1')      then pipeIn_dzPix <= x"0400";
+            elsif (poly_dzPix_sum( 8) = '1')      then pipeIn_dzPix <= x"0200";
+            elsif (poly_dzPix_sum( 7) = '1')      then pipeIn_dzPix <= x"0100";
+            elsif (poly_dzPix_sum( 6) = '1')      then pipeIn_dzPix <= x"0080";
+            elsif (poly_dzPix_sum( 5) = '1')      then pipeIn_dzPix <= x"0040";
+            elsif (poly_dzPix_sum( 4) = '1')      then pipeIn_dzPix <= x"0020";
+            elsif (poly_dzPix_sum( 3) = '1')      then pipeIn_dzPix <= x"0010";
+            elsif (poly_dzPix_sum( 2) = '1')      then pipeIn_dzPix <= x"0008";
+            elsif (poly_dzPix_sum( 1) = '1')      then pipeIn_dzPix <= x"0004";
+            elsif (poly_dzPix_sum( 0) = '1')      then pipeIn_dzPix <= x"0003";
+            else                                       pipeIn_dzPix <= x"0001";
+            end if;
+         end if;
 
          if (reset = '1') then
             
@@ -499,9 +543,7 @@ begin
                when POLYIDLE =>
                   if (poly_start = '1') then
                      polystate <= EVALLINE;
-                     --todos:
-                     -- dzpix
-                     -- normalize_dzpix
+                     
                      xright         <= settings_poly.XH(31 downto 1) & '0';
                      if (settings_poly.YH(14 downto 2) & "00" = settings_poly.YM) then
                         secondHalf <= '1';
@@ -657,6 +699,7 @@ begin
                   polystate <= WAITREADRAM;
                   FBreq     <= '1';
                   FBaddr    <= calcFBAddr;
+                  FBZaddr   <= calcZAddr;
                   FBsize    <= lineInfo.xEnd - lineInfo.xStart;
                   FBodd     <= lineInfo.y(0);
                   
@@ -702,6 +745,8 @@ begin
    
    calcPixelAddr <= resize(settings_colorImage.FB_base + ((line_posY * (settings_colorImage.FB_width_m1 + 1)) + line_posX) * 2, 26) when (settings_colorImage.FB_size = SIZE_16BIT) else
                     resize(settings_colorImage.FB_base + ((line_posY * (settings_colorImage.FB_width_m1 + 1)) + line_posX) * 4, 26);
+   
+   calcPixelAddrZ <= resize(settings_Z_base + ((line_posY * (settings_colorImage.FB_width_m1 + 1)) + line_posX) * 2, 26);
    
    -- cvg
    process (all)
@@ -886,6 +931,7 @@ begin
                   pipeIn_trigger    <= '1';
                   pipeIn_valid      <= '1';
                   pipeIn_Addr       <= calcPixelAddr;
+                  pipeIn_AddrZ      <= calcPixelAddrZ;
                   pipeIn_xIndexPx   <= line_indexX + line_offsetPx;
                   pipeIn_xIndex9    <= line_indexX + line_offset9;
                   pipeIn_X          <= line_posX;
@@ -906,7 +952,9 @@ begin
                   pipeInWNormLow    <= wShifted(7 downto 0);
                   pipeInWtemppoint  <= normPoint(to_integer(wShifted(13 downto 8)));
                   pipeInWtempslope  <= normSlope(to_integer(wShifted(13 downto 8))) + 1;
-                  
+
+                  pipeIn_Z          <= pixel_Z(31 downto 10);
+
                   -- synthesis translate_off
                   pipeIn_cvg16      <= cvg(0) & cvg(1) & cvg(2) & cvg(3);
                   
@@ -1039,7 +1087,7 @@ begin
    load_Ram2Addr <= load_tmemAddr0(10 downto 2) & "11";
    load_Ram3Addr <= load_tmemAddr0(10 downto 2) & "10";
    
-   TextureRAMDataMuxed <= TextureRAMData_1                                                when (load_MemAddr(2 downto 0) = "000") else
+   TextureRAMDataMuxed <= TextureRAMData_1                                                 when (load_MemAddr(2 downto 0) = "000") else
                           TextureRAMData_1(55 downto  0) & TextureReqRAMData(63 downto 56) when (load_MemAddr(2 downto 0) = "001") else 
                           TextureRAMData_1(47 downto  0) & TextureReqRAMData(63 downto 48) when (load_MemAddr(2 downto 0) = "010") else 
                           TextureRAMData_1(39 downto  0) & TextureReqRAMData(63 downto 40) when (load_MemAddr(2 downto 0) = "011") else 

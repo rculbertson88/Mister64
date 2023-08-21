@@ -78,7 +78,13 @@ entity DDR3Mux is
       rdpfifo_Din      : in  std_logic_vector(91 downto 0); -- 64bit data + 20 bit address + 8 byte enables
       rdpfifo_Wr       : in  std_logic;  
       rdpfifo_nearfull : out std_logic;  
-      rdpfifo_empty    : out std_logic  
+      rdpfifo_empty    : out std_logic;
+      
+      rdpfifoZ_reset   : in  std_logic; 
+      rdpfifoZ_Din     : in  std_logic_vector(91 downto 0); -- 64bit data + 20 bit address + 8 byte enables
+      rdpfifoZ_Wr      : in  std_logic;  
+      rdpfifoZ_nearfull: out std_logic;  
+      rdpfifoZ_empty   : out std_logic 
    );
 end entity;
 
@@ -110,7 +116,11 @@ architecture arch of DDR3Mux is
    
    -- rdp fifo
    signal rdpfifo_Dout     : std_logic_vector(91 downto 0);
-   signal rdpfifo_Rd       : std_logic := '0';    
+   signal rdpfifo_Rd       : std_logic := '0';     
+
+   -- rdp fifo Z
+   signal rdpfifoZ_Dout    : std_logic_vector(91 downto 0);
+   signal rdpfifoZ_Rd      : std_logic := '0';    
 
 begin 
 
@@ -122,9 +132,10 @@ begin
    begin
       if rising_edge(clk2x) then
       
-         error      <= '0';
-         rspfifo_Rd <= '0';
-         rdpfifo_Rd <= '0';
+         error       <= '0';
+         rspfifo_Rd  <= '0';
+         rdpfifo_Rd  <= '0';
+         rdpfifoZ_Rd <= '0';
       
          if (ddr3_BUSY = '0') then
             ddr3_WE <= '0';
@@ -196,22 +207,31 @@ begin
                         done(activeIndex)             <= "11"; 
                      end if;
                    
-                  elsif (rspfifo_empty = '0' and rspfifo_rd = '0') then
+                  elsif (rspfifo_empty = '0' and rspfifo_Rd = '0') then
                   
-                     rspfifo_rd <= '1';
+                     rspfifo_Rd <= '1';
                      ddr3_WE    <= '1';
                      ddr3_DIN   <= rspfifo_Dout(63 downto 0);      
                      ddr3_BE    <= (others => '1');       
                      ddr3_ADDR(24 downto 0) <= "0000" & rspfifo_Dout(84 downto 64);
                      ddr3_BURSTCNT <= x"01";                  
                      
-                  elsif (rdpfifo_empty = '0' and rdpfifo_rd = '0') then
+                  elsif (rdpfifo_empty = '0' and rdpfifo_Rd = '0') then
                   
-                     rdpfifo_rd <= '1';
+                     rdpfifo_Rd <= '1';
                      ddr3_WE    <= '1';
                      ddr3_DIN   <= rdpfifo_Dout(63 downto 0);      
                      ddr3_BE    <= rdpfifo_Dout(91 downto 84);       
                      ddr3_ADDR(24 downto 0) <= "00000" & rdpfifo_Dout(83 downto 64);
+                     ddr3_BURSTCNT <= x"01";
+                     
+                  elsif (rdpfifoZ_empty = '0' and rdpfifoZ_Rd = '0') then
+                  
+                     rdpfifoZ_Rd <= '1';
+                     ddr3_WE     <= '1';
+                     ddr3_DIN    <= rdpfifoZ_Dout(63 downto 0);      
+                     ddr3_BE     <= rdpfifoZ_Dout(91 downto 84);       
+                     ddr3_ADDR(24 downto 0) <= "00000" & rdpfifoZ_Dout(83 downto 64);
                      ddr3_BURSTCNT <= x"01";
                   
                   end if;   
@@ -276,7 +296,7 @@ begin
       Full     => open,    
       NearFull => rspfifo_nearfull,
       Dout     => rspfifo_Dout,    
-      Rd       => rspfifo_rd,      
+      Rd       => rspfifo_Rd,      
       Empty    => rspfifo_empty   
    );   
    
@@ -296,8 +316,28 @@ begin
       Full     => open,    
       NearFull => rdpfifo_nearfull,
       Dout     => rdpfifo_Dout,    
-      Rd       => rdpfifo_rd,      
+      Rd       => rdpfifo_Rd,      
       Empty    => rdpfifo_empty   
+   );   
+   
+   iRDPFifoZ: entity mem.SyncFifoFallThrough
+   generic map
+   (
+      SIZE             => 256,
+      DATAWIDTH        => 64 + 20 + 8, -- 64bit data + 20 bit address + 8 byte enables
+      NEARFULLDISTANCE => 240
+   )
+   port map
+   ( 
+      clk      => clk2x,
+      reset    => rdpfifoZ_reset,  
+      Din      => rdpfifoZ_Din,     
+      Wr       => (rdpfifoZ_Wr and clk2xIndex),
+      Full     => open,    
+      NearFull => rdpfifoZ_nearfull,
+      Dout     => rdpfifoZ_Dout,    
+      Rd       => rdpfifoZ_Rd,      
+      Empty    => rdpfifoZ_empty   
    );
 
 end architecture;
