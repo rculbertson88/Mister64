@@ -59,11 +59,6 @@ begin
    
    
    FBAddrZ <= yOdd & xIndexPx(10 downto 0);
-   
-   old_Z_mem(15 downto 0) <= byteswap16(FBDataZ);
-   
-   old_Z_mem(17) <= FBData9Z((to_integer(muxselect9) * 2) + 1);
-   old_Z_mem(16) <= FBData9Z((to_integer(muxselect9) * 2) + 0);
 
    process (clk1x)
    begin
@@ -76,6 +71,11 @@ begin
          
             FBData9_old  <= FBData9;
             FBData9_oldZ <= FBData9Z;
+            
+            old_Z_mem(15 downto 0) <= byteswap16(FBDataZ);
+   
+            old_Z_mem(17) <= FBData9Z((to_integer(muxselect9) * 2) + 1);
+            old_Z_mem(16) <= FBData9Z((to_integer(muxselect9) * 2) + 0);
          
             case (settings_colorImage.FB_size) is
                when SIZE_16BIT =>

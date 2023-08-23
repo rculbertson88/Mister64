@@ -11,6 +11,8 @@ entity RDP_raster is
       clk1x                   : in  std_logic;
       reset                   : in  std_logic;
    
+      error_drawMode          : out std_logic := '0';
+   
       stall_raster            : in  std_logic;
    
       settings_poly           : in  tsettings_poly := SETTINGSPOLYINIT;
@@ -818,6 +820,7 @@ begin
       
          pipeIn_trigger <= '0';
          fillWrite      <= '0';
+         error_drawMode <= '0';
          
          if (reset = '1') then
             
@@ -848,6 +851,10 @@ begin
                   lineCVGInfo.invalidLine <= invalidLine;
                   
                   line_posY   <= lineInfo.Y;
+                  
+                  if (settings_otherModes.cycleType = "01" or settings_otherModes.cycleType = "10") then
+                     error_drawMode <= '1';
+                  end if;
                   
                   if (settings_poly.lft = '1' or settings_otherModes.cycleType = "11") then
                      line_posX   <= lineInfo.xStart;
@@ -1080,14 +1087,18 @@ begin
    load_hibit       <= load_tmemAddr0(10);
    
    TextureReqRAMaddr <= load_MemAddr;
-   TextureReqRAMPtr  <= TextureReqRAM_index when (loadstate = LOADRAM) else (TextureReqRAM_index + 1);
+   TextureReqRAMPtr  <= TextureReqRAM_index when (loadstate = LOADRAM or memAdvance = 2) else (TextureReqRAM_index + 1);
    
    load_Ram0Addr <= load_tmemAddr0(10 downto 1) & '1';
    load_Ram1Addr <= load_tmemAddr0(10 downto 1) & '0';
    load_Ram2Addr <= load_tmemAddr0(10 downto 2) & "11";
    load_Ram3Addr <= load_tmemAddr0(10 downto 2) & "10";
    
-   TextureRAMDataMuxed <= TextureRAMData_1                                                 when (load_MemAddr(2 downto 0) = "000") else
+   TextureRAMDataMuxed <= TextureReqRAMData(63 downto 48) & TextureReqRAMData(63 downto 48) & TextureReqRAMData(63 downto 48) & TextureReqRAMData(63 downto 48) when (memAdvance = 2 and load_MemAddr(2 downto 0) = "000") else
+                          TextureReqRAMData(47 downto 32) & TextureReqRAMData(47 downto 32) & TextureReqRAMData(47 downto 32) & TextureReqRAMData(47 downto 32) when (memAdvance = 2 and load_MemAddr(2 downto 0) = "010") else
+                          TextureReqRAMData(31 downto 16) & TextureReqRAMData(31 downto 16) & TextureReqRAMData(31 downto 16) & TextureReqRAMData(31 downto 16) when (memAdvance = 2 and load_MemAddr(2 downto 0) = "100") else
+                          TextureReqRAMData(15 downto  0) & TextureReqRAMData(15 downto  0) & TextureReqRAMData(15 downto  0) & TextureReqRAMData(15 downto  0) when (memAdvance = 2 and load_MemAddr(2 downto 0) = "110") else
+                          TextureRAMData_1                                                 when (load_MemAddr(2 downto 0) = "000") else
                           TextureRAMData_1(55 downto  0) & TextureReqRAMData(63 downto 56) when (load_MemAddr(2 downto 0) = "001") else 
                           TextureRAMData_1(47 downto  0) & TextureReqRAMData(63 downto 48) when (load_MemAddr(2 downto 0) = "010") else 
                           TextureRAMData_1(39 downto  0) & TextureReqRAMData(63 downto 40) when (load_MemAddr(2 downto 0) = "011") else 
@@ -1150,14 +1161,18 @@ begin
                when LOADRAM2 =>
                   loadstate           <= LOADLINE;
                   TextureRAMData_1    <= TextureReqRAMData;
-                  TextureReqRAM_index <= TextureReqRAM_index + 1;
+                  if (memAdvance /= 2 or load_MemAddr(2 downto 1) = 2) then 
+                     TextureReqRAM_index <= TextureReqRAM_index + 1;
+                  end if;
                
                when LOADLINE =>
                   load_posX    <= load_posX + spanAdvance;
                   load_MemAddr <= load_MemAddr + memAdvance;
                   
-                  TextureReqRAM_index <= TextureReqRAM_index + 1;
                   TextureRAMData_1    <= TextureReqRAMData;
+                  if (memAdvance /= 2 or load_MemAddr(2 downto 1) = 2) then 
+                     TextureReqRAM_index <= TextureReqRAM_index + 1;
+                  end if;
                   
                   if (TextureReqRAM_index /= 31) then
                      load_MemAddr <= load_MemAddr + memAdvance;
@@ -1165,7 +1180,7 @@ begin
                  
                   if (loadLineDone = '1') then
                      loadstate <= LOADIDLE;
-                  elsif (TextureReqRAM_index = 31) then
+                  elsif (TextureReqRAM_index = 31 and (memAdvance /= 2 or load_MemAddr(2 downto 1) = 3)) then
                      loadstate        <= LOADRAM;
                      TextureReqRAMreq <= '1';
                   end if;

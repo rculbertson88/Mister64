@@ -257,6 +257,7 @@ package pRDP is
    type tcolor4_s16 is array(0 to 3) of signed(15 downto 0);
    type tcolor4_s32 is array(0 to 3) of signed(31 downto 0);
    
+   type tTextureRamAddr is array(0 to 7) of std_logic_vector(7 downto 0);
    type tTextureRamData is array(0 to 7) of std_logic_vector(15 downto 0);
 
    constant SIZE_4BIT  : unsigned(1 downto 0) := "00";

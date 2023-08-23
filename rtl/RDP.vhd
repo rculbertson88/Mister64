@@ -18,6 +18,8 @@ entity RDP is
       command_error        : out std_logic;
       errorCombine         : out std_logic;
       error_combineAlpha   : out std_logic;
+      error_texMode        : out std_logic; 
+      error_drawMode       : out std_logic; 
       
       write9               : in  std_logic;
       read9                : in  std_logic;
@@ -229,7 +231,7 @@ architecture arch of RDP is
    signal TextureRamWE              : std_logic_vector(7 downto 0)  := (others => '0');
    signal TextureRamDataIn          : tTextureRamData;
    signal TextureReadData           : tTextureRamData;
-   signal TextureReadAddr           : unsigned(11 downto 0) := (others => '0');    
+   signal TextureReadAddr           : tTextureRamAddr;    
    
    -- Fill line
    signal stall_raster              : std_logic := '0';
@@ -795,6 +797,8 @@ begin
    (
       clk1x                   => clk1x,        
       reset                   => reset,       
+      
+      error_drawMode          => error_drawMode,
 
       stall_raster            => stall_raster,
                               
@@ -910,7 +914,7 @@ begin
          
          clock_b     => clk1x,
          clken_b     => pipeIn_trigger,
-         address_b   => std_logic_vector(TextureReadAddr(10 downto 3)),
+         address_b   => TextureReadAddr(i),
          data_b      => 16x"0",
          wren_b      => '0',
          q_b         => TextureReadData(i)
@@ -1045,6 +1049,7 @@ begin
 
       errorCombine            => errorCombine,
       error_combineAlpha      => error_combineAlpha,
+      error_texMode           => error_texMode,
       
       pipe_busy               => pipe_busy,
                                                       

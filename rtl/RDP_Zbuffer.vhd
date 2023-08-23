@@ -25,11 +25,15 @@ entity RDP_Zbuffer is
       cvgCount                : in  unsigned(3 downto 0);
       
       -- STAGE_TEXFETCH
+      
+      -- STAGE_TEXREAD
       old_Z_mem               : in unsigned(17 downto 0);
       
+      -- STAGE_PALETTE
+      
       -- STAGE_COMBINER
-      cvgFB                   : in unsigned(2 downto 0);
-      cvgCount_2              : in  unsigned(3 downto 0);
+      cvgFB                   : in  unsigned(2 downto 0);
+      cvgCount_4              : in  unsigned(3 downto 0);
       
       -- synthesis translate_off
       export_zNewRaw          : out unsigned(31 downto 0);
@@ -47,55 +51,68 @@ end entity;
 
 architecture arch of RDP_Zbuffer is
 
-  -- STAGE_INPUT
-  signal corrected_sum_x   : signed(24 downto 0);
-  signal corrected_sum_y   : signed(24 downto 0);
+   -- STAGE_INPUT
+   signal corrected_sum_x   : signed(24 downto 0);
+   signal corrected_sum_y   : signed(24 downto 0);
+      
+   signal corrected_sum     : signed(25 downto 0) := (others => '0');
+   signal zIn_1             : signed(21 downto 0) := (others => '0');
+      
+   -- STAGE_PERSPCOR  
+   signal new_z_calc        : signed(26 downto 0);
+   signal new_z_selected    : signed(18 downto 0);
+      
+   signal new_z             : unsigned(17 downto 0) := (others => '0');
+      
+   -- STAGE_TEXFETCH     
+   signal new_z_1           : unsigned(17 downto 0)  := (others => '0');
    
-  signal corrected_sum     : signed(25 downto 0) := (others => '0');
-  signal zIn_1             : signed(21 downto 0) := (others => '0');
+   -- STAGE_TEXREAD
+   signal oldZ_mantissa     : unsigned(10 downto 0);
+   signal oldZ_shift        : unsigned(2 downto 0);
+   signal oldZ_mantShifted  : unsigned(16 downto 0);
+   type t_oldAddTable is array( 0 to 7) of unsigned(17 downto 0);
+   constant oldAddTable     : t_oldAddTable := (18x"00000", 18x"20000", 18x"30000", 18x"38000", 18x"3c000", 18x"3e000", 18x"3f000", 18x"3f800");
+   signal oldZ_addValue     : unsigned(17 downto 0);
    
-  -- STAGE_PERSPCOR  
-  signal new_z_calc        : signed(26 downto 0);
-  signal new_z_selected    : signed(18 downto 0);
+   signal old_dz_mem        : unsigned(3 downto 0);
+   signal old_dz_raw        : unsigned(15 downto 0);
+   signal dzmin             : unsigned(4 downto 0);
    
-  signal new_z             : unsigned(17 downto 0) := (others => '0');
+   signal old_z             : unsigned(17 downto 0)  := (others => '0');
+   signal planar            : std_logic := '0';
+   signal old_dz            : unsigned(15 downto 0)  := (others => '0');
+   signal new_z_2           : unsigned(17 downto 0)  := (others => '0');
    
-  -- STAGE_TEXFETCH  
-  signal oldZ_mantissa     : unsigned(10 downto 0);
-  signal oldZ_shift        : unsigned(2 downto 0);
-  signal oldZ_mantShifted  : unsigned(16 downto 0);
-  type t_oldAddTable is array( 0 to 7) of unsigned(17 downto 0);
-  constant oldAddTable     : t_oldAddTable := (18x"00000", 18x"20000", 18x"30000", 18x"38000", 18x"3c000", 18x"3e000", 18x"3f000", 18x"3f800");
-  signal oldZ_addValue     : unsigned(17 downto 0);
+   -- STAGE_PALETTE
+   signal dz_compare        : unsigned(15 downto 0);
+   
+   signal dzNew             : unsigned(15 downto 0) := (others => '0');
+   signal new_z_3           : unsigned(17 downto 0)  := (others => '0');
+   signal planar_1          : std_logic := '0';
+   signal old_z_1           : unsigned(17 downto 0)  := (others => '0');
+   
+    -- synthesis translate_off
+   signal old_dz_1          : unsigned(15 downto 0)  := (others => '0');
+   -- synthesis translate_on
+   
+   -- STAGE_COMBINER
+   signal zNewSigned        : signed(19 downto 0);
+   signal dzNewSigned       : signed(19 downto 0);
+   signal diffZ             : signed(19 downto 0);
+   signal calc_max          : std_logic;
+   signal calc_front        : std_logic;
+   signal calc_near         : std_logic;
+   signal calc_far          : std_logic;
+   signal calc_overflow     : std_logic;
+   
+   signal is_max            : std_logic := '0';
+   signal is_front          : std_logic := '0';
+   signal is_near           : std_logic := '0';
+   signal is_far            : std_logic := '0';
+   signal is_overflow       : std_logic := '0';
+   signal new_z_4           : unsigned(17 downto 0)  := (others => '0');
   
-  signal old_dz_mem        : unsigned(3 downto 0);
-  signal old_dz_raw        : unsigned(15 downto 0);
-  signal dzmin             : unsigned(4 downto 0);
-   
-  signal new_z_1           : unsigned(17 downto 0)  := (others => '0');
-  signal old_z             : unsigned(17 downto 0)  := (others => '0');
-  signal planar            : std_logic := '0';
-  signal old_dz            : unsigned(15 downto 0)  := (others => '0');
-  
-  -- STAGE_COMBINER
-  signal dz_compare        : unsigned(15 downto 0);
-  signal dzNew             : unsigned(15 downto 0);
-  signal zNewSigned        : signed(19 downto 0);
-  signal dzNewSigned       : signed(19 downto 0);
-  signal diffZ             : signed(19 downto 0);
-  signal calc_max          : std_logic;
-  signal calc_front        : std_logic;
-  signal calc_near         : std_logic;
-  signal calc_far          : std_logic;
-  signal calc_overflow     : std_logic;
-  
-  signal is_max            : std_logic := '0';
-  signal is_front          : std_logic := '0';
-  signal is_near           : std_logic := '0';
-  signal is_far            : std_logic := '0';
-  signal is_overflow       : std_logic := '0';
-  signal new_z_2           : unsigned(17 downto 0)  := (others => '0');
-
 begin 
   
    -- STAGE_INPUT
@@ -140,7 +157,21 @@ begin
       end if;
    end process;
    
-   -- STAGE_TEXFETCH
+   -- STAGE_TEXFETCH   
+   process (clk1x)
+   begin
+      if rising_edge(clk1x) then
+         
+         if (trigger = '1') then
+         
+            new_z_1 <= unsigned(new_z);
+
+         end if;
+         
+      end if;
+   end process;
+   
+   -- STAGE_TEXREAD
    oldZ_mantissa   <= old_Z_mem(12 downto 2);
    oldZ_shift      <= to_unsigned(6, 3) - old_Z_mem(15 downto 13) when (old_Z_mem(15 downto 13) < 7) else (others => '0');
    oldZ_mantShifted <= ("000000" & oldZ_mantissa) sll to_integer(oldZ_shift);
@@ -156,7 +187,7 @@ begin
          
          if (trigger = '1') then
          
-            new_z_1 <= unsigned(new_z);
+            new_z_2 <= new_z_1;
             
             old_z   <= oldZ_mantShifted + oldZ_addValue;
  
@@ -181,29 +212,8 @@ begin
       end if;
    end process;
    
-   -- STAGE_COMBINER
+   -- STAGE_PALETTE
    dz_compare <= dzPix or old_dz;
-   
-   process (dz_compare)
-   begin
-      dzNew <= (others => '0');
-      for i in 0 to 15 loop
-         if (dz_compare(i) = '1') then
-            dzNew    <= (others => '0');
-            dzNew(i) <= '1';
-         end if;
-      end loop;
-   end process;
-   
-   zNewSigned  <=  "00" & signed(new_z_1);
-   dzNewSigned <=  '0' & signed(dzNew) & "000";
-   diffZ       <= zNewSigned - dzNewSigned;
-   
-   calc_max      <= '1' when (old_z = 18x"3FFFF") else '0';
-   calc_front    <= '1' when (new_z_1 < old_z) else '0';
-   calc_near     <= '1' when (planar = '1' or to_integer(diffZ) <= to_integer(old_z)) else '0';
-   calc_far      <= '1' when (planar = '1' or (new_z_1 + (dzNew & "000")) > old_z) else '0'; 
-   calc_overflow <= '1' when (cvgFB + cvgCount_2 >= 8) else '0';
    
    process (clk1x)
    begin
@@ -211,7 +221,45 @@ begin
          
          if (trigger = '1') then
          
-            new_z_2 <= new_z_1;
+            new_z_3  <= new_z_2;
+            old_z_1  <= old_z;
+            planar_1 <= planar;
+         
+            dzNew <= (others => '0');
+            for i in 0 to 15 loop
+               if (dz_compare(i) = '1') then
+                  dzNew    <= (others => '0');
+                  dzNew(i) <= '1';
+               end if;
+            end loop;
+            
+            -- synthesis translate_off
+            old_dz_1 <= old_dz;
+            -- synthesis translate_on
+
+         end if;
+         
+      end if;
+   end process;
+   
+   -- STAGE_COMBINER
+   zNewSigned  <=  "00" & signed(new_z_3);
+   dzNewSigned <=  '0' & signed(dzNew) & "000";
+   diffZ       <= zNewSigned - dzNewSigned;
+   
+   calc_max      <= '1' when (old_z_1 = 18x"3FFFF") else '0';
+   calc_front    <= '1' when (new_z_3 < old_z_1) else '0';
+   calc_near     <= '1' when (planar_1 = '1' or to_integer(diffZ) <= to_integer(old_z_1)) else '0';
+   calc_far      <= '1' when (planar_1 = '1' or (new_z_3 + (dzNew & "000")) > old_z_1) else '0'; 
+   calc_overflow <= '1' when (cvgFB + cvgCount_4 >= 8) else '0';
+   
+   process (clk1x)
+   begin
+      if rising_edge(clk1x) then
+         
+         if (trigger = '1') then
+         
+            new_z_4 <= new_z_3;
             
             is_max       <= calc_max;
             is_front     <= calc_front;
@@ -231,9 +279,9 @@ begin
             end if;
 
             -- synthesis translate_off
-            export_zNewRaw  <= 14x"0" & new_z_1;
-            export_zOld     <= 14x"0" & old_z;
-            export_dzOld    <= old_dz;
+            export_zNewRaw  <= 14x"0" & new_z_3;
+            export_zOld     <= 14x"0" & old_z_1;
+            export_dzOld    <= old_dz_1;
             export_dzNew    <= dzNew;
             -- synthesis translate_on
 
@@ -284,14 +332,14 @@ begin
                zUsePixel <= '1';
             end if;
 
-            if    (new_z_2(17 downto 11) < 16#40#) then zResult <= "000" & new_z_2(16 downto 6) & "00";
-            elsif (new_z_2(17 downto 11) < 16#60#) then zResult <= "001" & new_z_2(15 downto 5) & "00";
-            elsif (new_z_2(17 downto 11) < 16#70#) then zResult <= "010" & new_z_2(14 downto 4) & "00";
-            elsif (new_z_2(17 downto 11) < 16#78#) then zResult <= "011" & new_z_2(13 downto 3) & "00";
-            elsif (new_z_2(17 downto 11) < 16#7C#) then zResult <= "100" & new_z_2(12 downto 2) & "00";
-            elsif (new_z_2(17 downto 11) < 16#7E#) then zResult <= "101" & new_z_2(11 downto 1) & "00";
-            elsif (new_z_2(17 downto 11) < 16#7F#) then zResult <= "110" & new_z_2(10 downto 0) & "00";
-            else                                        zResult <= "111" & new_z_2(10 downto 0) & "00";
+            if    (new_z_4(17 downto 11) < 16#40#) then zResult <= "000" & new_z_4(16 downto 6) & "00";
+            elsif (new_z_4(17 downto 11) < 16#60#) then zResult <= "001" & new_z_4(15 downto 5) & "00";
+            elsif (new_z_4(17 downto 11) < 16#70#) then zResult <= "010" & new_z_4(14 downto 4) & "00";
+            elsif (new_z_4(17 downto 11) < 16#78#) then zResult <= "011" & new_z_4(13 downto 3) & "00";
+            elsif (new_z_4(17 downto 11) < 16#7C#) then zResult <= "100" & new_z_4(12 downto 2) & "00";
+            elsif (new_z_4(17 downto 11) < 16#7E#) then zResult <= "101" & new_z_4(11 downto 1) & "00";
+            elsif (new_z_4(17 downto 11) < 16#7F#) then zResult <= "110" & new_z_4(10 downto 0) & "00";
+            else                                        zResult <= "111" & new_z_4(10 downto 0) & "00";
             end if;
             
             zResult(1 downto 0) <= dzPixEnc(3 downto 2);

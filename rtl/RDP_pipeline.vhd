@@ -13,6 +13,7 @@ entity RDP_pipeline is
       
       errorCombine            : out std_logic;
       error_combineAlpha      : out std_logic;
+      error_texMode           : out std_logic; 
       
       pipe_busy               : out std_logic;
    
@@ -48,7 +49,7 @@ entity RDP_pipeline is
       pipeIn_Z                : in  signed(21 downto 0);
       pipeIn_dzPix            : in  unsigned(15 downto 0);
       
-      TextureAddr             : out unsigned(11 downto 0);
+      TextureAddr             : out tTextureRamAddr;
       TextureRamData          : in  tTextureRamData;
       
       FBAddr                  : out unsigned(10 downto 0);
@@ -98,9 +99,11 @@ architecture arch of RDP_pipeline is
    constant STAGE_INPUT     : integer := 0;
    constant STAGE_PERSPCOR  : integer := 1;
    constant STAGE_TEXFETCH  : integer := 2;
-   constant STAGE_COMBINER  : integer := 3;
-   constant STAGE_BLENDER   : integer := 4;
-   constant STAGE_OUTPUT    : integer := 5;
+   constant STAGE_TEXREAD   : integer := 3;
+   constant STAGE_PALETTE   : integer := 4;
+   constant STAGE_COMBINER  : integer := 5;
+   constant STAGE_BLENDER   : integer := 6;
+   constant STAGE_OUTPUT    : integer := 7;
    
    type t_stage_std is array(0 to STAGE_OUTPUT - 1) of std_logic;
    type t_stage_u32 is array(0 to STAGE_OUTPUT - 1) of unsigned(31 downto 0);
@@ -206,6 +209,7 @@ architecture arch of RDP_pipeline is
    signal stage_dzOld         : t_stage_u16;
    signal stage_dzNew         : t_stage_u16;
    
+   signal export_TextureAddr  : unsigned(11 downto 0);
    signal export_TexFt_addr   : unsigned(31 downto 0);
    signal export_TexFt_data   : unsigned(31 downto 0);
    signal export_TexFt_db1    : unsigned(31 downto 0);
@@ -341,37 +345,100 @@ begin
             stage_texCoord_T(STAGE_TEXFETCH) <= texture_T_clamped;
             stage_texIndex_S(STAGE_TEXFETCH) <= texture_S_index;
             stage_texIndex_T(STAGE_TEXFETCH) <= texture_T_index;
-            stage_texAddr(STAGE_TEXFETCH)    <= TextureAddr;
+            stage_texAddr(STAGE_TEXFETCH)    <= export_TextureAddr;
+            -- synthesis translate_on         
+            
+            -- ##################################################
+            -- ######### STAGE_TEXREAD  #########################
+            -- ##################################################
+            
+            stage_valid(STAGE_TEXREAD)    <= stage_valid(STAGE_TEXFETCH);   
+            stage_addr(STAGE_TEXREAD)     <= stage_addr(STAGE_TEXFETCH);       
+            stage_addrZ(STAGE_TEXREAD)    <= stage_addrZ(STAGE_TEXFETCH);       
+            stage_x(STAGE_TEXREAD)        <= stage_x(STAGE_TEXFETCH);          
+            stage_y(STAGE_TEXREAD)        <= stage_y(STAGE_TEXFETCH);          
+            stage_cvgValue(STAGE_TEXREAD) <= stage_cvgValue(STAGE_TEXFETCH);   
+            stage_offX(STAGE_TEXREAD)     <= stage_offX(STAGE_TEXFETCH);   
+            stage_offY(STAGE_TEXREAD)     <= stage_offY(STAGE_TEXFETCH);   
+            stage_Color(STAGE_TEXREAD)    <= stage_Color(STAGE_TEXFETCH);
+            stage_cvgCount(STAGE_TEXREAD) <= stage_cvgCount(STAGE_TEXFETCH);
+            stage_FBcolor(STAGE_TEXREAD)  <= FBcolor;
+            stage_cvgFB(STAGE_TEXREAD)    <= cvgFB;
+            stage_FBData9(STAGE_TEXREAD)  <= FBData9_old;
+            stage_FBData9Z(STAGE_TEXREAD) <= FBData9_oldZ;
+            if (cvg_sum(3) = '1') then stage_cvgSum(STAGE_TEXREAD) <= "111";  else stage_cvgSum(STAGE_TEXREAD) <= cvg_sum(2 downto 0); end if;
+
+            -- synthesis translate_off
+            stage_cvg16(STAGE_TEXREAD)      <= stage_cvg16(STAGE_TEXFETCH);
+            stage_colorFull(STAGE_TEXREAD)  <= stage_colorFull(STAGE_TEXFETCH);
+            stage_STWZ(STAGE_TEXREAD)       <= stage_STWZ(STAGE_TEXFETCH);
+            stage_texCoord_S(STAGE_TEXREAD) <= stage_texCoord_S(STAGE_TEXFETCH);
+            stage_texCoord_T(STAGE_TEXREAD) <= stage_texCoord_T(STAGE_TEXFETCH);
+            stage_texIndex_S(STAGE_TEXREAD) <= stage_texIndex_S(STAGE_TEXFETCH);
+            stage_texIndex_T(STAGE_TEXREAD) <= stage_texIndex_T(STAGE_TEXFETCH);
+            stage_texAddr(STAGE_TEXREAD)    <= stage_texAddr(STAGE_TEXFETCH);
+            -- synthesis translate_on         
+            
+            -- ##################################################
+            -- ######### STAGE_PALETTE  #########################
+            -- ##################################################
+            
+            stage_valid(STAGE_PALETTE)    <= stage_valid(STAGE_TEXREAD);   
+            stage_addr(STAGE_PALETTE)     <= stage_addr(STAGE_TEXREAD);       
+            stage_addrZ(STAGE_PALETTE)    <= stage_addrZ(STAGE_TEXREAD);       
+            stage_x(STAGE_PALETTE)        <= stage_x(STAGE_TEXREAD);          
+            stage_y(STAGE_PALETTE)        <= stage_y(STAGE_TEXREAD);          
+            stage_cvgValue(STAGE_PALETTE) <= stage_cvgValue(STAGE_TEXREAD);   
+            stage_offX(STAGE_PALETTE)     <= stage_offX(STAGE_TEXREAD);   
+            stage_offY(STAGE_PALETTE)     <= stage_offY(STAGE_TEXREAD);   
+            stage_Color(STAGE_PALETTE)    <= stage_Color(STAGE_TEXREAD);
+            stage_cvgCount(STAGE_PALETTE) <= stage_cvgCount(STAGE_TEXREAD);
+            stage_cvgFB(STAGE_PALETTE)    <= stage_cvgFB(STAGE_TEXREAD); 
+            stage_FBcolor(STAGE_PALETTE)  <= stage_FBcolor(STAGE_TEXREAD);
+            stage_FBData9(STAGE_PALETTE)  <= stage_FBData9(STAGE_TEXREAD);
+            stage_FBData9Z(STAGE_PALETTE) <= stage_FBData9Z(STAGE_TEXREAD);      
+            stage_cvgSum(STAGE_PALETTE)   <= stage_cvgSum(STAGE_TEXREAD);
+
+
+            -- synthesis translate_off
+            stage_cvg16(STAGE_PALETTE)      <= stage_cvg16(STAGE_TEXREAD);
+            stage_colorFull(STAGE_PALETTE)  <= stage_colorFull(STAGE_TEXREAD);
+            stage_STWZ(STAGE_PALETTE)       <= stage_STWZ(STAGE_TEXREAD);
+            stage_texCoord_S(STAGE_PALETTE) <= stage_texCoord_S(STAGE_TEXREAD);
+            stage_texCoord_T(STAGE_PALETTE) <= stage_texCoord_T(STAGE_TEXREAD);
+            stage_texIndex_S(STAGE_PALETTE) <= stage_texIndex_S(STAGE_TEXREAD);
+            stage_texIndex_T(STAGE_PALETTE) <= stage_texIndex_T(STAGE_TEXREAD);
+            stage_texAddr(STAGE_PALETTE)    <= stage_texAddr(STAGE_TEXREAD);
             -- synthesis translate_on         
             
             -- ##################################################
             -- ######### STAGE_COMBINER #########################
             -- ##################################################
             
-            stage_valid(STAGE_COMBINER)    <= stage_valid(STAGE_TEXFETCH);   
-            stage_addr(STAGE_COMBINER)     <= stage_addr(STAGE_TEXFETCH);       
-            stage_addrZ(STAGE_COMBINER)    <= stage_addrZ(STAGE_TEXFETCH);       
-            stage_x(STAGE_COMBINER)        <= stage_x(STAGE_TEXFETCH);          
-            stage_y(STAGE_COMBINER)        <= stage_y(STAGE_TEXFETCH);          
-            stage_cvgValue(STAGE_COMBINER) <= stage_cvgValue(STAGE_TEXFETCH);   
-            stage_offX(STAGE_COMBINER)     <= stage_offX(STAGE_TEXFETCH);   
-            stage_offY(STAGE_COMBINER)     <= stage_offY(STAGE_TEXFETCH);   
-            stage_cvgCount(STAGE_COMBINER) <= stage_cvgCount(STAGE_TEXFETCH);
-            stage_FBcolor(STAGE_COMBINER)  <= FBcolor;
-            stage_cvgFB(STAGE_COMBINER)    <= cvgFB;
-            stage_FBData9(STAGE_COMBINER)  <= FBData9_old;
-            stage_FBData9Z(STAGE_COMBINER) <= FBData9_oldZ;
-            if (cvg_sum(3) = '1') then stage_cvgSum(STAGE_COMBINER) <= "111";  else stage_cvgSum(STAGE_COMBINER) <= cvg_sum(2 downto 0); end if;
+            stage_valid(STAGE_COMBINER)    <= stage_valid(STAGE_PALETTE);   
+            stage_addr(STAGE_COMBINER)     <= stage_addr(STAGE_PALETTE);       
+            stage_addrZ(STAGE_COMBINER)    <= stage_addrZ(STAGE_PALETTE);       
+            stage_x(STAGE_COMBINER)        <= stage_x(STAGE_PALETTE);          
+            stage_y(STAGE_COMBINER)        <= stage_y(STAGE_PALETTE);          
+            stage_cvgValue(STAGE_COMBINER) <= stage_cvgValue(STAGE_PALETTE);   
+            stage_offX(STAGE_COMBINER)     <= stage_offX(STAGE_PALETTE);   
+            stage_offY(STAGE_COMBINER)     <= stage_offY(STAGE_PALETTE);   
+            stage_cvgCount(STAGE_COMBINER) <= stage_cvgCount(STAGE_PALETTE);
+            stage_cvgFB(STAGE_COMBINER)    <= stage_cvgFB(STAGE_PALETTE); 
+            stage_FBcolor(STAGE_COMBINER)  <= stage_FBcolor(STAGE_PALETTE);
+            stage_FBData9(STAGE_COMBINER)  <= stage_FBData9(STAGE_PALETTE);
+            stage_FBData9Z(STAGE_COMBINER) <= stage_FBData9Z(STAGE_PALETTE);      
+            stage_cvgSum(STAGE_COMBINER)   <= stage_cvgSum(STAGE_PALETTE);
 
             -- synthesis translate_off
-            stage_cvg16(STAGE_COMBINER)      <= stage_cvg16(STAGE_TEXFETCH);
-            stage_colorFull(STAGE_COMBINER)  <= stage_colorFull(STAGE_TEXFETCH);
-            stage_STWZ(STAGE_COMBINER)       <= stage_STWZ(STAGE_TEXFETCH);
-            stage_texCoord_S(STAGE_COMBINER) <= stage_texCoord_S(STAGE_TEXFETCH);
-            stage_texCoord_T(STAGE_COMBINER) <= stage_texCoord_T(STAGE_TEXFETCH);
-            stage_texIndex_S(STAGE_COMBINER) <= stage_texIndex_S(STAGE_TEXFETCH);
-            stage_texIndex_T(STAGE_COMBINER) <= stage_texIndex_T(STAGE_TEXFETCH);
-            stage_texAddr(STAGE_COMBINER)    <= stage_texAddr(STAGE_TEXFETCH);
+            stage_cvg16(STAGE_COMBINER)      <= stage_cvg16(STAGE_PALETTE);
+            stage_colorFull(STAGE_COMBINER)  <= stage_colorFull(STAGE_PALETTE);
+            stage_STWZ(STAGE_COMBINER)       <= stage_STWZ(STAGE_PALETTE);
+            stage_texCoord_S(STAGE_COMBINER) <= stage_texCoord_S(STAGE_PALETTE);
+            stage_texCoord_T(STAGE_COMBINER) <= stage_texCoord_T(STAGE_PALETTE);
+            stage_texIndex_S(STAGE_COMBINER) <= stage_texIndex_S(STAGE_PALETTE);
+            stage_texIndex_T(STAGE_COMBINER) <= stage_texIndex_T(STAGE_PALETTE);
+            stage_texAddr(STAGE_COMBINER)    <= stage_texAddr(STAGE_PALETTE);
             stage_texFt_addr(STAGE_COMBINER) <= export_TexFt_addr;
             stage_texFt_data(STAGE_COMBINER) <= export_TexFt_data;
             stage_texFt_db1(STAGE_COMBINER)  <= export_TexFt_db1; 
@@ -557,11 +624,15 @@ begin
       cvgCount                => stage_cvgCount(STAGE_INPUT),
       
       -- STAGE_TEXFETCH
+      
+      -- STAGE_TEXREAD
       old_Z_mem               => old_Z_mem,
       
+      -- STAGE_PALETTE
+      
       -- STAGE_COMBINER
-      cvgFB                   => cvgFB,
-      cvgCount_2              => stage_cvgCount(STAGE_TEXFETCH),
+      cvgFB                   => stage_cvgFB(STAGE_PALETTE),
+      cvgCount_4              => stage_cvgCount(STAGE_PALETTE),
       
       -- synthesis translate_off
       export_zNewRaw          => export_zNewRaw,
@@ -615,25 +686,29 @@ begin
    iRDP_TexFetch: entity work.RDP_TexFetch
    port map
    (
-      clk1x             => clk1x,
-      trigger           => pipeIn_trigger,
+      clk1x                => clk1x,
+      trigger              => pipeIn_trigger,
       
-      settings_tile     => settings_tile,
-      index_S           => texture_S_index,
-      index_T           => texture_T_index,
-                        
-      tex_addr          => TextureAddr,
-      tex_data          => TextureRamData,
+      error_texMode        => error_texMode,
+      
+      settings_otherModes  => settings_otherModes,
+      settings_tile        => settings_tile,
+      index_S              => texture_S_index,
+      index_T              => texture_T_index,
+                           
+      tex_addr             => TextureAddr,
+      tex_data             => TextureRamData,
       
       -- synthesis translate_off
-      export_TexFt_addr => export_TexFt_addr,
-      export_TexFt_data => export_TexFt_data,
-      export_TexFt_db1  => export_TexFt_db1, 
-      export_TexFt_db3  => export_TexFt_db3, 
+      export_TextureAddr   => export_TextureAddr,
+      export_TexFt_addr    => export_TexFt_addr,
+      export_TexFt_data    => export_TexFt_data,
+      export_TexFt_db1     => export_TexFt_db1, 
+      export_TexFt_db3     => export_TexFt_db3, 
       -- synthesis translate_on
                       
-      tex_color         => texture_color,
-      tex_alpha         => texture_alpha
+      tex_color            => texture_color,
+      tex_alpha            => texture_alpha
    );
 
    -- STAGE_COMBINER
@@ -650,7 +725,7 @@ begin
       settings_primcolor      => settings_primcolor, 
       settings_envcolor       => settings_envcolor, 
       
-      pipeInColor             => stage_Color(STAGE_TEXFETCH),
+      pipeInColor             => stage_Color(STAGE_PALETTE),
       texture_color           => texture_color,
      
       combine_color           => combine_color
@@ -669,10 +744,10 @@ begin
       settings_primcolor      => settings_primcolor, 
       settings_envcolor       => settings_envcolor, 
                               
-      pipeInColor             => stage_Color(STAGE_TEXFETCH),
+      pipeInColor             => stage_Color(STAGE_PALETTE),
       tex_alpha               => texture_alpha,
       lod_frac                => x"FF", -- todo
-      cvgCount                => stage_cvgCount(STAGE_TEXFETCH),
+      cvgCount                => stage_cvgCount(STAGE_PALETTE),
                               
       combine_alpha           => combine_alpha
    );

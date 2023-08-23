@@ -29,6 +29,8 @@ List of Errors:
 - Bit 11 - RDP combine mode not implemented
 - Bit 12 - RDP combine alpha functionality not implemented
 - Bit 13 - SDRAM Mux timeout
+- Bit 14 - not implemented texture mode is used
+- Bit 15 - not implemented render mode (2 pass or copy) is used
   
 ## Status
 
