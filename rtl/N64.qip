@@ -38,6 +38,7 @@ set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_FBread
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_CombineColor.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_CombineAlpha.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_BlendColor.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_Zbuffer.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_pipeline.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) DDR3Mux.vhd ]

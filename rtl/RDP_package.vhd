@@ -76,7 +76,12 @@ package pRDP is
       ScissorField   => '0',
       ScissorOdd     => '0',
       others => (others => '0')
-   );    
+   );   
+
+   type tsettings_Z is record
+      Delta_Z     : unsigned(15 downto 0);
+      Primitive_Z : unsigned(14 downto 0);
+   end record;      
    
    type tsettings_otherModes is record
       alphaCompare       : std_logic;
@@ -252,6 +257,7 @@ package pRDP is
    type tcolor4_s16 is array(0 to 3) of signed(15 downto 0);
    type tcolor4_s32 is array(0 to 3) of signed(31 downto 0);
    
+   type tTextureRamAddr is array(0 to 7) of std_logic_vector(7 downto 0);
    type tTextureRamData is array(0 to 7) of std_logic_vector(15 downto 0);
 
    constant SIZE_4BIT  : unsigned(1 downto 0) := "00";
@@ -294,6 +300,7 @@ package body pRDP is
          when  4 => write(line_out, string'("Color: I ")); 
          when  7 => write(line_out, string'("TexFt: I ")); 
          when 11 => write(line_out, string'("TexCoord: I ")); 
+         when 12 => write(line_out, string'("ZBuffer: I ")); 
          when 13 => write(line_out, string'("TexColor: I ")); 
          when 16 => write(line_out, string'("LoadFetch: I ")); 
          when 18 => write(line_out, string'("LoadValue: I "));  

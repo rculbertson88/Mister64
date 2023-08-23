@@ -33,6 +33,7 @@ entity RDP_command is
       -- synthesis translate_on
       
       settings_scissor        : out tsettings_scissor := SETTINGSSCISSORINIT;
+      settings_Z              : out tsettings_Z := (others => (others => '0'));
       settings_otherModes     : out tsettings_otherModes := SETTINGSOTHERMODESINIT;
       settings_fillcolor      : out tsettings_fillcolor := (others => (others => '0'));
       settings_fogcolor       : out tsettings_fogcolor := (others => (others => '0'));
@@ -286,6 +287,11 @@ begin
                         settings_scissor.ScissorYH    <= CommandData(43 downto 32);
                         settings_scissor.ScissorField <= CommandData(25);
                         settings_scissor.ScissorOdd   <= CommandData(24);
+                        
+                     when 6x"2E" => -- set primitive depth
+                        commandWordDone <= '1';
+                        settings_Z.Delta_Z        <= CommandData(15 downto 0);
+                        settings_Z.Primitive_Z    <= CommandData(30 downto 16);
                   
                      when 6x"2F" => -- set other modes
                         commandWordDone <= '1';

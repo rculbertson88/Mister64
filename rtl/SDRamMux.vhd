@@ -61,7 +61,13 @@ entity SDRamMux is
       rdp9fifo_Din         : in  std_logic_vector(49 downto 0); -- 32bit data + 18 bit address
       rdp9fifo_Wr          : in  std_logic;  
       rdp9fifo_nearfull    : out std_logic;  
-      rdp9fifo_empty       : out std_logic  
+      rdp9fifo_empty       : out std_logic;        
+      
+      rdp9fifoZ_reset      : in  std_logic; 
+      rdp9fifoZ_Din        : in  std_logic_vector(49 downto 0); -- 32bit data + 18 bit address
+      rdp9fifoZ_Wr         : in  std_logic;  
+      rdp9fifoZ_nearfull   : out std_logic;  
+      rdp9fifoZ_empty      : out std_logic  
    );
 end entity;
 
@@ -84,7 +90,11 @@ architecture arch of SDRamMux is
 
    -- rdp fifo
    signal rdpfifo_Dout     : std_logic_vector(49 downto 0);
-   signal rdpfifo_Rd       : std_logic := '0'; 
+   signal rdpfifo_Rd       : std_logic := '0';    
+   
+   -- rdp fifo Z Buffer
+   signal rdpfifoZ_Dout    : std_logic_vector(49 downto 0);
+   signal rdpfifoZ_Rd      : std_logic := '0'; 
 
 begin 
 
@@ -112,6 +122,7 @@ begin
          error             <= '0';
          sdram_ena         <= '0';
          rdpfifo_rd        <= '0';
+         rdpfifoZ_rd       <= '0';
          sdramMux_granted  <= (others => '0');
 
          -- request handling
@@ -163,7 +174,17 @@ begin
                   sdram_rnw         <= '0';
                   sdram_dataWrite   <= rdpfifo_Dout(31 downto 0);      
                   sdram_be          <= x"F";       
-                  sdram_Adr         <= 7x"0" & rdpfifo_Dout(49 downto 32) & "00";
+                  sdram_Adr         <= 7x"0" & rdpfifo_Dout(49 downto 32) & "00";               
+                  
+               elsif (rdp9fifoZ_empty = '0') then
+                  
+                  state             <= WAITFIFOWRITE;
+                  rdpfifoZ_rd       <= '1';
+                  sdram_ena         <= '1';
+                  sdram_rnw         <= '0';
+                  sdram_dataWrite   <= rdpfifoZ_Dout(31 downto 0);      
+                  sdram_be          <= x"F";       
+                  sdram_Adr         <= 7x"0" & rdpfifoZ_Dout(49 downto 32) & "00";
                
                end if;   
                   
@@ -216,6 +237,26 @@ begin
       Dout     => rdpfifo_Dout,    
       Rd       => rdpfifo_rd,      
       Empty    => rdp9fifo_empty   
+   );   
+   
+   iRDPFifoZ: entity mem.SyncFifoFallThrough
+   generic map
+   (
+      SIZE             => 128,
+      DATAWIDTH        => 32 + 18, -- 32bit data + 18 bit address
+      NEARFULLDISTANCE => 64
+   )
+   port map
+   ( 
+      clk      => clk1x,
+      reset    => rdp9fifoZ_reset,  
+      Din      => rdp9fifoZ_Din,     
+      Wr       => rdp9fifoZ_Wr,
+      Full     => open,    
+      NearFull => rdp9fifoZ_nearfull,
+      Dout     => rdpfifoZ_Dout,    
+      Rd       => rdpfifoZ_rd,      
+      Empty    => rdp9fifoZ_empty   
    );
 
    

@@ -300,7 +300,8 @@ begin
                            state           <= WAITRAM;
                            rdram_request   <= '1';
                         else
-                           report "Accessed behind main ram" severity failure; 
+                           report "Accessed behind main ram" severity warning; 
+                           error <= '1';
                         end if;
                          
                      elsif (mem_address(28 downto 0) >= 16#04000000# and mem_address(28 downto 0) < 16#04040000#) then -- RSP RAMs

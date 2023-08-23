@@ -238,9 +238,11 @@ parameter CONF_STR = {
 	"RH,Save state (Alt-F1);",
 	"RI,Restore state (F1);",
 	"-;",
-   "O[11],Write Bit 9,Off,On;",
-   "O[12],Read Bit 9,Off,On;",
-   "O[13],Wait Bit 9,Off,On;",
+   "O[11],Write Bit 9,On,Off;",
+   "O[12],Read Bit 9,On,Off;",
+   "O[13],Wait Bit 9,On,Off;",
+   "O[14],Write Z,On,Off;",
+   "O[15],Read Z,On,Off;",
 	"-;",
    "O[1],Swap Interlaced,Off,On;",
    "O[2],Error Overlay,Off,On;",
@@ -513,9 +515,11 @@ n64top n64top
    
    .CICTYPE(status[68:65]),
    
-   .write9(status[11]), 
-   .read9(status[12]),  
-   .wait9(status[13]),  
+   .write9(!status[11]), 
+   .read9(!status[12]),  
+   .wait9(!status[13]), 
+   .writeZ(!status[14]),
+   .readZ(!status[15]),
    
    // savestates              
    .increaseSSHeaderCount (!status[36]),

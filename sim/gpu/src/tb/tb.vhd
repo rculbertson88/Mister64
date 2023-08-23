@@ -41,7 +41,13 @@ architecture arch of etb is
    signal rdpfifo_Din         : std_logic_vector(91 downto 0);
    signal rdpfifo_Wr          : std_logic;  
    signal rdpfifo_nearfull    : std_logic;    
-   signal rdpfifo_empty       : std_logic;   
+   signal rdpfifo_empty       : std_logic;     
+   
+   signal rdpfifoZ_reset      : std_logic; 
+   signal rdpfifoZ_Din        : std_logic_vector(91 downto 0);
+   signal rdpfifoZ_Wr         : std_logic;  
+   signal rdpfifoZ_nearfull   : std_logic;    
+   signal rdpfifoZ_empty      : std_logic;   
   
    signal sdramMux_request    : tSDRAMSingle;
    signal sdramMux_rnw        : tSDRAMSingle;    
@@ -57,7 +63,13 @@ architecture arch of etb is
    signal rdp9fifo_Din        : std_logic_vector(49 downto 0);
    signal rdp9fifo_Wr         : std_logic;  
    signal rdp9fifo_nearfull   : std_logic;  
-   signal rdp9fifo_empty      : std_logic;
+   signal rdp9fifo_empty      : std_logic;   
+   
+   signal rdp9fifoZ_reset     : std_logic; 
+   signal rdp9fifoZ_Din       : std_logic_vector(49 downto 0);
+   signal rdp9fifoZ_Wr        : std_logic;  
+   signal rdp9fifoZ_nearfull  : std_logic;  
+   signal rdp9fifoZ_empty     : std_logic;
    
    signal bus_RDP_addr        : unsigned(19 downto 0) := (others => '0');
    signal bus_RDP_dataWrite   : std_logic_vector(31 downto 0) := (others => '0');
@@ -170,7 +182,9 @@ begin
       write9               => '1',
       read9                => '1',
       wait9                => '1',
-
+      writeZ               => '1',
+      readZ                => '1',
+      
       irq_out              => open,
             
       bus_addr             => bus_RDP_addr,        
@@ -195,7 +209,13 @@ begin
       fifoout_Din          => rdpfifo_Din,     
       fifoout_Wr           => rdpfifo_Wr,      
       fifoout_nearfull     => rdpfifo_nearfull,
-      fifoout_empty        => rdpfifo_empty,
+      fifoout_empty        => rdpfifo_empty,      
+      
+      fifooutZ_reset       => rdpfifoZ_reset,   
+      fifooutZ_Din         => rdpfifoZ_Din,     
+      fifooutZ_Wr          => rdpfifoZ_Wr,      
+      fifooutZ_nearfull    => rdpfifoZ_nearfull,
+      fifooutZ_empty       => rdpfifoZ_empty,
       
       sdram_request        => sdramMux_request(SDRAMMUX_RDP),   
       sdram_rnw            => sdramMux_rnw(SDRAMMUX_RDP),       
@@ -213,6 +233,12 @@ begin
       rdp9fifo_Wr          => rdp9fifo_Wr,      
       rdp9fifo_nearfull    => rdp9fifo_nearfull,
       rdp9fifo_empty       => rdp9fifo_empty,
+      
+      rdp9fifoZ_reset      => rdp9fifoZ_reset,   
+      rdp9fifoZ_Din        => rdp9fifoZ_Din,     
+      rdp9fifoZ_Wr         => rdp9fifoZ_Wr,      
+      rdp9fifoZ_nearfull   => rdp9fifoZ_nearfull,
+      rdp9fifoZ_empty      => rdp9fifoZ_empty,
       
       RSP_RDP_reg_addr     => 5x"0",   
       RSP_RDP_reg_dataOut  => 32x"0",
@@ -250,7 +276,8 @@ begin
       irq_out              => open,
       
       errorEna             => '0',
-      errorCode            => 12x"0",
+      errorCode            => 16x"0",
+      fpscountOn           => '0',
       
       rdram_request        => rdram_request(DDR3MUX_VI),   
       rdram_rnw            => rdram_rnw(DDR3MUX_VI),       
@@ -323,7 +350,13 @@ begin
       rdpfifo_Din      => rdpfifo_Din,
       rdpfifo_Wr       => rdpfifo_Wr,       
       rdpfifo_nearfull => rdpfifo_nearfull, 
-      rdpfifo_empty    => rdpfifo_empty
+      rdpfifo_empty    => rdpfifo_empty,
+
+      rdpfifoZ_reset   => rdpfifoZ_reset,   
+      rdpfifoZ_Din     => rdpfifoZ_Din,
+      rdpfifoZ_Wr      => rdpfifoZ_Wr,       
+      rdpfifoZ_nearfull=> rdpfifoZ_nearfull, 
+      rdpfifoZ_empty   => rdpfifoZ_empty
    );   
    
    rdram_request(0) <= '0';
@@ -380,7 +413,13 @@ begin
       rdp9fifo_Din         => rdp9fifo_Din,     
       rdp9fifo_Wr          => rdp9fifo_Wr,      
       rdp9fifo_nearfull    => rdp9fifo_nearfull,
-      rdp9fifo_empty       => rdp9fifo_empty
+      rdp9fifo_empty       => rdp9fifo_empty,
+      
+      rdp9fifoZ_reset      => rdp9fifoZ_reset,   
+      rdp9fifoZ_Din        => rdp9fifoZ_Din,     
+      rdp9fifoZ_Wr         => rdp9fifoZ_Wr,      
+      rdp9fifoZ_nearfull   => rdp9fifoZ_nearfull,
+      rdp9fifoZ_empty      => rdp9fifoZ_empty
    );
    
    sdramMux_request(0) <= '0';

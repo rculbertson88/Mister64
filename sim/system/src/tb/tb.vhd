@@ -112,6 +112,8 @@ begin
       write9                => '1',
       read9                 => '1',
       wait9                 => '1',
+      writeZ                => '1',
+      readZ                 => '1',
       
       -- savestates              
       increaseSSHeaderCount => '1',
