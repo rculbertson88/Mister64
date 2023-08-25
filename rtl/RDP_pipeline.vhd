@@ -48,6 +48,7 @@ entity RDP_pipeline is
       pipeInWtempslope        : in  unsigned(7 downto 0) := (others => '0');
       pipeIn_Z                : in  signed(21 downto 0);
       pipeIn_dzPix            : in  unsigned(15 downto 0);
+      pipeIn_copySize         : in  unsigned(3 downto 0);
       
       TextureAddr             : out tTextureRamAddr;
       TextureRamData          : in  tTextureRamData;
@@ -77,6 +78,9 @@ entity RDP_pipeline is
       export_Comb             : out rdp_export_type := (others => (others => '0'));
       export_FBMem            : out rdp_export_type := (others => (others => '0'));
       export_Z                : out rdp_export_type := (others => (others => '0'));
+      
+      export_copyFetch        : out rdp_export_type := (others => (others => '0'));
+      export_copyBytes        : out rdp_export_type := (others => (others => '0'));
       -- synthesis translate_on
       
       writePixel              : out std_logic := '0';
@@ -90,7 +94,12 @@ entity RDP_pipeline is
       writePixelZ             : out std_logic := '0';
       writePixelAddrZ         : out unsigned(25 downto 0) := (others => '0');
       writePixelDataZ         : out unsigned(17 downto 0) := (others => '0');
-      writePixelFBData9Z      : out unsigned(31 downto 0) := (others => '0')
+      writePixelFBData9Z      : out unsigned(31 downto 0) := (others => '0');
+      
+      copyPixel               : out std_logic := '0';
+      copyAddr                : out unsigned(25 downto 0) := (others => '0');
+      copyData                : out unsigned(63 downto 0) := (others => '0');
+      copyBE                  : out unsigned(7 downto 0) := (others => '0')
    );
 end entity;
 
@@ -139,6 +148,7 @@ architecture arch of RDP_pipeline is
    signal stage_blendEna      : t_stage_std := (others => '0');
    signal stage_FBData9       : t_stage_u32 := (others => (others => '0'));
    signal stage_FBData9Z      : t_stage_u32 := (others => (others => '0'));
+   signal stage_copySize      : t_stage_u4 := (others => (others => '0'));
       
    -- only delayed once 
    signal pipeIn_S_1          : signed(15 downto 0) := (others => '0');
@@ -151,6 +161,7 @@ architecture arch of RDP_pipeline is
    -- modules  
    signal texture_color       : tcolor3_u8;
    signal texture_alpha       : unsigned(7 downto 0);
+   signal texture_copy        : unsigned(63 downto 0);
    
    signal combine_color       : tcolor3_u8;
    signal combine_alpha       : unsigned(7 downto 0);
@@ -175,6 +186,9 @@ architecture arch of RDP_pipeline is
    signal texture_T_clamped   : signed(15 downto 0);
   
    signal texture_S_index     : unsigned(9 downto 0);
+   signal texture_S_index1    : unsigned(9 downto 0);
+   signal texture_S_index2    : unsigned(9 downto 0);
+   signal texture_S_index3    : unsigned(9 downto 0);
    signal texture_T_index     : unsigned(9 downto 0);
    signal texture_S_frac      : unsigned(4 downto 0);
    signal texture_T_frac      : unsigned(4 downto 0);
@@ -244,6 +258,8 @@ begin
          writePixel  <= '0';
          writePixelZ <= '0';
          
+         copyPixel   <= '0';
+         
          -- synthesis translate_off
          export_pipeDone <= '0';
          -- synthesis translate_on
@@ -272,6 +288,7 @@ begin
             stage_offX(STAGE_INPUT)       <= pipeIn_offX;
             stage_offY(STAGE_INPUT)       <= pipeIn_offY;
             stage_Color(STAGE_INPUT)      <= pipeInColor;
+            stage_copySize(STAGE_INPUT)   <= pipeIn_copySize;
             
             cvgCounter := (others => '0');
             for i in 0 to 7 loop
@@ -306,6 +323,7 @@ begin
             stage_offX(STAGE_PERSPCOR)     <= stage_offX(STAGE_INPUT);   
             stage_offY(STAGE_PERSPCOR)     <= stage_offY(STAGE_INPUT);  
             stage_Color(STAGE_PERSPCOR)    <= stage_Color(STAGE_INPUT);         
+            stage_copySize(STAGE_PERSPCOR) <= stage_copySize(STAGE_INPUT);         
             stage_cvgCount(STAGE_PERSPCOR) <= stage_cvgCount(STAGE_INPUT);
             
             if (settings_otherModes.perspTex = '1') then
@@ -335,6 +353,7 @@ begin
             stage_offX(STAGE_TEXFETCH)     <= stage_offX(STAGE_PERSPCOR);   
             stage_offY(STAGE_TEXFETCH)     <= stage_offY(STAGE_PERSPCOR);  
             stage_Color(STAGE_TEXFETCH)    <= stage_Color(STAGE_PERSPCOR);         
+            stage_copySize(STAGE_TEXFETCH) <= stage_copySize(STAGE_PERSPCOR);         
             stage_cvgCount(STAGE_TEXFETCH) <= stage_cvgCount(STAGE_PERSPCOR);
 
             -- synthesis translate_off
@@ -361,6 +380,7 @@ begin
             stage_offX(STAGE_TEXREAD)     <= stage_offX(STAGE_TEXFETCH);   
             stage_offY(STAGE_TEXREAD)     <= stage_offY(STAGE_TEXFETCH);   
             stage_Color(STAGE_TEXREAD)    <= stage_Color(STAGE_TEXFETCH);
+            stage_copySize(STAGE_TEXREAD) <= stage_copySize(STAGE_TEXFETCH);
             stage_cvgCount(STAGE_TEXREAD) <= stage_cvgCount(STAGE_TEXFETCH);
             stage_FBcolor(STAGE_TEXREAD)  <= FBcolor;
             stage_cvgFB(STAGE_TEXREAD)    <= cvgFB;
@@ -392,13 +412,13 @@ begin
             stage_offX(STAGE_PALETTE)     <= stage_offX(STAGE_TEXREAD);   
             stage_offY(STAGE_PALETTE)     <= stage_offY(STAGE_TEXREAD);   
             stage_Color(STAGE_PALETTE)    <= stage_Color(STAGE_TEXREAD);
+            stage_copySize(STAGE_PALETTE) <= stage_copySize(STAGE_TEXREAD);
             stage_cvgCount(STAGE_PALETTE) <= stage_cvgCount(STAGE_TEXREAD);
             stage_cvgFB(STAGE_PALETTE)    <= stage_cvgFB(STAGE_TEXREAD); 
             stage_FBcolor(STAGE_PALETTE)  <= stage_FBcolor(STAGE_TEXREAD);
             stage_FBData9(STAGE_PALETTE)  <= stage_FBData9(STAGE_TEXREAD);
             stage_FBData9Z(STAGE_PALETTE) <= stage_FBData9Z(STAGE_TEXREAD);      
             stage_cvgSum(STAGE_PALETTE)   <= stage_cvgSum(STAGE_TEXREAD);
-
 
             -- synthesis translate_off
             stage_cvg16(STAGE_PALETTE)      <= stage_cvg16(STAGE_TEXREAD);
@@ -430,6 +450,28 @@ begin
             stage_FBData9Z(STAGE_COMBINER) <= stage_FBData9Z(STAGE_PALETTE);      
             stage_cvgSum(STAGE_COMBINER)   <= stage_cvgSum(STAGE_PALETTE);
 
+            -- todo: non 16 bit mode
+            copyPixel <= stage_valid(STAGE_PALETTE) and settings_otherModes.cycleType(1);
+            copyAddr  <= stage_addr(STAGE_PALETTE);
+            
+            copyData(15 downto  0) <= byteswap16(texture_copy(63 downto 48));
+            copyData(31 downto 16) <= byteswap16(texture_copy(47 downto 32));
+            copyData(47 downto 32) <= byteswap16(texture_copy(31 downto 16));
+            copyData(63 downto 48) <= byteswap16(texture_copy(15 downto  0));
+            
+            copyBE <= (others => '1');
+            if (stage_copySize(STAGE_PALETTE) <= 7) then copyBE(7) <= '0'; end if;
+            if (stage_copySize(STAGE_PALETTE) <= 6) then copyBE(6) <= '0'; end if;
+            if (stage_copySize(STAGE_PALETTE) <= 5) then copyBE(5) <= '0'; end if;
+            if (stage_copySize(STAGE_PALETTE) <= 4) then copyBE(4) <= '0'; end if;
+            if (stage_copySize(STAGE_PALETTE) <= 3) then copyBE(3) <= '0'; end if;
+            if (stage_copySize(STAGE_PALETTE) <= 2) then copyBE(2) <= '0'; end if;
+            if (stage_copySize(STAGE_PALETTE) <= 1) then copyBE(1) <= '0'; end if;
+            if (texture_copy(48) = '0') then copyBE(1 downto 0) <= "00"; end if;
+            if (texture_copy(32) = '0') then copyBE(3 downto 2) <= "00"; end if;
+            if (texture_copy(16) = '0') then copyBE(5 downto 4) <= "00"; end if;
+            if (texture_copy( 0) = '0') then copyBE(7 downto 6) <= "00"; end if;
+            
             -- synthesis translate_off
             stage_cvg16(STAGE_COMBINER)      <= stage_cvg16(STAGE_PALETTE);
             stage_colorFull(STAGE_COMBINER)  <= stage_colorFull(STAGE_PALETTE);
@@ -443,6 +485,22 @@ begin
             stage_texFt_data(STAGE_COMBINER) <= export_TexFt_data;
             stage_texFt_db1(STAGE_COMBINER)  <= export_TexFt_db1; 
             stage_texFt_db3(STAGE_COMBINER)  <= export_TexFt_db3; 
+            
+            export_copyFetch.addr    <= 6x"0" & stage_addr(STAGE_PALETTE);
+            export_copyFetch.data    <= texture_copy;
+            export_copyFetch.x       <= resize(stage_x(STAGE_PALETTE), 16);
+            export_copyFetch.y       <= resize(stage_y(STAGE_PALETTE), 16);
+            export_copyFetch.debug1  <= 16x"0" & unsigned(stage_STWZ(STAGE_PALETTE)(0)(31 downto 16));
+            export_copyFetch.debug2  <= 16x"0" & unsigned(stage_STWZ(STAGE_PALETTE)(1)(31 downto 16));
+            export_copyFetch.debug3  <= 16x"0" & unsigned(stage_STWZ(STAGE_PALETTE)(2)(31 downto 16)); 
+            
+            export_copyBytes.addr    <= 6x"0" & stage_addr(STAGE_PALETTE);
+            export_copyBytes.data    <= texture_copy;
+            export_copyBytes.x       <= (others => '0');
+            export_copyBytes.y       <= (others => '0');
+            export_copyBytes.debug1  <= (others => '0');
+            export_copyBytes.debug2  <= 28x"0" & stage_copySize(STAGE_PALETTE);
+            export_copyBytes.debug3  <= 31x"0" & settings_poly.lft;
             -- synthesis translate_on         
 
             -- ##################################################
@@ -491,7 +549,7 @@ begin
             -- ##################################################
             -- ######### STAGE_OUTPUT ###########################
             -- ##################################################
-            writePixel        <= stage_valid(STAGE_OUTPUT - 1) and zUsePixel;
+            writePixel        <= stage_valid(STAGE_OUTPUT - 1) and zUsePixel and (not settings_otherModes.cycleType(1));
             writePixelAddr    <= stage_addr(STAGE_OUTPUT - 1);
             writePixelX       <= stage_x(STAGE_OUTPUT - 1);
             writePixelY       <= stage_y(STAGE_OUTPUT - 1);
@@ -524,7 +582,9 @@ begin
             end case;
             
             -- synthesis translate_off
-            export_pipeDone <= stage_valid(STAGE_OUTPUT - 1); 
+            if (settings_otherModes.cycleType = "00") then
+               export_pipeDone <= stage_valid(STAGE_OUTPUT - 1); 
+            end if;
             
             export_pipeO.addr       <= resize(stage_offX(STAGE_OUTPUT - 1), 32);
             export_pipeO.data       <= resize(stage_offY(STAGE_OUTPUT - 1), 64);
@@ -663,6 +723,9 @@ begin
       tile_shift     => settings_tile.Tile_shiftS, 
                      
       index_out      => texture_S_index,
+      index_out1     => texture_S_index1,
+      index_out2     => texture_S_index2,
+      index_out3     => texture_S_index3,
       frac_out       => texture_S_frac,
       diff_out       => texture_S_diff
    );
@@ -694,6 +757,9 @@ begin
       settings_otherModes  => settings_otherModes,
       settings_tile        => settings_tile,
       index_S              => texture_S_index,
+      index_S1             => texture_S_index1,
+      index_S2             => texture_S_index2,
+      index_S3             => texture_S_index3,
       index_T              => texture_T_index,
                            
       tex_addr             => TextureAddr,
@@ -708,7 +774,8 @@ begin
       -- synthesis translate_on
                       
       tex_color            => texture_color,
-      tex_alpha            => texture_alpha
+      tex_alpha            => texture_alpha,
+      tex_copy             => texture_copy
    );
 
    -- STAGE_COMBINER

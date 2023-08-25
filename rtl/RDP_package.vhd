@@ -302,6 +302,7 @@ package body pRDP is
          when 11 => write(line_out, string'("TexCoord: I ")); 
          when 12 => write(line_out, string'("ZBuffer: I ")); 
          when 13 => write(line_out, string'("TexColor: I ")); 
+         when 15 => write(line_out, string'("CopyByte: I ")); 
          when 16 => write(line_out, string'("LoadFetch: I ")); 
          when 18 => write(line_out, string'("LoadValue: I "));  
          when 19 => write(line_out, string'("LOD: I ")); 
@@ -332,6 +333,7 @@ package body pRDP is
       variable line_out : line;
    begin
       case (id) is
+         when 14 => write(line_out, string'("CopyFetch: I ")); 
          when 17 => write(line_out, string'("LoadData: I ")); 
          when others => null;
       end case;

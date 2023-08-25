@@ -16,6 +16,9 @@ entity RDP_TexTile is
       tile_shift     : in  unsigned(3 downto 0);
       
       index_out      : out unsigned(9 downto 0);
+      index_out1     : out unsigned(9 downto 0);
+      index_out2     : out unsigned(9 downto 0);
+      index_out3     : out unsigned(9 downto 0);
       frac_out       : out unsigned(4 downto 0);
       diff_out       : out signed(1 downto 0)
    );
@@ -23,20 +26,32 @@ end entity;
 
 architecture arch of RDP_TexTile is
 
-   signal shifted       : signed(15 downto 0);
+   signal shifted          : signed(15 downto 0);
+            
+   signal relative         : signed(15 downto 0);
+   
+   signal clampMax         : unsigned(9 downto 0);
+   signal clamp_index      : unsigned(9 downto 0);
+   signal clamp_index1     : unsigned(9 downto 0);
+   signal clamp_index2     : unsigned(9 downto 0);
+   signal clamp_index3     : unsigned(9 downto 0);
          
-   signal relative      : signed(15 downto 0);
-
-   signal clampMax      : unsigned(9 downto 0);
-   signal clamp_index   : unsigned(9 downto 0);
-      
-   signal maskShift     : integer range 0 to 10;
-   signal maskShifted   : unsigned(15 downto 0);
-   signal mask          : unsigned(9 downto 0);
-      
-   signal wrap_index    : unsigned(10 downto 0);
-   signal wrap          : std_logic;
-   signal wrapped_index : unsigned(9 downto 0);
+   signal maskShift        : integer range 0 to 10;
+   signal maskShifted      : unsigned(15 downto 0);
+   signal mask             : unsigned(9 downto 0);
+         
+   signal wrap_index       : unsigned(10 downto 0);
+   signal wrap_index1      : unsigned(10 downto 0);
+   signal wrap_index2      : unsigned(10 downto 0);
+   signal wrap_index3      : unsigned(10 downto 0);
+   signal wrap             : std_logic;
+   signal wrap1            : std_logic;
+   signal wrap2            : std_logic;
+   signal wrap3            : std_logic;
+   signal wrapped_index    : unsigned(9 downto 0);
+   signal wrapped_index1   : unsigned(9 downto 0);
+   signal wrapped_index2   : unsigned(9 downto 0);
+   signal wrapped_index3   : unsigned(9 downto 0);
 
 begin 
 
@@ -67,32 +82,58 @@ begin
       
    end process;
    
+   clamp_index1 <= clamp_index + 1;
+   clamp_index2 <= clamp_index + 2;
+   clamp_index3 <= clamp_index + 3;
+   
    -- mask
    maskShift   <= 10 when (tile_mask > 10) else to_integer(tile_mask);
    maskShifted <= shift_right(to_unsigned(16#FFFF#, 16), 16 - maskShift);
    mask        <= maskShifted(9 downto 0);
    
    wrap_index    <= '0' & clamp_index;
-   wrap          <= wrap_index(maskShift);
+   wrap_index1   <= '0' & clamp_index1;
+   wrap_index2   <= '0' & clamp_index2;
+   wrap_index3   <= '0' & clamp_index3;
    
-   wrapped_index <= not clamp_index when (wrap = '1') else clamp_index;
+   wrap          <= wrap_index(maskShift);
+   wrap1         <= wrap_index1(maskShift);
+   wrap2         <= wrap_index2(maskShift);
+   wrap3         <= wrap_index3(maskShift);
+   
+   wrapped_index  <= not clamp_index  when (wrap  = '1') else clamp_index;
+   wrapped_index1 <= not clamp_index1 when (wrap1 = '1') else clamp_index1;
+   wrapped_index2 <= not clamp_index2 when (wrap2 = '1') else clamp_index2;
+   wrapped_index3 <= not clamp_index3 when (wrap3 = '1') else clamp_index3;
 
    process (all)
    begin
    
-      index_out <= clamp_index;
-      diff_out  <= to_signed(1, 2);
+      index_out  <= clamp_index;
+      index_out1 <= clamp_index1;
+      index_out2 <= clamp_index2;
+      index_out3 <= clamp_index3;
+      
+      diff_out   <= to_signed(1, 2);
       
       if (tile_mask > 0) then
          if (tile_mirror = '1') then
-            index_out <= wrapped_index and mask;
+            index_out  <= wrapped_index  and mask;
+            index_out1 <= wrapped_index1 and mask;
+            index_out2 <= wrapped_index2 and mask;
+            index_out3 <= wrapped_index3 and mask;
+            
             if (wrap = '1' and (((wrapped_index and mask) - 1) = mask)) then diff_out <= (others => '0'); end if;
             if (wrap = '0' and ((wrapped_index and mask)       = mask)) then diff_out <= (others => '0'); end if;
             if (wrap = '1') then
                diff_out  <= to_signed(-1, 2);
             end if;            
          else
-            index_out <= clamp_index and mask;
+            index_out  <= clamp_index  and mask;
+            index_out1 <= clamp_index1 and mask;
+            index_out2 <= clamp_index2 and mask;
+            index_out3 <= clamp_index3 and mask;
+            
             if (clamp_index = mask) then
                diff_out  <= to_signed(-1, 2);
             end if;

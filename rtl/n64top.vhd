@@ -392,16 +392,11 @@ begin
    process (reset_intern_1x, errorRSP_instr       ) begin if (errorRSP_instr        = '1') then errorCode( 8) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 8) <= '0'; end if; end process;
    process (reset_intern_1x, errorRSP_stall       ) begin if (errorRSP_stall        = '1') then errorCode( 9) <= '1'; elsif (reset_intern_1x = '1') then errorCode( 9) <= '0'; end if; end process;
    process (reset_intern_1x, errorRDP_command     ) begin if (errorRDP_command      = '1') then errorCode(10) <= '1'; elsif (reset_intern_1x = '1') then errorCode(10) <= '0'; end if; end process;
-   --process (reset_intern_1x, errorRDP_combine     ) begin if (errorRDP_combine      = '1') then errorCode(11) <= '1'; elsif (reset_intern_1x = '1') then errorCode(11) <= '0'; end if; end process;
-   --process (reset_intern_1x, errorRDP_combineAlpha) begin if (errorRDP_combineAlpha = '1') then errorCode(12) <= '1'; elsif (reset_intern_1x = '1') then errorCode(12) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRDP_combine     ) begin if (errorRDP_combine      = '1') then errorCode(11) <= '1'; elsif (reset_intern_1x = '1') then errorCode(11) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRDP_combineAlpha) begin if (errorRDP_combineAlpha = '1') then errorCode(12) <= '1'; elsif (reset_intern_1x = '1') then errorCode(12) <= '0'; end if; end process;
    process (reset_intern_1x, error_sdramMux       ) begin if (error_sdramMux        = '1') then errorCode(13) <= '1'; elsif (reset_intern_1x = '1') then errorCode(13) <= '0'; end if; end process;
-   --process (reset_intern_1x, errorRDP_texMode     ) begin if (errorRDP_texMode      = '1') then errorCode(14) <= '1'; elsif (reset_intern_1x = '1') then errorCode(14) <= '0'; end if; end process;
-   --process (reset_intern_1x, errorRDP_drawMode    ) begin if (errorRDP_drawMode     = '1') then errorCode(15) <= '1'; elsif (reset_intern_1x = '1') then errorCode(15) <= '0'; end if; end process;
-
-   errorCode(11) <= errorRDP_combine;
-   errorCode(12) <= errorRDP_combineAlpha;
-   errorCode(14) <= errorRDP_texMode;
-   errorCode(15) <= errorRDP_drawMode;
+   process (reset_intern_1x, errorRDP_texMode     ) begin if (errorRDP_texMode      = '1') then errorCode(14) <= '1'; elsif (reset_intern_1x = '1') then errorCode(14) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRDP_drawMode    ) begin if (errorRDP_drawMode     = '1') then errorCode(15) <= '1'; elsif (reset_intern_1x = '1') then errorCode(15) <= '0'; end if; end process;
    
    process (clk1x)
    begin

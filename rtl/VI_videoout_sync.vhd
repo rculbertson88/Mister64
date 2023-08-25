@@ -118,7 +118,11 @@ begin
             --if (videoout_settings.vDisplayRange(19 downto 10) < 314) then vDisplayEnd   <= to_integer(videoout_settings.vDisplayRange(19 downto 10)); else vDisplayEnd   <= 314; end if;
               
             vDisplayStart <= 10;
-            vDisplayEnd   <= 250;
+            if ((10 + to_integer(videoout_settings.videoSizeY(9 downto 1))) < 138) then
+               vDisplayEnd <= 138;
+            else
+               vDisplayEnd <= 10 + to_integer(videoout_settings.videoSizeY(9 downto 1));
+            end if;
               
             -- gpu timing count
             if (nextHCount > 1) then

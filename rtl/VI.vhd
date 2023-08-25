@@ -315,6 +315,8 @@ begin
       VI_X_SCALE_FACTOR    => VI_X_SCALE_FACTOR,
       VI_Y_SCALE_FACTOR    => VI_Y_SCALE_FACTOR,
       VI_Y_SCALE_OFFSET    => VI_Y_SCALE_OFFSET,
+      VI_V_VIDEO_START     => VI_V_VIDEO_START,
+      VI_V_VIDEO_END       => VI_V_VIDEO_END,  
       
       newLine              => newLine,
       VI_CURRENT           => VI_CURRENT,
