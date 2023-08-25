@@ -85,6 +85,7 @@ entity RDP_raster is
       pipeInWtempslope        : out unsigned(7 downto 0) := (others => '0');
       pipeIn_Z                : out signed(21 downto 0) := (others => '0');
       pipeIn_dzPix            : out unsigned(15 downto 0) := (others => '0');
+      pipeIn_copySize         : out unsigned(3 downto 0) := (others => '0');
       
       -- synthesis translate_off
       pipeIn_cvg16            : out unsigned(15 downto 0) := (others => '0');
@@ -261,6 +262,7 @@ architecture arch of RDP_raster is
    signal line_indexX      : unsigned(11 downto 0) := (others => '0');
    signal line_offsetPx    : unsigned(2 downto 0) := (others => '0');
    signal line_offset9     : unsigned(3 downto 0) := (others => '0');
+   signal line_stepsize    : integer range 1 to 4 := 1;
    
    signal xDiff            : signed(11 downto 0);
    
@@ -334,6 +336,9 @@ architecture arch of RDP_raster is
    -- comb calculation
    signal calcPixelAddr    : unsigned(25 downto 0);
    signal calcPixelAddrZ   : unsigned(25 downto 0);
+   
+   signal calcCopySizeFlip : unsigned(11 downto 0);
+   signal calcCopySize     : unsigned(11 downto 0);
    
    -- line loading
    type tloadState is 
@@ -741,7 +746,9 @@ begin
    end process;
    
    -- drawing
-   drawLineDone <= '1' when (linestate = DRAWLINE and line_posX = line_endX) else 
+   drawLineDone <= '1' when (linestate = DRAWLINE and settings_otherModes.cycleType(1) = '0' and line_posX = line_endX) else 
+                   '1' when (linestate = DRAWLINE and settings_otherModes.cycleType = "10" and settings_poly.lft = '1' and line_posX > line_endX) else 
+                   '1' when (linestate = DRAWLINE and settings_otherModes.cycleType = "10" and settings_poly.lft = '0' and line_posX < line_endX) else 
                    '1' when (linestate = FILLLINE and line_posX > line_endX) else 
                    '0';
    
@@ -749,6 +756,9 @@ begin
                     resize(settings_colorImage.FB_base + ((line_posY * (settings_colorImage.FB_width_m1 + 1)) + line_posX) * 4, 26);
    
    calcPixelAddrZ <= resize(settings_Z_base + ((line_posY * (settings_colorImage.FB_width_m1 + 1)) + line_posX) * 2, 26);
+   
+   calcCopySizeFlip <= (line_endX + 1 - line_posX);
+   calcCopySize     <= (line_posX + 1 - line_endX);
    
    -- cvg
    process (all)
@@ -846,13 +856,21 @@ begin
                      end if;
                   end if;
                   
+                  line_stepsize <= 1;
+                  if (settings_otherModes.cycleType = "10") then
+                     case (settings_colorImage.FB_size) is
+                        when SIZE_16BIT => line_stepsize <= 4;
+                        when others     => error_drawMode <= '1';
+                     end case;
+                  end if;
+                  
                   lineCVGInfo.majorx      <= majorx;
                   lineCVGInfo.minorx      <= minorx;
                   lineCVGInfo.invalidLine <= invalidLine;
                   
                   line_posY   <= lineInfo.Y;
                   
-                  if (settings_otherModes.cycleType = "01" or settings_otherModes.cycleType = "10") then
+                  if (settings_otherModes.cycleType = "01") then
                      error_drawMode <= '1';
                   end if;
                   
@@ -925,14 +943,11 @@ begin
                   end if;
                
                   if (settings_poly.lft = '1') then
-                     line_posX   <= line_posX + 1;
-                     line_indexX <= line_indexX + 1;
+                     line_posX   <= line_posX + line_stepsize;
+                     line_indexX <= line_indexX + line_stepsize;
                   else
-                     line_posX   <= line_posX - 1;
-                     line_indexX <= line_indexX - 1;
-                  end if;
-                  if (drawLineDone = '1') then
-                     linestate <= LINEIDLE;
+                     line_posX   <= line_posX - line_stepsize;
+                     line_indexX <= line_indexX - line_stepsize;
                   end if;
 
                   pipeIn_trigger    <= '1';
@@ -961,6 +976,25 @@ begin
                   pipeInWtempslope  <= normSlope(to_integer(wShifted(13 downto 8))) + 1;
 
                   pipeIn_Z          <= pixel_Z(31 downto 10);
+                  
+                  if (settings_poly.lft = '1') then -- todo: different handling for FB size != 16 bit;
+                     pipeIn_copySize <= calcCopySizeFlip(2 downto 0) & '0';
+                     if (calcCopySizeFlip > 4) then
+                        pipeIn_copySize <= x"8";
+                     end if;
+                  else
+                     pipeIn_copySize <= calcCopySize(2 downto 0) & '0';
+                     if (calcCopySize > 4) then
+                        pipeIn_copySize <= x"8";
+                     end if;
+                  end if;
+                  
+                  if (drawLineDone = '1') then
+                     linestate <= LINEIDLE;
+                     if (settings_otherModes.cycleType = "10") then
+                        pipeIn_valid <= '0';
+                     end if;
+                  end if;
 
                   -- synthesis translate_off
                   pipeIn_cvg16      <= cvg(0) & cvg(1) & cvg(2) & cvg(3);

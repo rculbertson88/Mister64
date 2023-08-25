@@ -266,6 +266,7 @@ architecture arch of RDP is
    signal pipeInWtempslope          : unsigned(7 downto 0);
    signal pipeIn_Z                  : signed(21 downto 0);
    signal pipeIn_dzPix              : unsigned(15 downto 0);
+   signal pipeIn_copySize           : unsigned(3 downto 0);
    
    signal writePixel                : std_logic;
    signal writePixelAddr            : unsigned(25 downto 0);
@@ -282,6 +283,21 @@ architecture arch of RDP is
    signal writePixelAddrZ           : unsigned(25 downto 0);
    signal writePixelDataZ           : unsigned(17 downto 0);
    signal writePixelFBData9Z        : unsigned(31 downto 0);
+   
+   signal copyPixel                 : std_logic;
+   signal copyAddr                  : unsigned(25 downto 0);
+   signal copyData                  : unsigned(63 downto 0);
+   signal copyBE                    : unsigned(7 downto 0);
+   
+   signal copyBEShifted             : unsigned(7 downto 0);
+   signal copyBEShiftedNext         : unsigned(7 downto 0);
+   signal copyDataShifted           : unsigned(63 downto 0);
+   signal copyDataShiftedNext       : unsigned(63 downto 0);
+
+   signal copyNext                  : std_logic := '0';
+   signal copyBESaved               : unsigned(7 downto 0) := (others => '0');
+   signal copyAddrSaved             : unsigned(19 downto 0) := (others => '0');
+   signal copyDataSaved             : unsigned(63 downto 0) := (others => '0');
 
    -- Pixel merging
    signal pixel64data               : std_logic_vector(63 downto 0) := (others => '0');
@@ -335,6 +351,8 @@ architecture arch of RDP is
    signal export_Comb               : rdp_export_type;
    signal export_FBMem              : rdp_export_type;
    signal export_Z                  : rdp_export_type;
+   signal export_copyFetch          : rdp_export_type;
+   signal export_copyBytes          : rdp_export_type;
    
    signal pipeIn_cvg16              : unsigned(15 downto 0);
    signal pipeInColorFull           : tcolor4_s32;
@@ -872,6 +890,7 @@ begin
       pipeInWtempslope        => pipeInWtempslope,
       pipeIn_Z                => pipeIn_Z,
       pipeIn_dzPix            => pipeIn_dzPix,
+      pipeIn_copySize         => pipeIn_copySize,
 
       -- synthesis translate_off
       pipeIn_cvg16            => pipeIn_cvg16, 
@@ -1084,6 +1103,7 @@ begin
       pipeInWtempslope        => pipeInWtempslope,
       pipeIn_Z                => pipeIn_Z,
       pipeIn_dzPix            => pipeIn_dzPix,
+      pipeIn_copySize         => pipeIn_copySize,
 
       TextureAddr             => TextureReadAddr,
       TextureRamData          => TextureReadData,
@@ -1113,6 +1133,8 @@ begin
       export_Comb             => export_Comb,   
       export_FBMem            => export_FBMem,   
       export_Z                => export_Z,   
+      export_copyFetch        => export_copyFetch,   
+      export_copyBytes        => export_copyBytes,   
       -- synthesis translate_on
       
       writePixel              => writePixel,     
@@ -1126,11 +1148,29 @@ begin
       writePixelZ             => writePixelZ,      
       writePixelAddrZ         => writePixelAddrZ,   
       writePixelDataZ         => writePixelDataZ,   
-      writePixelFBData9Z      => writePixelFBData9Z
+      writePixelFBData9Z      => writePixelFBData9Z,
+      
+      copyPixel               => copyPixel,
+      copyAddr                => copyAddr,
+      copyData                => copyData,
+      copyBE                  => copyBE  
    );
    
    writePixelData16 <= writePixelColor(0)(7 downto 3) & writePixelColor(1)(7 downto 3) & writePixelColor(2)(7 downto 3) & writePixelCvg(2);
    writePixelData32 <= writePixelColor(0) & writePixelColor(1) & writePixelColor(2) & writePixelCvg & "00000";
+   
+   
+   copyBEShifted     <= copyBE sll to_integer(copyAddr(2 downto 0));
+   copyBEShiftedNext <= shift_right(copyBE, 8 - to_integer(copyAddr(2 downto 0)));
+   
+   copyDataShifted   <= copyData                       when copyAddr(2 downto 0) = "000" else
+                        copyData(47 downto 0) & 16x"0" when copyAddr(2 downto 0) = "010" else
+                        copyData(31 downto 0) & 32x"0" when copyAddr(2 downto 0) = "100" else
+                        copyData(15 downto 0) & 48x"0";
+                        
+   copyDataShiftedNext <= 48x"0" & copyData(63 downto 48) when copyAddr(2 downto 0) = "010" else
+                          32x"0" & copyData(63 downto 32) when copyAddr(2 downto 0) = "100" else
+                          16x"0" & copyData(63 downto 16);
    
    -- normal pixels
    process (clk1x)
@@ -1144,12 +1184,38 @@ begin
          fifoOut_Wr   <= '0';
          fifoOut_Din  <= pixel64BE & pixel64Addr & pixel64data;
          
+         copyNext       <= '0';
+         copyBESaved    <= (others => '0'); 
+         copyAddrSaved  <= copyAddr(22 downto 3) + 1;  
+         copyDataSaved  <= (others => '0');  
+         
          if (fillWrite = '1') then
          
             fifoOut_Wr   <= '1';
             fifoOut_Din(91 downto 84) <= std_logic_vector(fillBE sll to_integer(fillAddr(2 downto 0)));
             fifoOut_Din(83 downto 64) <= std_logic_vector(fillAddr(22 downto 3));
             fifoOut_Din(63 downto  0) <= std_logic_vector(fillColor);
+            
+         elsif (copyPixel = '1') then
+         
+            -- todo: concept need to be adjusted if games do unaligned backwards copy
+            fifoOut_Wr   <= '1';
+            fifoOut_Din(91 downto 84) <= std_logic_vector(copyBEShifted) or std_logic_vector(copyBESaved);
+            fifoOut_Din(83 downto 64) <= std_logic_vector(copyAddr(22 downto 3));
+            fifoOut_Din(63 downto  0) <= std_logic_vector(copyDataShifted) or std_logic_vector(copyDataSaved);  
+            
+            if (copyAddr(2 downto 0) /= 0 and copyBEShiftedNext /= 0) then
+               copyNext       <= '1';
+               copyBESaved    <= copyBEShiftedNext; 
+               copyDataSaved  <= copyDataShiftedNext;  
+            end if;
+            
+         elsif (copyNext = '1') then
+         
+            fifoOut_Wr   <= '1';
+            fifoOut_Din(91 downto 84) <= std_logic_vector(copyBESaved);
+            fifoOut_Din(83 downto 64) <= std_logic_vector(copyAddrSaved);
+            fifoOut_Din(63 downto  0) <= std_logic_vector(copyDataSaved);  
          
          elsif (writePixel = '1' and writePixelAddr(25 downto 23) = 0) then -- todo: move max ram check to ddr3mux
          
@@ -1360,6 +1426,9 @@ begin
          variable export_fillBE     : unsigned(7 downto 0);
          variable export_fillX      : unsigned(11 downto 0);
          variable export_fillIndex  : integer;
+         variable export_copyIndex  : integer;
+         variable export_copyAddr   : unsigned(31 downto 0);
+         variable export_copyData   : unsigned(63 downto 0);
          variable useTexture        : std_logic;
       begin
    
@@ -1463,6 +1532,45 @@ begin
                write(line_out, to_hstring(to_unsigned(0, 32)));
                writeline(outfile, line_out);
                tracecounts_out(1) <= tracecounts_out(1) + 1;
+            end if;
+            
+            if (copyPixel = '1') then
+               export_gpu64(14, tracecounts_out(14), export_copyFetch, outfile); tracecounts_out(14) <= tracecounts_out(14) + 1;
+               
+               export_copyIndex := tracecounts_out(15);
+               export_copyAddr  := 6x"0" & copyAddr;
+               export_copyData  := copyData;
+               for i in 0 to to_integer(export_copyBytes.debug2(3 downto 0) - 1) loop
+                  write(line_out, string'("CopyByte: I ")); 
+                  write(line_out, to_string_len(export_copyIndex + 1, 8));
+                  write(line_out, string'(" A ")); 
+                  write(line_out, to_hstring(export_copyAddr));
+                  write(line_out, string'(" D ")); 
+                  write(line_out, to_hstring(24x"0" & export_copyData(7 downto 0)));
+                  write(line_out, string'(" X    ")); 
+                  if (copyBE(i) = '1') then
+                     write(line_out, string'("1")); 
+                  else
+                     write(line_out, string'("0"));
+                  end if;
+                  write(line_out, string'(" Y ")); 
+                  write(line_out, to_string_len(to_integer(export_copyBytes.y), 4));
+                  write(line_out, string'(" D1 "));
+                  write(line_out, to_hstring(to_unsigned(0, 32)));
+                  write(line_out, string'(" D2 "));
+                  write(line_out, to_hstring(to_unsigned(0, 32)));
+                  write(line_out, string'(" D3 "));
+                  write(line_out, to_hstring(to_unsigned(0, 32)));
+                  writeline(outfile, line_out);
+                  export_copyIndex := export_copyIndex + 1;
+                  if (export_copyBytes.debug3(0) = '1') then 
+                     export_copyAddr  := export_copyAddr + 1;
+                  else
+                     export_copyAddr  := export_copyAddr - 1;
+                  end if;
+                  export_copyData := x"00" & export_copyData(63 downto 8);
+               end loop;
+               tracecounts_out(15) <= export_copyIndex;
             end if;
             
             if (fillWrite = '1') then

@@ -10,6 +10,7 @@ package pVI is
       X_SCALE_FACTOR  : unsigned(11 downto 0);
       VI_WIDTH        : unsigned(11 downto 0);
       isPAL           : std_logic;
+      videoSizeY      : unsigned(9 downto 0);
    end record;
    
    type tvideoout_reports is record
