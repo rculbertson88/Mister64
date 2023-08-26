@@ -250,6 +250,7 @@ architecture arch of RDP_raster is
       LINEIDLE, 
       PREPARELINE,
       DRAWLINE,
+      DRAWLINESTEP2,
       STALLDRAW,
       FILLLINE,
       STALLFILL
@@ -991,6 +992,10 @@ begin
                      end if;
                   end if;
                   
+                  if (settings_otherModes.cycleType = "01") then
+                     linestate <= DRAWLINESTEP2;
+                  end if;
+                  
                   if (drawLineDone = '1') then
                      linestate <= LINEIDLE;
                      if (settings_otherModes.cycleType = "10") then
@@ -1020,6 +1025,11 @@ begin
                   pixel_Texture_T   <= pixel_Texture_T + line_DtDx;
                   pixel_Texture_W   <= pixel_Texture_W + line_DwDx;
                   pixel_Z           <= pixel_Z         + line_DzDx;
+                  
+               when DRAWLINESTEP2 =>
+                  if (stall_raster = '0') then
+                     linestate      <= DRAWLINE;
+                  end if;
                   
                when STALLDRAW =>
                   if (stall_raster = '0') then

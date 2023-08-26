@@ -10,6 +10,8 @@ entity RDP_CombineAlpha is
    (
       clk1x                   : in  std_logic;
       trigger                 : in  std_logic;
+      mode2                   : in  std_logic;
+      step2                   : in  std_logic;
       
       error_combineAlpha      : out std_logic;
    
@@ -49,11 +51,10 @@ architecture arch of RDP_CombineAlpha is
 
 begin 
 
-   -- todo: switch mode for cycle2
-   mode_sub1 <= settings_combineMode.combine_sub_a_A_1;
-   mode_sub2 <= settings_combineMode.combine_sub_b_A_1;
-   mode_mul  <= settings_combineMode.combine_mul_A_1;
-   mode_add  <= settings_combineMode.combine_add_A_1;
+   mode_sub1 <= settings_combineMode.combine_sub_a_A_0 when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_sub_a_A_1;
+   mode_sub2 <= settings_combineMode.combine_sub_b_A_0 when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_sub_b_A_1;
+   mode_mul  <= settings_combineMode.combine_mul_A_0   when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_mul_A_1;
+   mode_add  <= settings_combineMode.combine_add_A_0   when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_add_A_1;
    
    process (all)
    begin
@@ -125,9 +126,11 @@ begin
       
          error_combineAlpha <= '0';
          
-         if (trigger = '1') then
-            
+         if (step2 = '1' or trigger = '1') then
             combine_alpha_next <= combiner_cut(9 downto 0);
+         end if;
+         
+         if (trigger = '1') then
             
             if (combiner_cut(8 downto 7) = "11") then
                result := (others => '0');
@@ -141,8 +144,7 @@ begin
             
             combine_CVGCount <= cvgCount;
             cvgmul := (result * cvgCount) + 4;
-            if (settings_otherModes.cvgTimesAlpha = '1') then
-               
+            if (settings_otherModes.cvgTimesAlpha = '1') then               
                combine_CVGCount <= cvgmul(11 downto 8);
             end if;
             

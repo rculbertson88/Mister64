@@ -151,6 +151,8 @@ architecture arch of RDP_pipeline is
    signal stage_FBData9Z      : t_stage_u32 := (others => (others => '0'));
    signal stage_copySize      : t_stage_u4 := (others => (others => '0'));
       
+   signal step2               : std_logic := '0';
+      
    -- only delayed once 
    signal pipeIn_S_1          : signed(15 downto 0) := (others => '0');
    signal pipeIn_T_1          : signed(15 downto 0) := (others => '0');
@@ -278,6 +280,8 @@ begin
          
          copyPixel   <= '0';
          
+         step2       <= '0';
+         
          -- synthesis translate_off
          export_pipeDone <= '0';
          -- synthesis translate_on
@@ -291,6 +295,10 @@ begin
          if (reset = '1') then
             stage_valid <= (others => '0');
          elsif (pipeIn_trigger = '1') then
+         
+            if (settings_otherModes.cycleType = "01") then
+               step2 <= '1';
+            end if;
       
             -- ##################################################
             -- ######### STAGE_INPUT ############################
@@ -810,6 +818,8 @@ begin
    (
       clk1x                   => clk1x,
       trigger                 => pipeIn_trigger,
+      mode2                   => settings_otherModes.cycleType(0),
+      step2                   => step2,
       
       errorCombine_out        => errorCombine,
    
@@ -829,6 +839,8 @@ begin
    (
       clk1x                   => clk1x,
       trigger                 => pipeIn_trigger,
+      mode2                   => settings_otherModes.cycleType(0),
+      step2                   => step2,
       
       error_combineAlpha      => error_combineAlpha,
                               
@@ -883,6 +895,8 @@ begin
    (
       clk1x                   => clk1x,
       trigger                 => pipeIn_trigger,
+      mode2                   => settings_otherModes.cycleType(0),
+      step2                   => step2,
    
       settings_otherModes     => settings_otherModes,
       settings_blendcolor     => settings_blendcolor,
