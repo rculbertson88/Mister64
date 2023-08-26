@@ -42,6 +42,7 @@ entity RDP_pipeline is
       pipeInColor             : in  tcolor4_s16;
       pipeIn_S                : in  signed(15 downto 0);
       pipeIn_T                : in  signed(15 downto 0);
+      pipeInWCarry            : in  std_logic;
       pipeInWShift            : in  integer range 0 to 14 := 0;
       pipeInWNormLow          : in  unsigned(7 downto 0) := (others => '0');
       pipeInWtemppoint        : in  signed(15 downto 0) := (others => '0');
@@ -141,19 +142,22 @@ architecture arch of RDP_pipeline is
    signal stage_offX          : t_stage_u2 := (others => (others => '0'));
    signal stage_offY          : t_stage_u2 := (others => (others => '0'));
    signal stage_cvgCount      : t_stage_u4 := (others => (others => '0'));
+   signal stage_cvgCombi      : t_stage_u4 := (others => (others => '0'));
    signal stage_Color         : t_stage_c16s := (others => (others => (others => '0')));
    signal stage_FBcolor       : t_stage_c8u := (others => (others => (others => '0')));
    signal stage_cvgFB         : t_stage_u3 := (others => (others => '0'));
-   signal stage_cvgSum        : t_stage_u3 := (others => (others => '0'));
    signal stage_blendEna      : t_stage_std := (others => '0');
    signal stage_FBData9       : t_stage_u32 := (others => (others => '0'));
    signal stage_FBData9Z      : t_stage_u32 := (others => (others => '0'));
    signal stage_copySize      : t_stage_u4 := (others => (others => '0'));
       
+   signal step2               : std_logic := '0';
+      
    -- only delayed once 
    signal pipeIn_S_1          : signed(15 downto 0) := (others => '0');
    signal pipeIn_T_1          : signed(15 downto 0) := (others => '0');
    signal pipeInWShift_1      : integer range 0 to 14 := 0;
+   signal pipeInWCarry_1      : std_logic := '0';
    
    signal texture_S_unclamped : signed(18 downto 0) := (others => '0');
    signal texture_T_unclamped : signed(18 downto 0) := (others => '0');
@@ -165,6 +169,7 @@ architecture arch of RDP_pipeline is
    
    signal combine_color       : tcolor3_u8;
    signal combine_alpha       : unsigned(7 downto 0);
+   signal combine_CVGCount    : unsigned(3 downto 0);
       
    signal FBcolor             : tcolor4_u8;
    signal cvgFB               : unsigned(2 downto 0);
@@ -181,6 +186,13 @@ architecture arch of RDP_pipeline is
    signal wMulT               : signed(31 downto 0);
    signal wShiftedS           : signed(32 downto 0);
    signal wShiftedT           : signed(32 downto 0);
+   signal WMask               : signed(31 downto 0) := (others => '0');
+   signal outBoundSmask       : signed(31 downto 0);
+   signal outBoundTmask       : signed(31 downto 0);
+   signal outBoundSHi         : std_logic;
+   signal outBoundSLo         : std_logic;
+   signal outBoundTHi         : std_logic;
+   signal outBoundTLo         : std_logic;
    
    signal texture_S_clamped   : signed(15 downto 0);
    signal texture_T_clamped   : signed(15 downto 0);
@@ -238,7 +250,7 @@ begin
 
    pipe_busy <= '1' when (stage_valid > 0) else '0';
    
-   cvg_sum   <= stage_cvgCount(STAGE_TEXFETCH) + ('0' & cvgFB);
+   cvg_sum   <= stage_cvgCombi(STAGE_BLENDER) + ('0' & stage_cvgFB(STAGE_BLENDER));
                 
    -- perspective correction - input stage
    wslopeMul    <= ('1' & signed(pipeInWtempslope)) * ('0' & signed(pipeInWNormLow));
@@ -249,7 +261,15 @@ begin
    
    wShiftedS <= shift_right(wMulS & '0', pipeInWShift_1);
    wShiftedT <= shift_right(wMulT & '0', pipeInWShift_1);
-
+   
+   outBoundSmask <= wMulS and WMask;
+   outBoundTmask <= wMulT and WMask;
+   
+   outBoundSHi <= '1' when (outBoundSmask /= WMask and outBoundSmask /= 0 and wShiftedS(29) = '0') else '0';
+   outBoundSLo <= '1' when (outBoundSmask /= WMask and outBoundSmask /= 0 and wShiftedS(29) = '1') else '0';
+   outBoundTHi <= '1' when (outBoundTmask /= WMask and outBoundTmask /= 0 and wShiftedT(29) = '0') else '0';
+   outBoundTLo <= '1' when (outBoundTmask /= WMask and outBoundTmask /= 0 and wShiftedT(29) = '1') else '0';
+   
    process (clk1x)
       variable cvgCounter : unsigned(3 downto 0);
    begin
@@ -259,6 +279,8 @@ begin
          writePixelZ <= '0';
          
          copyPixel   <= '0';
+         
+         step2       <= '0';
          
          -- synthesis translate_off
          export_pipeDone <= '0';
@@ -273,6 +295,10 @@ begin
          if (reset = '1') then
             stage_valid <= (others => '0');
          elsif (pipeIn_trigger = '1') then
+         
+            if (settings_otherModes.cycleType = "01") then
+               step2 <= '1';
+            end if;
       
             -- ##################################################
             -- ######### STAGE_INPUT ############################
@@ -302,6 +328,13 @@ begin
             pipeIn_S_1     <= pipeIn_S;    
             pipeIn_T_1     <= pipeIn_T;    
             pipeInWShift_1 <= pipeInWShift;
+            pipeInWCarry_1 <= pipeInWCarry;
+            
+            WMask <= x"20000000";
+            for i in 0 to 14 loop
+               if (pipeInWShift < i) then WMask(i + 14) <= '1'; end if;
+            end loop;
+            
             -- synthesis translate_off
             stage_cvg16(STAGE_INPUT)      <= pipeIn_cvg16;
             stage_colorFull(STAGE_INPUT)  <= pipeInColorFull;
@@ -327,8 +360,8 @@ begin
             stage_cvgCount(STAGE_PERSPCOR) <= stage_cvgCount(STAGE_INPUT);
             
             if (settings_otherModes.perspTex = '1') then
-               texture_S_unclamped <= "00" & wShiftedS(16 downto 0);
-               texture_T_unclamped <= "00" & wShiftedT(16 downto 0);
+               texture_S_unclamped <= (pipeInWCarry_1 or outBoundSHi) & outBoundSLo & wShiftedS(16 downto 0);
+               texture_T_unclamped <= (pipeInWCarry_1 or outBoundTHi) & outBoundTLo & wShiftedT(16 downto 0);
             else
                texture_S_unclamped <= "00" & pipeIn_S_1(15) & pipeIn_S_1;
                texture_T_unclamped <= "00" & pipeIn_T_1(15) & pipeIn_T_1;
@@ -386,7 +419,6 @@ begin
             stage_cvgFB(STAGE_TEXREAD)    <= cvgFB;
             stage_FBData9(STAGE_TEXREAD)  <= FBData9_old;
             stage_FBData9Z(STAGE_TEXREAD) <= FBData9_oldZ;
-            if (cvg_sum(3) = '1') then stage_cvgSum(STAGE_TEXREAD) <= "111";  else stage_cvgSum(STAGE_TEXREAD) <= cvg_sum(2 downto 0); end if;
 
             -- synthesis translate_off
             stage_cvg16(STAGE_TEXREAD)      <= stage_cvg16(STAGE_TEXFETCH);
@@ -418,7 +450,6 @@ begin
             stage_FBcolor(STAGE_PALETTE)  <= stage_FBcolor(STAGE_TEXREAD);
             stage_FBData9(STAGE_PALETTE)  <= stage_FBData9(STAGE_TEXREAD);
             stage_FBData9Z(STAGE_PALETTE) <= stage_FBData9Z(STAGE_TEXREAD);      
-            stage_cvgSum(STAGE_PALETTE)   <= stage_cvgSum(STAGE_TEXREAD);
 
             -- synthesis translate_off
             stage_cvg16(STAGE_PALETTE)      <= stage_cvg16(STAGE_TEXREAD);
@@ -448,7 +479,6 @@ begin
             stage_FBcolor(STAGE_COMBINER)  <= stage_FBcolor(STAGE_PALETTE);
             stage_FBData9(STAGE_COMBINER)  <= stage_FBData9(STAGE_PALETTE);
             stage_FBData9Z(STAGE_COMBINER) <= stage_FBData9Z(STAGE_PALETTE);      
-            stage_cvgSum(STAGE_COMBINER)   <= stage_cvgSum(STAGE_PALETTE);
 
             -- todo: non 16 bit mode
             copyPixel <= stage_valid(STAGE_PALETTE) and settings_otherModes.cycleType(1);
@@ -516,12 +546,12 @@ begin
             stage_offX(STAGE_BLENDER)     <= stage_offX(STAGE_COMBINER);   
             stage_offY(STAGE_BLENDER)     <= stage_offY(STAGE_COMBINER);   
             stage_cvgCount(STAGE_BLENDER) <= stage_cvgCount(STAGE_COMBINER);
+            stage_cvgCombi(STAGE_BLENDER) <= combine_CVGCount;
             stage_FBcolor(STAGE_BLENDER)  <= stage_FBcolor(STAGE_COMBINER);
             stage_cvgFB(STAGE_BLENDER)    <= stage_cvgFB(STAGE_COMBINER);  
             stage_FBData9(STAGE_BLENDER)  <= stage_FBData9(STAGE_COMBINER);
             stage_FBData9Z(STAGE_BLENDER) <= stage_FBData9Z(STAGE_COMBINER);
             stage_blendEna(STAGE_BLENDER) <= blend_enable;        
-            stage_cvgSum(STAGE_BLENDER)   <= stage_cvgSum(STAGE_COMBINER);
             
             -- synthesis translate_off
             stage_cvg16(STAGE_BLENDER)       <= stage_cvg16(STAGE_COMBINER);
@@ -562,7 +592,7 @@ begin
             writePixelFBData9Z <= stage_FBData9Z(STAGE_OUTPUT - 1);
             
             -- todo: alpha compare check
-            if ((settings_otherModes.AntiAlias = '1' and stage_cvgValue(STAGE_OUTPUT - 1) = 0) or (settings_otherModes.AntiAlias = '0' and stage_cvgValue(STAGE_OUTPUT - 1)(7) = '0')) then
+            if ((settings_otherModes.AntiAlias = '1' and stage_cvgCombi(STAGE_OUTPUT - 1) = 0) or (settings_otherModes.AntiAlias = '0' and stage_cvgValue(STAGE_OUTPUT - 1)(7) = '0')) then
                writePixel  <= '0';
                writePixelZ <= '0';
             end if;
@@ -570,19 +600,23 @@ begin
             case (settings_otherModes.cvgDest) is
                when "00" =>
                   if (stage_blendEna(STAGE_OUTPUT - 1)) then 
-                     writePixelCvg <= stage_cvgSum(STAGE_OUTPUT - 1);
+                     if (cvg_sum(3) = '1') then
+                        writePixelCvg <= "111";
+                     else
+                        writePixelCvg <= cvg_sum(2 downto 0);
+                     end if;
                   else
-                     writePixelCvg <= resize(stage_cvgCount(STAGE_OUTPUT - 1) - 1, 3);
+                     writePixelCvg <= resize(stage_cvgCombi(STAGE_OUTPUT - 1) - 1, 3);
                   end if;
                   
-               when "01" => writePixelCvg <= stage_cvgSum(STAGE_OUTPUT - 1);
+               when "01" => writePixelCvg <= cvg_sum(2 downto 0);
                when "10" => writePixelCvg <= "111";
                when "11" => writePixelCvg <= stage_cvgFB(STAGE_OUTPUT - 1);
                when others => null;
             end case;
             
             -- synthesis translate_off
-            if (settings_otherModes.cycleType = "00") then
+            if (settings_otherModes.cycleType(1) = '0') then
                export_pipeDone <= stage_valid(STAGE_OUTPUT - 1); 
             end if;
             
@@ -784,6 +818,8 @@ begin
    (
       clk1x                   => clk1x,
       trigger                 => pipeIn_trigger,
+      mode2                   => settings_otherModes.cycleType(0),
+      step2                   => step2,
       
       errorCombine_out        => errorCombine,
    
@@ -803,6 +839,8 @@ begin
    (
       clk1x                   => clk1x,
       trigger                 => pipeIn_trigger,
+      mode2                   => settings_otherModes.cycleType(0),
+      step2                   => step2,
       
       error_combineAlpha      => error_combineAlpha,
                               
@@ -816,7 +854,8 @@ begin
       lod_frac                => x"FF", -- todo
       cvgCount                => stage_cvgCount(STAGE_PALETTE),
                               
-      combine_alpha           => combine_alpha
+      combine_alpha           => combine_alpha,
+      combine_CVGCount        => combine_CVGCount
    );
    
    iRDP_FBread : entity work.RDP_FBread
@@ -856,9 +895,12 @@ begin
    (
       clk1x                   => clk1x,
       trigger                 => pipeIn_trigger,
+      mode2                   => settings_otherModes.cycleType(0),
+      step2                   => step2,
    
       settings_otherModes     => settings_otherModes,
       settings_blendcolor     => settings_blendcolor,
+      settings_fogcolor       => settings_fogcolor,
       
       blend_ena               => blend_enable,
       combine_color           => combine_color,

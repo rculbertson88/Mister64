@@ -58,6 +58,9 @@ package body pFunctions is
       for i in 1 to inlength - digits loop
          to_return(i) := ' ';
       end loop;
+      if (digits > inlength) then
+         return to_return;
+      end if;
       lowpos := inlength - digits + 1;
       if (lowpos < 1) then 
          lowpos := 1;

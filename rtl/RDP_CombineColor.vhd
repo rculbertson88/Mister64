@@ -10,6 +10,8 @@ entity RDP_CombineColor is
    (
       clk1x                   : in  std_logic;
       trigger                 : in  std_logic;
+      mode2                   : in  std_logic;
+      step2                   : in  std_logic;
    
       errorCombine_out        : out std_logic := '0';
    
@@ -45,15 +47,16 @@ architecture arch of RDP_CombineColor is
    signal combiner_add     : tcolor3_s20;
    signal combiner_cut     : tcolor3_s12;
    
+   signal combiner_save    : tcolor3_s10;
+   
    signal errorCombine     : std_logic;
 
 begin 
 
-   -- todo: switch mode for cycle2
-   mode_sub1 <= settings_combineMode.combine_sub_a_R_1;
-   mode_sub2 <= settings_combineMode.combine_sub_b_R_1;
-   mode_mul  <= settings_combineMode.combine_mul_R_1;
-   mode_add  <= settings_combineMode.combine_add_R_1;
+   mode_sub1 <= settings_combineMode.combine_sub_a_R_0 when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_sub_a_R_1;
+   mode_sub2 <= settings_combineMode.combine_sub_b_R_0 when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_sub_b_R_1;
+   mode_mul  <= settings_combineMode.combine_mul_R_0   when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_mul_R_1;
+   mode_add  <= settings_combineMode.combine_add_R_0   when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_add_R_1;
    
    primcolor(0) <= settings_primcolor.prim_R;
    primcolor(1) <= settings_primcolor.prim_G;
@@ -72,7 +75,7 @@ begin
          
          color_sub1(i) <= (others => '0');
          case (to_integer(mode_sub1)) is
-            when 0 => color_sub1(i) <= "00" & signed(combine_color(i));
+            when 0 => color_sub1(i) <= combiner_save(i);
             when 1 => color_sub1(i) <= "00" & signed(texture_color(i));
             when 2 => errorCombine <= '1'; -- tex2
             when 3 => color_sub1(i) <= "00" & signed(primcolor(i));
@@ -85,7 +88,7 @@ begin
          
          color_sub2(i) <= (others => '0');
          case (to_integer(mode_sub2)) is
-            when 0 => color_sub2(i) <= "00" & signed(combine_color(i));
+            when 0 => color_sub2(i) <= combiner_save(i);
             when 1 => color_sub2(i) <= "00" & signed(texture_color(i));
             when 2 => errorCombine <= '1'; -- tex2
             when 3 => color_sub2(i) <= "00" & signed(primcolor(i));
@@ -98,7 +101,7 @@ begin
          
          color_mul(i) <= (others => '0');
          case (to_integer(mode_mul)) is
-            when  0 => color_mul(i) <= "00" & signed(combine_color(i));
+            when  0 => color_mul(i) <= combiner_save(i);
             when  1 => color_mul(i) <= "00" & signed(texture_color(i));
             when  2 => errorCombine <= '1'; --tex2
             when  3 => color_mul(i) <= "00" & signed(primcolor(i));
@@ -119,7 +122,7 @@ begin
          
          color_add(i) <= (others => '0');
          case (to_integer(mode_add)) is
-            when 0 => color_add(i) <= "00" & signed(combine_color(i));
+            when 0 => color_add(i) <= combiner_save(i);
             when 1 => color_add(i) <= "00" & signed(texture_color(i));
             when 2 => errorCombine <= '1'; --tex2
             when 3 => color_add(i) <= "00" & signed(primcolor(i));
@@ -150,11 +153,20 @@ begin
       
          --todo: keep unclamped result for cycle 2
          
+         if (trigger = '1' or step2 = '1') then
+         
+            for i in 0 to 2 loop
+               combiner_save(i) <= combiner_cut(i)(9 downto 0);
+            end loop;
+         
+         end if;
+         
          if (trigger = '1') then
          
             errorCombine_out <= errorCombine;
          
             for i in 0 to 2 loop
+            
                if (combiner_cut(i)(8 downto 7) = "11") then
                   combine_color(i) <= (others => '0');
                elsif (combiner_cut(i)(8) = '1') then 
@@ -162,6 +174,7 @@ begin
                else
                   combine_color(i) <= unsigned(combiner_cut(i)(7 downto 0));
                end if;
+               
             end loop;
             
          end if;

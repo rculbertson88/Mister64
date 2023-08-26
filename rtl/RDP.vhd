@@ -174,8 +174,8 @@ architecture arch of RDP is
    signal FBaddr                    : unsigned(25 downto 0);
    signal FBZaddr                   : unsigned(25 downto 0);
    signal FBsize                    : unsigned(11 downto 0);
-   signal FBodd                     : std_logic;
-   signal FBoddSaved                : std_logic;
+   signal FBodd                     : std_logic := '0';
+   signal FBoddSaved                : std_logic := '0';
    signal FBdone                    : std_logic := '0';
    signal FBRAMstore                : std_logic := '0';
    signal FBRAMstoreZ               : std_logic := '0';
@@ -260,6 +260,7 @@ architecture arch of RDP is
    signal pipeInColor               : tcolor4_s16;
    signal pipeIn_S                  : signed(15 downto 0);
    signal pipeIn_T                  : signed(15 downto 0);
+   signal pipeInWCarry              : std_logic;
    signal pipeInWShift              : integer range 0 to 14;
    signal pipeInWNormLow            : unsigned(7 downto 0);
    signal pipeInWtemppoint          : signed(15 downto 0);
@@ -560,15 +561,31 @@ begin
                elsif (FBreq = '1') then
                   memState          <= WAITFBDATA;
                   FBoddSaved        <= FBodd;
-                  FBRAMgrant        <= '0';
-                  FBRAMZgrant       <= '0';
-                  rdram_finished    <= '0';
+                  
                   sdram_finished    <= (not wait9) or (not read9); --'0';
-                  rdramZ_finished   <= '0';
                   sdramZ_finished   <= (not wait9) or (not read9); --'0';
                   
-                  rdram_request     <= '1';
-                  rdram_address     <= "00" & FB_req_addr(25 downto 3) & "000";
+                  if (settings_otherModes.imageRead = '1') then
+                     rdram_request     <= '1';
+                     rdram_address     <= "00" & FB_req_addr(25 downto 3) & "000";
+                     rdram_finished    <= '0';
+                     FBRAMgrant        <= '0';
+                  else
+                     rdram_finished    <= '1';
+                     FBRAMgrant        <= '1';
+                     if (settings_otherModes.zCompare = '1') then
+                        rdram_request  <= '1';
+                        rdram_address  <= "00" & FB_reqZ_addr(25 downto 3) & "000";
+                     end if;
+                  end if;
+
+                  if (settings_otherModes.zCompare = '1') then
+                     rdramZ_finished   <= '0';
+                     FBRAMZgrant       <= '0';
+                  else
+                     rdramZ_finished   <= '1';
+                     FBRAMZgrant       <= '1';
+                  end if;
                   
                   -- todo: must increase line size if games really use more than 2048 pixels in 16bit mode or 1024 pixels in 32 bit mode
                   -- todo: fetching could be optimized to only read 1 additional word when border between words was really crossed
@@ -626,7 +643,7 @@ begin
                if (rdram_granted = '1' and rdram_finished = '0') then FBRAMgrant  <= '1'; end if;
                if (rdram_granted = '1' and rdram_finished = '1') then FBRAMZgrant <= '1'; end if;
                
-               if (rdram_done = '1' and FBRAMgrant = '1' and FBRAMZgrant = '0') then 
+               if (rdram_done = '1' and FBRAMgrant = '1' and rdram_finished = '0') then 
                   rdram_finished_new := '1'; 
                   if (settings_otherModes.zCompare = '1' and readZ = '1') then
                      rdram_request <= '1';
@@ -639,7 +656,7 @@ begin
                
                if (sdram_done = '1' and FBRAM9store = '1') then 
                   sdram_finished_new := '1'; 
-                  if (settings_otherModes.zCompare = '1' and read9 = '1') then
+                  if ((settings_otherModes.zCompare = '1' or settings_otherModes.zUpdate = '1') and read9 = '1') then
                      sdram_request     <= '1';
                      sdram_address     <= 7x"0" & FB_reqZ_addr(22 downto 5) & "00";
                   else
@@ -884,6 +901,7 @@ begin
       pipeInColor             => pipeInColor, 
       pipeIn_S                => pipeIn_S,
       pipeIn_T                => pipeIn_T,
+      pipeInWCarry            => pipeInWCarry,   
       pipeInWShift            => pipeInWShift,   
       pipeInWNormLow          => pipeInWNormLow, 
       pipeInWtemppoint        => pipeInWtemppoint,
@@ -1097,6 +1115,7 @@ begin
       pipeInColor             => pipeInColor,     
       pipeIn_S                => pipeIn_S,
       pipeIn_T                => pipeIn_T,    
+      pipeInWCarry            => pipeInWCarry,   
       pipeInWShift            => pipeInWShift,   
       pipeInWNormLow          => pipeInWNormLow, 
       pipeInWtemppoint        => pipeInWtemppoint,
@@ -1486,6 +1505,15 @@ begin
             case (to_integer(settings_combineMode.combine_sub_b_A_1)) is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
             case (to_integer(settings_combineMode.combine_mul_A_1))   is  when 1 | 2 | 6 => useTexture := '1'; when others => null;  end case;
             case (to_integer(settings_combineMode.combine_add_A_1))   is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
+            
+            case (to_integer(settings_combineMode.combine_sub_a_R_0)) is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_sub_b_R_0)) is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_mul_R_0))   is  when 1 | 2 | 8 | 9 | 13 | 14 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_add_R_0))   is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_sub_a_A_0)) is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_sub_b_A_0)) is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_mul_A_0))   is  when 1 | 2 | 6 => useTexture := '1'; when others => null;  end case;
+            case (to_integer(settings_combineMode.combine_add_A_0))   is  when 1 | 2 => useTexture := '1'; when others => null;  end case;
             
             if (export_pipeDone = '1') then
                export_gpu32( 3, tracecounts_out( 3), export_pipeO,    outfile); tracecounts_out( 3) <= tracecounts_out( 3) + 1;

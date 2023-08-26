@@ -10,6 +10,8 @@ entity RDP_CombineAlpha is
    (
       clk1x                   : in  std_logic;
       trigger                 : in  std_logic;
+      mode2                   : in  std_logic;
+      step2                   : in  std_logic;
       
       error_combineAlpha      : out std_logic;
    
@@ -23,7 +25,8 @@ entity RDP_CombineAlpha is
       lod_frac                : in  unsigned(7 downto 0);
       cvgCount                : in  unsigned(3 downto 0);
 
-      combine_alpha           : out unsigned(7 downto 0) := (others => '0')
+      combine_alpha           : out unsigned(7 downto 0) := (others => '0');
+      combine_CVGCount        : out unsigned(3 downto 0) := (others => '0')
    );
 end entity;
 
@@ -48,11 +51,10 @@ architecture arch of RDP_CombineAlpha is
 
 begin 
 
-   -- todo: switch mode for cycle2
-   mode_sub1 <= settings_combineMode.combine_sub_a_A_1;
-   mode_sub2 <= settings_combineMode.combine_sub_b_A_1;
-   mode_mul  <= settings_combineMode.combine_mul_A_1;
-   mode_add  <= settings_combineMode.combine_add_A_1;
+   mode_sub1 <= settings_combineMode.combine_sub_a_A_0 when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_sub_a_A_1;
+   mode_sub2 <= settings_combineMode.combine_sub_b_A_0 when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_sub_b_A_1;
+   mode_mul  <= settings_combineMode.combine_mul_A_0   when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_mul_A_1;
+   mode_add  <= settings_combineMode.combine_add_A_0   when (mode2 = '1' and step2 = '1') else settings_combineMode.combine_add_A_1;
    
    process (all)
    begin
@@ -118,14 +120,17 @@ begin
 
    process (clk1x)
       variable result : unsigned(7 downto 0);
+      variable cvgmul : unsigned(11 downto 0);
    begin
       if rising_edge(clk1x) then
       
          error_combineAlpha <= '0';
          
-         if (trigger = '1') then
-            
+         if (step2 = '1' or trigger = '1') then
             combine_alpha_next <= combiner_cut(9 downto 0);
+         end if;
+         
+         if (trigger = '1') then
             
             if (combiner_cut(8 downto 7) = "11") then
                result := (others => '0');
@@ -137,8 +142,10 @@ begin
             
             combine_alpha <= result;
             
-            if (settings_otherModes.cvgTimesAlpha = '1') then
-               error_combineAlpha <= '1'; -- todo: update cvg count
+            combine_CVGCount <= cvgCount;
+            cvgmul := (result * cvgCount) + 4;
+            if (settings_otherModes.cvgTimesAlpha = '1') then               
+               combine_CVGCount <= cvgmul(11 downto 8);
             end if;
             
             if (settings_otherModes.alphaCvgSelect = '0') then
@@ -149,7 +156,7 @@ begin
                end if;
             else
                if (settings_otherModes.cvgTimesAlpha = '1') then
-                  error_combineAlpha <= '1'; -- todo: alpha from combiner alpha * cvg count
+                  combine_alpha <= cvgmul(10 downto 3);
                else 
                   if (cvgCount(3) = '1') then
                      combine_alpha <= x"FF";

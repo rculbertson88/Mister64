@@ -28,11 +28,11 @@ entity RDP_FBread is
       FBAddrZ                 : out unsigned(11 downto 0);
       FBDataZ                 : in  unsigned(15 downto 0);
      
-      FBcolor                 : out  tcolor4_u8;
-      cvgFB                   : out unsigned(2 downto 0);
-      FBData9_old             : out unsigned(31 downto 0);
-      FBData9_oldZ            : out unsigned(31 downto 0);
-      old_Z_mem               : out unsigned(17 downto 0)
+      FBcolor                 : out  tcolor4_u8 := (others => (others => '0'));
+      cvgFB                   : out unsigned(2 downto 0) := (others => '0');
+      FBData9_old             : out unsigned(31 downto 0) := (others => '0');
+      FBData9_oldZ            : out unsigned(31 downto 0) := (others => '0');
+      old_Z_mem               : out unsigned(17 downto 0) := (others => '0')
    );
 end entity;
 
@@ -41,7 +41,7 @@ architecture arch of RDP_FBread is
    signal muxselect  : std_logic := '0';
    signal Fbdata16   : unsigned(15 downto 0);
    
-   signal muxselect9 : unsigned(3 downto 0);
+   signal muxselect9 : unsigned(3 downto 0) := (others => '0');
    signal Fbdata16_9 : unsigned(1 downto 0);
 
 begin 

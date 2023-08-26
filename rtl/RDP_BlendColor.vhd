@@ -10,9 +10,12 @@ entity RDP_BlendColor is
    (
       clk1x                   : in  std_logic;
       trigger                 : in  std_logic;
+      mode2                   : in  std_logic;
+      step2                   : in  std_logic;
 
       settings_otherModes     : in  tsettings_otherModes;
       settings_blendcolor     : in  tsettings_blendcolor;
+      settings_fogcolor       : in  tsettings_fogcolor;
      
       blend_ena               : in  std_logic;
       combine_color           : in  tcolor3_u8;
@@ -45,35 +48,43 @@ architecture arch of RDP_BlendColor is
    signal blend_mul1          : tcolor3_u13;
    signal blend_mul2          : tcolor3_u14;
    signal blend_add           : tcolor3_u14;
+   
+   signal blender_next        : tcolor3_u8 := (others => (others => '0'));
 
 begin 
 
-   -- todo: switch mode for cycle2
-   mode_1_R <= settings_otherModes.blend_m1a0;
-   mode_1_A <= settings_otherModes.blend_m1b0;
-   mode_2_R <= settings_otherModes.blend_m2a0;
-   mode_2_A <= settings_otherModes.blend_m2b0;
+   mode_1_R <= settings_otherModes.blend_m1a1 when (mode2 = '1' and step2 = '0') else settings_otherModes.blend_m1a0;
+   mode_1_A <= settings_otherModes.blend_m1b1 when (mode2 = '1' and step2 = '0') else settings_otherModes.blend_m1b0;
+   mode_2_R <= settings_otherModes.blend_m2a1 when (mode2 = '1' and step2 = '0') else settings_otherModes.blend_m2a0;
+   mode_2_A <= settings_otherModes.blend_m2b1 when (mode2 = '1' and step2 = '0') else settings_otherModes.blend_m2b0;
    
-   -- todo: more mux selects
    process (all)
    begin
 
-      -- todo: also disable for step 2
+      -- todo: also disable for step 2?
       blend <= blend_ena;
       if (mode_1_A = 0 and mode_2_A = 0 and combine_alpha = 255) then
          blend <= '0';
       end if;
       
-      -- todo: for cycletype 1, blend is forced in cycle 1 with a special blending operation?
+      if (settings_otherModes.forceBlend = '0') then -- hack until special blend mode for AA is implemented
+         blend <= '0';
+      end if;
+      
+      if (mode2 = '1' and step2 = '1') then
+         blend <= '1';
+      end if;
 
-   
       for i in 0 to 2 loop
          
          color_1_R(i) <= (others => '0');
          case (to_integer(mode_1_R)) is
             when 0 => 
-               -- todo: use blender color for step 2
-               color_1_R <= combine_color;
+               if (mode2 = '1' and step2 = '0') then
+                  color_1_R <= blender_next;
+               else
+                  color_1_R <= combine_color;
+               end if;
             when 1 =>
                color_1_R(0) <= FB_color(0);
                color_1_R(1) <= FB_color(1);
@@ -82,15 +93,21 @@ begin
                color_1_R(0) <= settings_blendcolor.blend_R;
                color_1_R(1) <= settings_blendcolor.blend_G;
                color_1_R(2) <= settings_blendcolor.blend_B;
-            --when 3 => fog
+            when 3 => 
+               color_1_R(0) <= settings_fogcolor.fog_R;
+               color_1_R(1) <= settings_fogcolor.fog_G;
+               color_1_R(2) <= settings_fogcolor.fog_B;
             when others => null;
          end case;
          
          color_2_R(i) <= (others => '0');
          case (to_integer(mode_2_R)) is
             when 0 => 
-               -- todo: use blender color for step 2
-               color_2_R <= combine_color;
+               if (mode2 = '1' and step2 = '0') then
+                  color_2_R <= blender_next;
+               else
+                  color_2_R <= combine_color;
+               end if;
             when 1 =>
                -- todo: use fb_1 color for step 2...but should be same as it's the same pixel?
                color_2_R(0) <= FB_color(0);
@@ -100,7 +117,10 @@ begin
                color_2_R(0) <= settings_blendcolor.blend_R;
                color_2_R(1) <= settings_blendcolor.blend_G;
                color_2_R(2) <= settings_blendcolor.blend_B;
-            --when 3 => fog
+            when 3 => 
+               color_2_R(0) <= settings_fogcolor.fog_R;
+               color_2_R(1) <= settings_fogcolor.fog_G;
+               color_2_R(2) <= settings_fogcolor.fog_B;
             when others => null;
          end case;
    
@@ -109,10 +129,10 @@ begin
       color_1_A <= (others => '0');
       case (to_integer(mode_1_A)) is
          when 0 => 
-            -- todo: use blender color for step 2
+            -- todo: use combiner color 2 for step 2
             color_1_A <= combine_alpha;
          when 1 =>
-            color_1_A <= FB_color(3);
+            color_1_A <= settings_fogcolor.fog_A;
          when 2 => 
             -- todo: should add ditherAlpha and clamp against 0xFF
             color_1_A <= settings_blendcolor.blend_A;
@@ -149,26 +169,25 @@ begin
    end generate;
    
    process (clk1x)
+      variable blender_result : tcolor3_u8;
    begin
       if rising_edge(clk1x) then
-      
-         if (trigger = '1') then 
          
-            --if (blend_ena = '1') then
-            if (blend = '1' and settings_otherModes.forceBlend = '1') then -- hack until special blend mode for AA is implemented
-            
-               for i in 0 to 2 loop
-                  blender_color(i) <= blend_add(i)(12 downto 5);
-               end loop;
-            
-            else
-            
-               blender_color <= color_1_R;
-               
-            end if;
-         
+         if (blend = '1') then
+            for i in 0 to 2 loop
+               blender_result(i) := blend_add(i)(12 downto 5);
+            end loop;
+         else
+            blender_result := color_1_R;
          end if;
-      
+
+         if (step2 = '1') then 
+            blender_next <= blender_result;
+         end if;
+         
+         if (trigger = '1') then
+            blender_color <= blender_result;
+         end if;
          
       end if;
    end process;
