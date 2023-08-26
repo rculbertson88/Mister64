@@ -79,6 +79,7 @@ entity RDP_raster is
       pipeInColor             : out tcolor4_s16 := (others => (others => '0'));
       pipeIn_S                : out signed(15 downto 0) := (others => '0');
       pipeIn_T                : out signed(15 downto 0) := (others => '0');
+      pipeInWCarry            : out std_logic := '0';
       pipeInWShift            : out integer range 0 to 14 := 0;
       pipeInWNormLow          : out unsigned(7 downto 0) := (others => '0');
       pipeInWtemppoint        : out signed(15 downto 0) := (others => '0');
@@ -467,8 +468,8 @@ begin
    xrsc_under     <= "00" & clipxhshift when (curunder_r = '1') else unsigned(xright(27 downto 14)) & sticky_r;
    xlsc_under     <= "00" & clipxhshift when (curunder_l = '1') else unsigned(xleft(27 downto 14))  & sticky_l;
    
-   curover_r      <= '1' when (xrsc_under(13) = '1' or xrsc_under > clipxlshift) else '0';
-   curover_l      <= '1' when (xlsc_under(13) = '1' or xlsc_under > clipxlshift) else '0';
+   curover_r      <= '1' when (xrsc_under(13) = '1' or xrsc_under >= clipxlshift) else '0';
+   curover_l      <= '1' when (xlsc_under(13) = '1' or xlsc_under >= clipxlshift) else '0';
    
    xrsc           <= unsigned(xright(27 downto 14) & '0') when (loading_mode = '1') else
                      "00" & clipxlshift                   when (curover_r = '1') else 
@@ -671,7 +672,7 @@ begin
                         lineInfo.xStart              <= minxmx_new;
                         lineInfo.xEnd                <= maxxmx_new;
                         lineInfo.unscrx              <= unscrx_new;
-                        if (settings_otherModes.imageRead = '1' and loading_mode = '0') then
+                        if (settings_otherModes.cycleType(1) = '0' and loading_mode = '0') then
                            polystate <= REQUESTFB;
                         else
                            startLine <= '1';
@@ -970,6 +971,7 @@ begin
                   pipeIn_S          <= pixel_Texture_S(31 downto 16);
                   pipeIn_T          <= pixel_Texture_T(31 downto 16);
                   
+                  pipeInWCarry      <= pixel_Texture_W(31);
                   pipeInWShift      <= 14 - wShift;
                   pipeInWNormLow    <= wShifted(7 downto 0);
                   pipeInWtemppoint  <= normPoint(to_integer(wShifted(13 downto 8)));

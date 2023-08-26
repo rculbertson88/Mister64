@@ -13,6 +13,7 @@ entity RDP_BlendColor is
 
       settings_otherModes     : in  tsettings_otherModes;
       settings_blendcolor     : in  tsettings_blendcolor;
+      settings_fogcolor       : in  tsettings_fogcolor;
      
       blend_ena               : in  std_logic;
       combine_color           : in  tcolor3_u8;
@@ -82,7 +83,10 @@ begin
                color_1_R(0) <= settings_blendcolor.blend_R;
                color_1_R(1) <= settings_blendcolor.blend_G;
                color_1_R(2) <= settings_blendcolor.blend_B;
-            --when 3 => fog
+            when 3 => 
+               color_1_R(0) <= settings_fogcolor.fog_R;
+               color_1_R(1) <= settings_fogcolor.fog_G;
+               color_1_R(2) <= settings_fogcolor.fog_B;
             when others => null;
          end case;
          
@@ -100,7 +104,10 @@ begin
                color_2_R(0) <= settings_blendcolor.blend_R;
                color_2_R(1) <= settings_blendcolor.blend_G;
                color_2_R(2) <= settings_blendcolor.blend_B;
-            --when 3 => fog
+            when 3 => 
+               color_2_R(0) <= settings_fogcolor.fog_R;
+               color_2_R(1) <= settings_fogcolor.fog_G;
+               color_2_R(2) <= settings_fogcolor.fog_B;
             when others => null;
          end case;
    
@@ -112,7 +119,7 @@ begin
             -- todo: use blender color for step 2
             color_1_A <= combine_alpha;
          when 1 =>
-            color_1_A <= FB_color(3);
+            color_1_A <= settings_fogcolor.fog_A;
          when 2 => 
             -- todo: should add ditherAlpha and clamp against 0xFF
             color_1_A <= settings_blendcolor.blend_A;

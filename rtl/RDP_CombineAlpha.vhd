@@ -23,7 +23,8 @@ entity RDP_CombineAlpha is
       lod_frac                : in  unsigned(7 downto 0);
       cvgCount                : in  unsigned(3 downto 0);
 
-      combine_alpha           : out unsigned(7 downto 0) := (others => '0')
+      combine_alpha           : out unsigned(7 downto 0) := (others => '0');
+      combine_CVGCount        : out unsigned(3 downto 0) := (others => '0')
    );
 end entity;
 
@@ -118,6 +119,7 @@ begin
 
    process (clk1x)
       variable result : unsigned(7 downto 0);
+      variable cvgmul : unsigned(11 downto 0);
    begin
       if rising_edge(clk1x) then
       
@@ -137,8 +139,11 @@ begin
             
             combine_alpha <= result;
             
+            combine_CVGCount <= cvgCount;
+            cvgmul := (result * cvgCount) + 4;
             if (settings_otherModes.cvgTimesAlpha = '1') then
-               error_combineAlpha <= '1'; -- todo: update cvg count
+               
+               combine_CVGCount <= cvgmul(11 downto 8);
             end if;
             
             if (settings_otherModes.alphaCvgSelect = '0') then
@@ -149,7 +154,7 @@ begin
                end if;
             else
                if (settings_otherModes.cvgTimesAlpha = '1') then
-                  error_combineAlpha <= '1'; -- todo: alpha from combiner alpha * cvg count
+                  combine_alpha <= cvgmul(10 downto 3);
                else 
                   if (cvgCount(3) = '1') then
                      combine_alpha <= x"FF";

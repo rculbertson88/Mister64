@@ -15,14 +15,14 @@ ENTITY dpram IS
       address_a   : IN STD_LOGIC_VECTOR (addr_width-1 DOWNTO 0);
       data_a      : IN STD_LOGIC_VECTOR (data_width-1 DOWNTO 0);
       wren_a      : IN STD_LOGIC := '0';
-      q_a         : OUT STD_LOGIC_VECTOR (data_width-1 DOWNTO 0);
+      q_a         : OUT STD_LOGIC_VECTOR (data_width-1 DOWNTO 0) := (others => '0');
 
       clock_b     : IN STD_LOGIC;
       clken_b     : IN STD_LOGIC := '1';
       address_b   : IN STD_LOGIC_VECTOR (addr_width-1 DOWNTO 0);
       data_b      : IN STD_LOGIC_VECTOR (data_width-1 DOWNTO 0) := (others => '0');
       wren_b      : IN STD_LOGIC := '0';
-      q_b         : OUT STD_LOGIC_VECTOR (data_width-1 DOWNTO 0)
+      q_b         : OUT STD_LOGIC_VECTOR (data_width-1 DOWNTO 0) := (others => '0')
    );
 END dpram;
 
@@ -87,13 +87,13 @@ ENTITY dpram_1clk IS
       address_a   : IN STD_LOGIC_VECTOR (addr_width-1 DOWNTO 0);
       data_a      : IN STD_LOGIC_VECTOR (data_width-1 DOWNTO 0);
       wren_a      : IN STD_LOGIC := '0';
-      q_a         : OUT STD_LOGIC_VECTOR (data_width-1 DOWNTO 0);
+      q_a         : OUT STD_LOGIC_VECTOR (data_width-1 DOWNTO 0) := (others => '0');
 
       clken_b     : IN STD_LOGIC := '1';
       address_b   : IN STD_LOGIC_VECTOR (addr_width-1 DOWNTO 0);
       data_b      : IN STD_LOGIC_VECTOR (data_width-1 DOWNTO 0) := (others => '0');
       wren_b      : IN STD_LOGIC := '0';
-      q_b         : OUT STD_LOGIC_VECTOR (data_width-1 DOWNTO 0)
+      q_b         : OUT STD_LOGIC_VECTOR (data_width-1 DOWNTO 0) := (others => '0')
    );
 END dpram_1clk;
 
@@ -152,14 +152,14 @@ ENTITY dpram_dif_A IS
       address_a   : IN STD_LOGIC_VECTOR (addr_width_a-1 DOWNTO 0);
       data_a      : IN STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
       wren_a      : IN STD_LOGIC := '0';
-      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0) := (others => '0');
 
       clock_b     : IN STD_LOGIC;
       clken_b     : IN STD_LOGIC := '1';
       address_b   : IN STD_LOGIC_VECTOR (addr_width_b-1 DOWNTO 0);
       data_b      : IN STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0');
       wren_b      : IN STD_LOGIC := '0';
-      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0)
+      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0')
    );
 END dpram_dif_A;
 
@@ -229,14 +229,14 @@ ENTITY dpram_dif_b IS
       address_a   : IN STD_LOGIC_VECTOR (addr_width_a-1 DOWNTO 0);
       data_a      : IN STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
       wren_a      : IN STD_LOGIC := '0';
-      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0) := (others => '0');
 
       clock_b     : IN STD_LOGIC;
       clken_b     : IN STD_LOGIC := '1';
       address_b   : IN STD_LOGIC_VECTOR (addr_width_b-1 DOWNTO 0);
       data_b      : IN STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0');
       wren_b      : IN STD_LOGIC := '0';
-      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0)
+      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0')
    );
 END dpram_dif_b;
 
@@ -306,14 +306,14 @@ ENTITY dpram_dif IS
       address_a   : IN STD_LOGIC_VECTOR (addr_width_a-1 DOWNTO 0);
       data_a      : IN STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
       wren_a      : IN STD_LOGIC := '0';
-      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0) := (others => '0');
 
       clock_b     : IN STD_LOGIC;
       clken_b     : IN STD_LOGIC := '1';
       address_b   : IN STD_LOGIC_VECTOR (addr_width_b-1 DOWNTO 0);
       data_b      : IN STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0');
       wren_b      : IN STD_LOGIC := '0';
-      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0)
+      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0')
    );
 END dpram_dif;
 
@@ -406,7 +406,7 @@ ENTITY dpram_dif_be_A IS
       data_a      : IN  STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
       wren_a      : IN  STD_LOGIC := '0';
       byteena_a   : IN  STD_LOGIC_VECTOR(width_byteena_a - 1 downto 0) := (others => '1');
-      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0) := (others => '0');
 
       clock_b     : IN STD_LOGIC;
       clken_b     : IN STD_LOGIC := '1';
@@ -414,7 +414,7 @@ ENTITY dpram_dif_be_A IS
       data_b      : IN STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0');
       byteena_b   : IN  STD_LOGIC_VECTOR(width_byteena_b - 1 downto 0) := (others => '1');
       wren_b      : IN STD_LOGIC := '0';
-      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0)
+      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0')
    );
 END;
 
@@ -506,7 +506,7 @@ ENTITY dpram_dif_be_b IS
       data_a      : IN  STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
       wren_a      : IN  STD_LOGIC := '0';
       byteena_a   : IN  STD_LOGIC_VECTOR(width_byteena_a - 1 downto 0) := (others => '1');
-      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0) := (others => '0');
 
       clock_b     : IN STD_LOGIC;
       clken_b     : IN STD_LOGIC := '1';
@@ -514,7 +514,7 @@ ENTITY dpram_dif_be_b IS
       data_b      : IN STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0');
       byteena_b   : IN  STD_LOGIC_VECTOR(width_byteena_b - 1 downto 0) := (others => '1');
       wren_b      : IN STD_LOGIC := '0';
-      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0)
+      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0')
    );
 END;
 
@@ -605,7 +605,7 @@ ENTITY dpram_dif_be IS
       data_a      : IN  STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
       wren_a      : IN  STD_LOGIC := '0';
       byteena_a   : IN  STD_LOGIC_VECTOR(width_byteena_a - 1 downto 0) := (others => '1');
-      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0);
+      q_a         : OUT STD_LOGIC_VECTOR (data_width_a-1 DOWNTO 0) := (others => '0');
 
       clock_b     : IN STD_LOGIC;
       clken_b     : IN STD_LOGIC := '1';
@@ -613,7 +613,7 @@ ENTITY dpram_dif_be IS
       data_b      : IN STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0');
       byteena_b   : IN  STD_LOGIC_VECTOR(width_byteena_b - 1 downto 0) := (others => '1');
       wren_b      : IN STD_LOGIC := '0';
-      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0)
+      q_b         : OUT STD_LOGIC_VECTOR (data_width_b-1 DOWNTO 0) := (others => '0')
    );
 END;
 
