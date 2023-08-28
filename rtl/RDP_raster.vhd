@@ -872,10 +872,6 @@ begin
                   
                   line_posY   <= lineInfo.Y;
                   
-                  if (settings_otherModes.cycleType = "01") then
-                     error_drawMode <= '1';
-                  end if;
-                  
                   if (settings_poly.lft = '1' or settings_otherModes.cycleType = "11") then
                      line_posX   <= lineInfo.xStart;
                      line_endX   <= lineInfo.xEnd;

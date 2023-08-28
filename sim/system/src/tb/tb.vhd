@@ -108,6 +108,7 @@ begin
       fpscountOn            => '1',
       
       CICTYPE               => "0000",
+      DATACACHEON           => '1',
       
       write9                => '1',
       read9                 => '1',
@@ -189,7 +190,7 @@ begin
    iddrram_model : entity tb.ddrram_model
    generic map
    (
-      SLOWTIMING   => 1,
+      SLOWTIMING   => 15,
       RANDOMTIMING => '0' 
    )
    port map

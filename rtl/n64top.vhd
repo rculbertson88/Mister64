@@ -24,6 +24,7 @@ entity n64top is
       fpscountOn              : in  std_logic;
       
       CICTYPE                 : in  std_logic_vector(3 downto 0);
+      DATACACHEON             : in  std_logic;
       
       write9                  : in  std_logic;
       read9                   : in  std_logic;
@@ -1055,6 +1056,8 @@ begin
       ce_93                => ce_93,   
       reset_1x             => reset_intern_1x,
       reset_93             => reset_intern_93,
+      
+      DATACACHEON          => DATACACHEON,
             
       irqRequest           => irqRequest,
       cpuPaused            => '0',

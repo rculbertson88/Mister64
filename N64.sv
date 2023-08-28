@@ -238,6 +238,7 @@ parameter CONF_STR = {
 	"RH,Save state (Alt-F1);",
 	"RI,Restore state (F1);",
 	"-;",
+   "O[16],Data Cache,On,Off;",
    "O[11],Write Bit 9,On,Off;",
    "O[12],Read Bit 9,On,Off;",
    "O[13],Wait Bit 9,On,Off;",
@@ -252,7 +253,7 @@ parameter CONF_STR = {
    
    "P2,System settings;",
 	"P2-;",
-   "P2-,WIP-no function yet!;",
+   "P2-,From N64-database;",
 	"P2O[64],Auto Detect,On,Off;",
    "P2O[70],RAM size,8MByte,4MByte;",
    "P2O[80:79],System Type,NTSC,PAL;",
@@ -504,8 +505,8 @@ wire [1:0] eepromtype = (status[77:75] == 3'b001) ? 2'b01 :
 n64top n64top
 (
    .clk1x(clk_1x),          
-   .clk93(clk_93),          
-   //.clk93(clk_1x),          
+   //.clk93(clk_93),          
+   .clk93(clk_1x),          
    .clk2x(clk_2x),          
    .clkvid(clk_vid),
    .reset(reset_or),
@@ -514,6 +515,7 @@ n64top n64top
    .fpscountOn(status[28]),
    
    .CICTYPE(status[68:65]),
+   .DATACACHEON(!status[16]),
    
    .write9(!status[11]), 
    .read9(!status[12]),  
