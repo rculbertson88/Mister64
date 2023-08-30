@@ -16,6 +16,9 @@ entity cpu_datacache is
       stall             : in unsigned(4 downto 0);
       stall4            : in  std_logic;
       
+      slow_in           : in  std_logic_vector(3 downto 0); 
+      force_wb_in       : in  std_logic;
+      
       ram_request       : out std_logic := '0';
       ram_reqAddr       : out unsigned(31 downto 0) := (others => '0');
       ram_active        : in  std_logic := '0';
@@ -93,6 +96,7 @@ architecture arch of cpu_datacache is
       CLEARCACHE,
       FILL,
       READWAIT,
+      WAITSLOW,
       WRITEBACK1ADDR,
       WRITEBACK1READ,
       WRITEBACK1WRITE,
@@ -109,9 +113,20 @@ architecture arch of cpu_datacache is
          
    signal clearAddr        : std_logic_vector(8 downto 0);
       
+   signal isCommand        : std_logic := '0';
+   signal isWB             : std_logic := '0';
+   
    signal tag_wren_cmd     : std_logic := '0';
    signal tag_data_addr    : std_logic_vector(8 downto 0) := (others => '0');
    signal tag_data_cmd     : std_logic_vector(18 downto 0) := (others => '0');
+   
+   -- slow
+   signal slow       : unsigned(3 downto 0) := (others => '0');
+   signal slow_on    : std_logic := '0';
+   signal slowcnt    : unsigned(3 downto 0) := (others => '0');
+   
+   signal force_wb   : std_logic := '0';
+   signal wb_done    : std_logic := '0';
    
 begin 
 
@@ -120,7 +135,7 @@ begin
    ------------------ tags   
    
    tag_wren_a     <= '1' when (tag_wren_cmd = '1') else
-                     '1' when (state = IDLE and write_ena = '1' and read_hit = '1') else
+                     '1' when (state = IDLE and write_ena = '1' and read_hit = '1' and force_wb = '0') else
                      '1' when (state = CLEARCACHE) else
                      '1' when (state = FILL) else
                      '0';
@@ -130,33 +145,52 @@ begin
                      std_logic_vector(RW_addr(12 downto 4)) when (state = IDLE) else
                      std_logic_vector(ram_reqAddr(12 downto 4)); -- fill
                      
-   tag_data_a     <= tag_data_cmd               when (tag_wren_cmd = '1') else
-                     '1' & tag_q_b(17 downto 0) when (state = IDLE) else
-                     19x"0"                     when (state = CLEARCACHE) else
-                     writeMode & '1' & std_logic_vector(ram_reqAddr(28 downto 12)); -- Fill
+   tag_data_a     <= tag_data_cmd                          when (tag_wren_cmd = '1') else
+                     (not force_wb) & tag_q_b(17 downto 0) when (state = IDLE) else
+                     19x"0"                                when (state = CLEARCACHE) else
+                     (writeMode and (not force_wb)) & '1' & std_logic_vector(ram_reqAddr(28 downto 12)); -- Fill
    
    
-   itagram : entity mem.dpram
-   generic map 
-   ( 
-      addr_width  => 9,
-      data_width  => 19 -- 17 bits(28..12) of address + 1 bit valid + 1 bit dirty
+   --itagram : entity mem.dpram
+   --generic map 
+   --( 
+   --   addr_width  => 9,
+   --   data_width  => 19 -- 17 bits(28..12) of address + 1 bit valid + 1 bit dirty
+   --)
+   --port map
+   --(
+   --   clock_a     => clk93,
+   --   address_a   => tag_address_a,
+   --   data_a      => tag_data_a,
+   --   wren_a      => tag_wren_a,
+   --   
+   --   clock_b     => clk93,
+   --   address_b   => tag_address_b,
+   --   data_b      => 19x"0",
+   --   wren_b      => '0',
+   --   q_b         => tag_q_b
+   --); 
+   --
+   --tag_address_b <= std_logic_vector(tag_addr(12 downto 4)) when (ce_fetch = '1') else std_logic_vector(tag_addr_1(12 downto 4));
+   
+   itagram : entity mem.RamMLAB
+   generic map
+   (
+      width      => 19, -- 17 bits(28..12) of address + 1 bit valid + 1 bit dirty
+      widthad    => 9
    )
    port map
    (
-      clock_a     => clk93,
-      address_a   => tag_address_a,
-      data_a      => tag_data_a,
-      wren_a      => tag_wren_a,
-      
-      clock_b     => clk93,
-      address_b   => tag_address_b,
-      data_b      => 19x"0",
-      wren_b      => '0',
-      q_b         => tag_q_b
-   ); 
+      inclock    => clk93,
+      wren       => tag_wren_a,
+      data       => tag_data_a,
+      wraddress  => tag_address_a,
+      rdaddress  => tag_address_b,
+      q          => tag_q_b
+   );
    
-   tag_address_b <= std_logic_vector(tag_addr(12 downto 4)) when (ce_fetch = '1') else std_logic_vector(tag_addr_1(12 downto 4));
+   tag_address_b <= std_logic_vector(RW_addr(12 downto 4));
+   
    read_hit      <= '1' when (unsigned(tag_q_b(16 downto 0)) = tag_addr_1(28 downto 12) and tag_q_b(17) = '1') else '0';
   
    --------- data
@@ -219,10 +253,14 @@ begin
    cache_be_b      <= write_be_1   when (stall4 = '1') else write_be_rot;
    
    cache_we_b      <= '1' when ((state = IDLE and read_hit = '1' and write_ena = '1') or (writeMode = '1' and state = FILL and ram_done = '1')) else '0';
-   write_done      <= '1' when ((state = IDLE and read_hit = '1' and write_ena = '1') or (writeMode = '1' and state = FILL and ram_done = '1')) else '0';
    
-   read_done       <= '1' when (state = IDLE and write_ena_1 = '0' and read_hit = '1' and read_ena = '1') else
+   write_done      <=  wb_done when (force_wb = '1') else
+                       '1'     when ((state = IDLE and read_hit = '1' and write_ena = '1') or (writeMode = '1' and state = FILL and ram_done = '1')) else 
+                       '0';
+   
+   read_done       <= '1' when (state = IDLE and write_ena_1 = '0' and read_hit = '1' and read_ena = '1' and slow_on = '0') else
                       '1' when (state = READWAIT) else
+                      '1' when (state = WAITSLOW and slowcnt = 0) else
                       '1' when (writeMode = '0' and state = FILL and ram_done = '1') else 
                       '0';
    
@@ -252,9 +290,22 @@ begin
          writeback_ena     <= '0';
          CachecommandDone  <= '0';
          tag_wren_cmd      <= '0';
+         wb_done           <= '0';
          
          if (ce_fetch = '1') then
             tag_addr_1   <= tag_addr;
+         end if;
+         
+         force_wb <= force_wb_in;
+         
+         slow    <= unsigned(slow_in);
+         slow_on <= '0';
+         if (slow > 0) then
+            slow_on <= '1';
+         end if;
+         
+         if (slowcnt > 0) then
+            slowcnt <= slowcnt - 1;
          end if;
          
          if (SS_reset = '1') then
@@ -271,6 +322,8 @@ begin
                   fillNext     <= '0';
                   write_ena_1  <= write_ena;
                   fillAddr     <= "000" & RW_addr(28 downto 0);
+                  isCommand    <= '0'; 
+                  isWB         <= '0'; 
                   if ((read_ena = '1' or write_ena = '1') and read_hit = '0') then
                      if (tag_q_b(18) = '1') then
                         state          <= WRITEBACK1ADDR; 
@@ -281,13 +334,28 @@ begin
                         ram_reqAddr    <= "000" & RW_addr(28 downto 0); 
                         state          <= FILL;
                         ram_request    <= '1';
+                        if (write_ena = '1' and force_wb = '1') then
+                           isWB <= '1';
+                        end if;
                      end if;
+                     
+                  elsif (write_ena = '1' and read_hit = '1' and force_wb = '1') then
+                     state          <= WRITEBACK1ADDR; 
+                     isWB           <= '1';
+                     ram_reqAddr    <= "000" & unsigned(tag_q_b(16 downto 0)) & RW_addr(11 downto 4) & "0000";
+                     writeback_addr <= "000" & unsigned(tag_q_b(16 downto 0)) & RW_addr(11 downto 4) & "0000";
+                     
+                  elsif (read_ena = '1' and slow_on = '1') then
+                     state       <= WAITSLOW;
+                     slowcnt     <= slow - 1;
+                     ram_reqAddr <= "000" & RW_addr(28 downto 0);
                      
                   elsif (write_ena_1 = '1' and read_ena = '1' and read_hit = '1') then
                      state <= READWAIT;
                      
                   elsif (CacheCommandEna = '1') then
                      state          <= COMMANDPROCESS;
+                     isCommand      <= '1';
                      ram_reqAddr    <= "000" & unsigned(tag_q_b(16 downto 0)) & RW_addr(11 downto 4) & "0000";
                      writeback_addr <= "000" & unsigned(tag_q_b(16 downto 0)) & RW_addr(11 downto 4) & "0000";
                      tag_data_addr  <= std_logic_vector(RW_addr(12 downto 4));
@@ -351,10 +419,20 @@ begin
                when FILL =>
                   if (ram_done = '1') then
                      state          <= IDLE;
+                     if (isWB = '1') then
+                        state          <= WRITEBACK1ADDR; 
+                        ram_reqAddr    <= fillAddr(31 downto 4) & "0000";
+                        writeback_addr <= fillAddr(31 downto 4) & "0000";
+                     end if;
                   end if;
                   
                when READWAIT =>
                   state <= IDLE;
+                  
+               when WAITSLOW =>
+                  if (slowcnt = 0) then
+                     state <= IDLE;
+                  end if;
                   
                when WRITEBACK1ADDR =>
                   state <= WRITEBACK1READ;
@@ -378,13 +456,15 @@ begin
                
                when WRITEBACKDONE =>
                   if (writeback_done = '1') then
+                     fillNext <= '0';
                      if (fillNext = '1') then
                         state       <= FILL;
                         ram_request <= '1';
                         ram_reqAddr <= fillAddr;
                      else
                         state             <= IDLE;
-                        CachecommandDone  <= '1';
+                        CachecommandDone  <= isCommand;
+                        wb_done           <= isWB;
                      end if;
                   end if;
                   
@@ -467,6 +547,11 @@ begin
                wait until ram_done = '1';
                wait for 1 ns;
                tracecounts_out(1) <= tracecounts_out(1) + 2;
+               
+               if (isWB = '1') then
+                  export_TagSave  := unsigned(tag_data_a);
+               end if;
+               
             end if;
             
             if (read_done = '1') then
@@ -527,6 +612,7 @@ begin
                write(line_out, string'(" A ")); 
                write(line_out, to_hstring(writeback_addr));
                write(line_out, string'(" T ")); 
+               
                write(line_out, to_hstring(export_TagSave(16 downto 0)));
                if (export_TagSave(17) = '1') then write(line_out, string'(" V 1")); else write(line_out, string'(" V 0")); end if;
                if (export_TagSave(18) = '1') then write(line_out, string'(" D 1")); else write(line_out, string'(" D 0")); end if;

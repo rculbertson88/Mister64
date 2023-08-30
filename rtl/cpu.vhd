@@ -18,6 +18,8 @@ entity cpu is
       reset_93              : in  std_logic;
       
       DATACACHEON           : in  std_logic;
+      DATACACHESLOW         : in  std_logic_vector(3 downto 0); 
+      DATACACHEFORCEWEB     : in  std_logic;
 
       irqRequest            : in  std_logic;
       cpuPaused             : in  std_logic;
@@ -2636,6 +2638,9 @@ begin
       stall             => stall,
       stall4            => stall4,
       
+      slow_in           => DATACACHESLOW,
+      force_wb_in       => DATACACHEFORCEWEB,
+      
       ram_request       => datacache_request,
       ram_reqAddr       => datacache_reqAddr,
       ram_active        => datacache_active,
@@ -3033,9 +3038,9 @@ begin
                cpu_export.csr      <= 7x"0" & csr_export_2;
                
 -- synthesis translate_on
-               debugwrite <= '1';
+               debugwrite <= '0';
                if (debugCnt(31) = '1' and debugSum(31) = '1' and debugTmr(31) = '1' and writebackTarget = 0) then
-                  debugwrite <= '0';
+                  debugwrite <= '1';
                end if;
                
             end if;
@@ -3192,7 +3197,7 @@ begin
          ss_regs_load    <= '0';
          ss_FPUregs_load <= '0';
       
-         if (SS_reset = '1' and debugwrite = '1') then
+         if (SS_reset = '1') then
          
             for i in 0 to 31 loop
                ss_in(i) <= (others => '0');
@@ -3278,7 +3283,7 @@ begin
                debugStallcounter <= debugStallcounter + 1;
             end if;         
             
-            if (debugStallcounter(12) = '1') then
+            if (debugStallcounter(12) = '1' and debugwrite = '0') then
                error_stall       <= '1';
             end if;
             

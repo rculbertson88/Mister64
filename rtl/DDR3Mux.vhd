@@ -39,11 +39,17 @@ library mem;
 use work.pDDR3.all;
 
 entity DDR3Mux is
+   generic
+   (
+      use2Xclock       : in  std_logic
+   );
    port 
    (
       clk1x            : in  std_logic;
       clk2x            : in  std_logic;
       clk2xIndex       : in  std_logic;
+      
+      slow_in          : in  std_logic_vector(3 downto 0); 
       
       error            : out std_logic;
 
@@ -94,14 +100,15 @@ architecture arch of DDR3Mux is
    (
       IDLE,
       WAITREAD,
-      READAGAIN
+      READAGAIN,
+      WAITSLOW
    );
    signal ddr3State     : tddr3State := IDLE;
    
    signal readCount     : unsigned(7 downto 0);
    signal timeoutCount  : unsigned(12 downto 0);
    
-   signal req_latched   : tDDDR3Single;
+   signal req_latched   : tDDDR3Single := (others => '0');
    signal lastIndex     : integer range 0 to DDR3MUXCOUNT - 1;
    signal remain        : unsigned(9 downto 0);
    signal lastReadReq   : std_logic;
@@ -122,6 +129,11 @@ architecture arch of DDR3Mux is
    signal rdpfifoZ_Dout    : std_logic_vector(91 downto 0);
    signal rdpfifoZ_Rd      : std_logic := '0';    
 
+   -- slow
+   signal slow       : unsigned(3 downto 0) := (others => '0');
+   signal slow_on    : std_logic := '0';
+   signal slowcnt    : unsigned(10 downto 0) := (others => '0');
+
 begin 
 
    ddr3_ADDR(28 downto 25) <= "0011";
@@ -140,6 +152,16 @@ begin
          if (ddr3_BUSY = '0') then
             ddr3_WE <= '0';
             ddr3_RD <= '0';
+         end if;
+         
+         slow    <= unsigned(slow_in);
+         slow_on <= '0';
+         if (slow > 0) then
+            slow_on <= '1';
+         end if;
+         
+         if (slowcnt > 0) then
+            slowcnt <= slowcnt - 1;
          end if;
 
          -- request handling
@@ -185,6 +207,8 @@ begin
                      ddr3_BE                  <= rdram_writeMask(activeIndex);
                      ddr3_ADDR(24 downto 0)   <= std_logic_vector(rdram_address(activeIndex)(27 downto 3));
                      
+                     slowcnt <= resize(slow & "000", 11) + rdram_burstcount(activeIndex);
+                     
                      if (rdram_burstcount(activeIndex)(9 downto 8) = "00") then
                         ddr3_BURSTCNT  <= std_logic_vector(rdram_burstcount(activeIndex)(7 downto 0));
                         readCount      <= rdram_burstcount(activeIndex)(7 downto 0);
@@ -200,11 +224,11 @@ begin
                      if (rdram_rnw(activeIndex) = '1') then
                         ddr3State                     <= WAITREAD;
                         ddr3_RD                       <= '1';
-                        granted(activeIndex)          <= "11";
+                        granted(activeIndex)          <= use2Xclock & '1'; 
                         rdram_granted2X(activeIndex)  <= '1';
                      else
                         ddr3_WE                       <= '1';
-                        done(activeIndex)             <= "11"; 
+                        done(activeIndex)             <= use2Xclock & '1'; 
                      end if;
                    
                   elsif (rspfifo_empty = '0' and rspfifo_Rd = '0') then
@@ -249,8 +273,15 @@ begin
                   readCount       <= readCount - 1;
                   if (readCount = 1) then
                      if (lastReadReq = '1') then
-                        ddr3State       <= IDLE;  
-                        done(lastIndex) <= "11";    
+                        if (slow_on = '1') then
+                           ddr3State       <= WAITSLOW;
+                           if (slowcnt = 0) then
+                              error <= '1';
+                           end if;
+                        else
+                           ddr3State       <= IDLE;
+                           done(lastIndex) <= use2Xclock & '1'; 
+                        end if;
                      else
                         ddr3State       <= READAGAIN; 
                      end if;
@@ -273,6 +304,12 @@ begin
                ddr3State <= WAITREAD;
                ddr3_RD   <= '1';
                remain    <= remain - 16#FF#;
+               
+            when WAITSLOW =>
+               if (slowcnt = 0) then
+                  ddr3State       <= IDLE;
+                  done(lastIndex) <= use2Xclock & '1';
+               end if;
          
          end case;
 

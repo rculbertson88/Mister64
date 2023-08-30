@@ -10,6 +10,7 @@ use work.pSDRAM.all;
 entity n64top is
    generic
    (
+      use2Xclock              : std_logic;
       is_simu                 : std_logic := '0'
    ); 
    port  
@@ -25,6 +26,9 @@ entity n64top is
       
       CICTYPE                 : in  std_logic_vector(3 downto 0);
       DATACACHEON             : in  std_logic;
+      DATACACHESLOW           : in  std_logic_vector(3 downto 0); 
+      DATACACHEFORCEWEB       : in  std_logic; 
+      DDR3SLOW                : in  std_logic_vector(3 downto 0); 
       
       write9                  : in  std_logic;
       read9                   : in  std_logic;
@@ -359,7 +363,7 @@ begin
    begin
       if rising_edge(clk2x) then
          clk1xToggle2x <= clk1xToggle;
-         clk2xIndex    <= '0';
+         clk2xIndex    <= not use2Xclock;
          if (clk1xToggle2x = clk1xToggle) then
             clk2xIndex <= '1';
          end if;
@@ -412,6 +416,10 @@ begin
    -- submodules
    
    iRSP : entity work.RSP
+   generic map
+   (
+      use2Xclock       => use2Xclock
+   )
    port map
    (
       clk1x                => clk1x,        
@@ -599,6 +607,10 @@ begin
    );    
    
    iVI : entity work.VI
+   generic map
+   (
+      use2Xclock       => use2Xclock
+   )
    port map
    (
       clk1x                => clk1x,        
@@ -858,11 +870,17 @@ begin
    rdram_dataWrite(DDR3MUX_VI) <= (others => '-');
 
    iDDR3Mux : entity work.DDR3Mux
+   generic map
+   (
+      use2Xclock       => use2Xclock
+   )
    port map
    (
       clk1x            => clk1x,           
       clk2x            => clk2x,  
       clk2xIndex       => clk2xIndex, 
+      
+      slow_in          => DDR3SLOW,
       
       error            => errorDDR3,
                                           
@@ -1058,6 +1076,8 @@ begin
       reset_93             => reset_intern_93,
       
       DATACACHEON          => DATACACHEON,
+      DATACACHESLOW        => DATACACHESLOW,
+      DATACACHEFORCEWEB    => DATACACHEFORCEWEB,
             
       irqRequest           => irqRequest,
       cpuPaused            => '0',

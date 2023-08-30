@@ -94,6 +94,7 @@ begin
    in64top : entity n64.n64top
    generic map
    (
+      use2Xclock            => '1',
       is_simu               => '1'
    )
    port map
@@ -109,6 +110,9 @@ begin
       
       CICTYPE               => "0000",
       DATACACHEON           => '1',
+      DATACACHESLOW         => "0000",
+      DATACACHEFORCEWEB     => '0',
+      DDR3SLOW              => "0000",
       
       write9                => '1',
       read9                 => '1',

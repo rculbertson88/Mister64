@@ -6,6 +6,10 @@ library mem;
 use work.pVI.all;
 
 entity VI_videoout is
+   generic
+   (
+      use2Xclock           : in  std_logic
+   );
    port 
    (
       clk1x                : in  std_logic;
@@ -210,14 +214,22 @@ begin
                if (videoout_request.lineInNext /= lineAct and videoout_request.fetch = '1') then
                   waitcnt <= 3;
                   state   <= WAITREQUEST;
+                  if (use2Xclock = '0') then
+                     lineAct  <= videoout_request.lineInNext;
+                     fillAddr <= videoout_request.lineInNext(0) & 9x"000";
+                  end if;
                end if;
                
             when WAITREQUEST => 
             
                rdram_address     <= "0000" & rdram_address_calc;
                rdram_burstcount  <= '0' & rdram_burstcount_calc;
-               lineAct           <= videoout_request.lineInNext;
-               fillAddr          <= videoout_request.lineInNext(0) & 9x"000";
+               
+               if (use2Xclock = '1') then
+                  lineAct  <= videoout_request.lineInNext;
+                  fillAddr <= videoout_request.lineInNext(0) & 9x"000";
+               end if;
+               
                --if (videoout_settings.GPUSTAT_VerRes = '1') then
                --   fillAddr(8)  <= videoout_request.lineInNext(1);
                --end if;

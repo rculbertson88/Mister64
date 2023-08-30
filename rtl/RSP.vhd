@@ -7,6 +7,10 @@ use work.pFunctions.all;
 use work.pRSP.all;
 
 entity RSP is
+   generic
+   (
+      use2Xclock           : in  std_logic
+   );
    port 
    (
       clk1x                : in  std_logic;
@@ -140,6 +144,8 @@ architecture arch of RSP is
    
    signal dma_store                 : std_logic := '0';
    
+   signal fifoout_Wr_1              : std_logic := '0';
+   
    signal fifoin_reset              : std_logic := '0'; 
    signal fifoin_Dout               : std_logic_vector(63 downto 0);
    signal fifoin_Rd                 : std_logic := '0'; 
@@ -216,6 +222,7 @@ begin
          RSP2RDP_done   <= '0';
          
          mem_address_a_1 <= mem_address_a;
+         fifoout_Wr_1    <= fifoout_Wr;
       
          if (reset = '1') then
             
@@ -449,7 +456,7 @@ begin
                      mem_address_a <= std_logic_vector(bus_addr(11 downto 3));
                      MEMSTATE      <= MEM_BUS_WAIT_DMEM;
                      
-                  elsif (fifoin_Empty = '0') then
+                  elsif (fifoin_Empty = '0' and (fifoin_Rd = '0' or use2Xclock = '1')) then
                      if (SP_DMA_CURRENT_SPADDR(12) = '1') then
                         imem_wren_a <= '1';
                      else
@@ -563,7 +570,7 @@ begin
             end if;
             
             if (SP_STATUS_dmabusy = '1' and SP_DMA_CURRENT_WORKLEN = 0) then
-               if ((dma_isWrite = '1' and fifoout_empty = '1' and fifoout_Wr = '0') or (dma_isWrite = '0' and fifoin_Empty = '1')) then
+               if ((dma_isWrite = '1' and fifoout_empty = '1' and fifoout_Wr = '0' and (fifoout_Wr_1 = '0' or use2Xclock = '1')) or (dma_isWrite = '0' and fifoin_Empty = '1')) then
                   if (SP_DMA_CURRENT_COUNT > 0) then
                      SP_DMA_CURRENT_COUNT    <= SP_DMA_CURRENT_COUNT - 1;
                      SP_DMA_CURRENT_RAMADDR  <= SP_DMA_CURRENT_RAMADDR + SP_DMA_CURRENT_SKIP;
