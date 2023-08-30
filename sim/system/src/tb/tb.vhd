@@ -94,6 +94,7 @@ begin
    in64top : entity n64.n64top
    generic map
    (
+      use2Xclock            => '1',
       is_simu               => '1'
    )
    port map
@@ -108,6 +109,10 @@ begin
       fpscountOn            => '1',
       
       CICTYPE               => "0000",
+      DATACACHEON           => '1',
+      DATACACHESLOW         => "0000",
+      DATACACHEFORCEWEB     => '0',
+      DDR3SLOW              => "0000",
       
       write9                => '1',
       read9                 => '1',
@@ -189,7 +194,7 @@ begin
    iddrram_model : entity tb.ddrram_model
    generic map
    (
-      SLOWTIMING   => 1,
+      SLOWTIMING   => 15,
       RANDOMTIMING => '0' 
    )
    port map

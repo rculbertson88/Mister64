@@ -43,6 +43,7 @@ entity cpu_cop0 is
       COP1_enable       : out std_logic;
       COP2_enable       : out std_logic;
       fpuRegMode        : out std_logic;
+      privilegeMode     : out unsigned(1 downto 0) := (others => '0');
                         
       writeEnable       : in  std_logic;
       regIndex          : in  unsigned(4 downto 0);
@@ -132,9 +133,10 @@ architecture arch of cpu_cop0 is
 
 begin 
 
-   COP1_enable <= COP0_12_SR_enable_cop1;
-   COP2_enable <= COP0_12_SR_enable_cop2;
-   fpuRegMode  <= COP0_12_SR_floatingPointMode;
+   COP1_enable   <= COP0_12_SR_enable_cop1;
+   COP2_enable   <= COP0_12_SR_enable_cop2;
+   fpuRegMode    <= COP0_12_SR_floatingPointMode;
+   privilegeMode <= COP0_12_SR_privilegeMode;
    
    process (all)
    begin
@@ -370,6 +372,11 @@ begin
                   COP0_1_RANDOM   <= to_unsigned(31, 6);
                end if;
             end if;
+            
+            -- when debugging systemtest...
+            --COP0_9_COUNT  <= (others => '0');
+            --COP0_1_RANDOM <= (others => '0');
+            --COP0_13_CAUSE_interruptPending(7) <= '0';
             
             -- CPU access
             if (exception = '1') then

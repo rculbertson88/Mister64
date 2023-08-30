@@ -3,6 +3,7 @@ set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RamMLAB.vh
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) functions.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) export.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) cpu_instrcache.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) cpu_datacache.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) divider.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) cpu_cop0.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) cpu_mul.vhd ]

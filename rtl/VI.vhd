@@ -5,6 +5,10 @@ use IEEE.numeric_std.all;
 library mem;
 
 entity VI is
+   generic
+   (
+      use2Xclock           : in  std_logic
+   );
    port 
    (
       clk1x            : in  std_logic;
@@ -294,6 +298,10 @@ begin
    
    
    iVI_videoout : entity work.VI_videoout
+   generic map
+   (
+      use2Xclock       => use2Xclock
+   )
    port map
    (
       clk1x                => clk1x,

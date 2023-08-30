@@ -194,7 +194,7 @@ begin
             case(state) is
             
                when IDLE =>
-                  if (CacheCommandEna = '1' and CacheCommand = 5x"10") then
+                  if (CacheCommandEna = '1' and (CacheCommand = 5x"00" or CacheCommand = 5x"10")) then
                      -- HACK!
                      -- todo: should only clear if tag matches
                      tag_wren_a     <= '1';

@@ -238,6 +238,10 @@ parameter CONF_STR = {
 	"RH,Save state (Alt-F1);",
 	"RI,Restore state (F1);",
 	"-;",
+   "O[16],Data Cache,Off,On;",
+   "O[29],Data FORCE WB,Off,On;",
+   "O[27:24],Cache Delay,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15;",
+   "O[23:20],DDR3 Delay,0,16,24,32,40,48,56,64,72,80,88,96,104,112;",
    "O[11],Write Bit 9,On,Off;",
    "O[12],Read Bit 9,On,Off;",
    "O[13],Wait Bit 9,On,Off;",
@@ -252,7 +256,7 @@ parameter CONF_STR = {
    
    "P2,System settings;",
 	"P2-;",
-   "P2-,WIP-no function yet!;",
+   "P2-,From N64-database;",
 	"P2O[64],Auto Detect,On,Off;",
    "P2O[70],RAM size,8MByte,4MByte;",
    "P2O[80:79],System Type,NTSC,PAL;",
@@ -496,17 +500,23 @@ wire VBlank;
 wire Interlaced;
 
 assign DDRAM_CLK = clk_2x;
+//assign DDRAM_CLK = clk_1x;
 
 wire [1:0] eepromtype = (status[77:75] == 3'b001) ? 2'b01 : 
                         (status[77:75] == 3'b010) ? 2'b10 :
                         2'b00; 
 
-n64top n64top
+n64top 
+#(
+   .use2Xclock(1'b1)
+)
+n64top
 (
    .clk1x(clk_1x),          
    .clk93(clk_93),          
    //.clk93(clk_1x),          
    .clk2x(clk_2x),          
+   //.clk2x(clk_1x),          
    .clkvid(clk_vid),
    .reset(reset_or),
    .pause(OSD_STATUS),
@@ -514,6 +524,10 @@ n64top n64top
    .fpscountOn(status[28]),
    
    .CICTYPE(status[68:65]),
+   .DATACACHEON(status[16]),
+   .DATACACHESLOW(status[27:24]),
+   .DATACACHEFORCEWEB(status[29]),
+   .DDR3SLOW(status[23:20]),
    
    .write9(!status[11]), 
    .read9(!status[12]),  

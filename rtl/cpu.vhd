@@ -16,6 +16,10 @@ entity cpu is
       ce_93                 : in  std_logic;
       reset_1x              : in  std_logic;
       reset_93              : in  std_logic;
+      
+      DATACACHEON           : in  std_logic;
+      DATACACHESLOW         : in  std_logic_vector(3 downto 0); 
+      DATACACHEFORCEWEB     : in  std_logic;
 
       irqRequest            : in  std_logic;
       cpuPaused             : in  std_logic;
@@ -105,6 +109,7 @@ architecture arch of cpu is
    signal mem4_rnw_latched             : std_logic := '0';
    signal mem4_data_latched            : std_logic_vector(63 downto 0) := (others => '0');  
    signal mem4_mask_latched            : std_logic_vector(7 downto 0) := (others => '0');  
+   signal mem4_cache_latched           : std_logic := '0';
           
    -- common   
    type t_memstate is
@@ -182,11 +187,12 @@ architecture arch of cpu is
    signal useCached_data               : std_logic := '0';
    
    signal instrcache_request           : std_logic;
+   signal instrcache_active            : std_logic := '0';
    signal instrcache_hit               : std_logic;
    signal instrcache_data              : std_logic_vector(31 downto 0);
    signal instrcache_fill              : std_logic := '0';
    signal instrcache_fill_done         : std_logic;
-   signal instrcache_commandEnable     : std_logic;
+   signal cache_commandEnable          : std_logic;
    
    signal cacheHitLast                 : std_logic := '0';
    
@@ -417,6 +423,7 @@ architecture arch of cpu is
    signal EXEllBit                     : std_logic := '0';
    signal EXEERET                      : std_logic := '0';
    signal EXECacheEnable               : std_logic := '0';
+   signal EXECacheAddr                 : unsigned(28 downto 0);
    signal ExeCOP1ReadEnable            : std_logic := '0';
    
    --MULT/DIV
@@ -453,6 +460,7 @@ architecture arch of cpu is
    signal COP1_enable                  : std_logic;
    signal COP2_enable                  : std_logic;
    signal fpuRegMode                   : std_logic;
+   signal privilegeMode                : unsigned(1 downto 0);
    signal irqTrigger                   : std_logic;
 
    -- COP1
@@ -477,10 +485,11 @@ architecture arch of cpu is
    signal writebackTarget              : unsigned(4 downto 0) := (others => '0');
    signal writebackData                : unsigned(63 downto 0) := (others => '0');
    signal writebackWriteEnable         : std_logic := '0';
+   signal writeback_UseCache           : std_logic := '0';
    signal writebackLoadType            : CPU_LOADTYPE;
    signal writebackReadAddress         : unsigned(31 downto 0) := (others => '0');
    signal writebackReadLastData        : unsigned(63 downto 0) := (others => '0');
-   signal writeback_COP1_ReadEnable    : std_logic := '0';
+   signal writeback_COP1_ReadEnable    : std_logic := '0'; 
          
    -- wire     
    signal mem4_request                 : std_logic := '0';
@@ -489,6 +498,34 @@ architecture arch of cpu is
    signal mem4_rnw                     : std_logic := '0';
    signal mem4_dataWrite               : std_logic_vector(63 downto 0) := (others => '0');    
    signal mem4_writeMask               : std_logic_vector(7 downto 0) := (others => '0');    
+   
+   signal read4_dataReadData           : unsigned(63 downto 0);
+   signal read4_dataReadRot64          : unsigned(63 downto 0);
+   signal read4_dataReadRot32          : unsigned(31 downto 0);
+   signal read4_Addr                   : unsigned(31 downto 0);
+   signal read4_oldData                : unsigned(63 downto 0);
+   signal read4_cop1_readEna           : std_logic;
+   signal read4_cop1_target            : unsigned(4 downto 0);
+   signal read4_useLoadType            : CPU_LOADTYPE;
+   signal read4_useTarget              : unsigned(4 downto 0);
+   
+   -- Cache
+   signal DATACACHEON_intern           : std_logic := '0';
+   signal datacache_request            : std_logic;
+   signal datacache_active             : std_logic := '0';
+   signal datacache_reqAddr            : unsigned(31 downto 0);
+   signal datacache_readena            : std_logic;
+   signal datacache_readdone           : std_logic;
+   signal datacache_addr               : unsigned(31 downto 0);   
+   signal datacache_data_out           : std_logic_vector(63 downto 0);   
+   signal datacache_writeena           : std_logic;
+   signal datacache_writedone          : std_logic;
+   signal datacache_CmdStall           : std_logic;
+   signal datacache_CmdDone            : std_logic;
+   
+   signal datacache_wb_ena             : std_logic;
+   signal datacache_wb_addr            : unsigned(31 downto 0);
+   signal datacache_wb_data            : std_logic_vector(63 downto 0);
    
    -- savestates
    type t_ssarray is array(0 to 31) of std_logic_vector(63 downto 0);
@@ -558,13 +595,28 @@ begin
                mem1_cache_latched   <= instrcache_request;
             end if;            
             
-            if (mem4_request = '1') then
+            if (mem4_request = '1' or datacache_request = '1') then
                mem4_request_latched <= '1';
                mem4_address_latched <= mem4_address;
                mem4_req64_latched   <= mem4_req64;
                mem4_rnw_latched     <= mem4_rnw;
                mem4_data_latched    <= mem4_dataWrite;
                mem4_mask_latched    <= mem4_writeMask;
+               mem4_cache_latched   <= datacache_request;
+               if (datacache_request = '1') then
+                  mem4_address_latched <= datacache_reqAddr(31 downto 4) & "0000";
+                  mem4_rnw_latched     <= '1';
+               end if;
+            end if;
+            
+            if (datacache_wb_ena = '1') then
+               mem4_request_latched <= '1';
+               mem4_address_latched <= datacache_wb_addr;
+               mem4_req64_latched   <= '1';
+               mem4_rnw_latched     <= '0';
+               mem4_data_latched    <= datacache_wb_data;
+               mem4_mask_latched    <= x"FF";
+               mem4_cache_latched   <= '0';
             end if;
             
             if (mem_request = '1') then
@@ -624,7 +676,12 @@ begin
                         mem_dataWrite     <= mem4_data_latched;
                         mem_writeMask     <= mem4_mask_latched;
                         mem_req64         <= mem4_req64_latched;
-                        mem_size          <= "001";
+                        if (mem4_cache_latched = '1') then
+                           mem_size          <= "010";
+                           datacache_active  <= '1';
+                        else
+                           mem_size          <= "001";
+                        end if;
    
                      elsif (mem1_request_latched = '1') then
                      
@@ -635,10 +692,11 @@ begin
                         mem_req64         <= '0';
                         mem_rnw           <= '1';
                         if (mem1_cache_latched = '1') then
-                           mem_size       <= "100";
+                           mem_size          <= "100";
                            mem_address(4 downto 0) <= (others => '0');
+                           instrcache_active <= '1';
                         else
-                           mem_size       <= "001";
+                           mem_size          <= "001";
                         end if;
                      
                      end if;
@@ -647,12 +705,14 @@ begin
                   
                when MEMSTATE_BUSY1 =>
                   if (mem_done = '1') then
-                     memstate     <= MEMSTATE_IDLE;
+                     memstate          <= MEMSTATE_IDLE;
+                     instrcache_active <= '0';
                   end if;               
                   
                when MEMSTATE_BUSY4 =>
                   if (mem_done = '1') then
-                     memstate     <= MEMSTATE_IDLE;
+                     memstate         <= MEMSTATE_IDLE;
+                     datacache_active <= '0';
                   end if;
                   
             end case;
@@ -803,7 +863,7 @@ begin
 --############################### stage 1
 --##############################################################
    
-   instrcache_commandEnable <= executeCacheEnable when (stall = 0) else '0';
+   cache_commandEnable <= executeCacheEnable when (stall = 0) else '0';
    
    icpu_instrcache : entity work.cpu_instrcache
    port map
@@ -814,7 +874,7 @@ begin
       ce_93             => ce_93,
       
       ram_request       => instrcache_request,
-      ram_active        => not memoryMuxStage4,
+      ram_active        => instrcache_active,
       ram_grant         => rdram_granted2X,
       ram_done          => mem_finished_instr,
       ram_addr          => mem_address(28 downto 0),
@@ -831,7 +891,7 @@ begin
       fill_addr         => mem1_address(28 downto 0),
       fill_done         => instrcache_fill_done,
       
-      CacheCommandEna   => instrcache_commandEnable,
+      CacheCommandEna   => cache_commandEnable,
       CacheCommand      => executeCacheCommand,
       CacheCommandAddr  => executeMemAddress(31 downto 0),
       
@@ -1515,6 +1575,7 @@ begin
       EXEReadException        <= '0';
       
       EXECacheEnable          <= '0';
+      EXECacheAddr            <= calcMemAddr(28 downto 0);  
       
       EXECOP0WriteEnable      <= '0';
       EXECOP0ReadEnable       <= '0';
@@ -1963,11 +2024,13 @@ begin
                EXELoadType   <= LOADTYPE_LEFT64;
                EXEReadEnable <= '1';
                EXEMem64Bit   <= '1';
+               EXECacheAddr(2 downto 0) <= "000";
                
             when 16#1B# => -- LDR
                EXELoadType   <= LOADTYPE_RIGHT64;
                EXEReadEnable <= '1';
                EXEMem64Bit   <= '1';
+               EXECacheAddr(2 downto 0) <= "000";
 
             when 16#20# => -- LB
                EXELoadType   <= LOADTYPE_SBYTE;
@@ -1986,6 +2049,7 @@ begin
             when 16#22# => -- LWL
                EXELoadType   <= LOADTYPE_LEFT;
                EXEReadEnable <= '1';
+               EXECacheAddr(1 downto 0) <= "00";
                
             when 16#23# => -- LW
                EXELoadType <= LOADTYPE_DWORD;
@@ -2014,6 +2078,7 @@ begin
             when 16#26# => -- LWR
                EXELoadType   <= LOADTYPE_RIGHT;
                EXEReadEnable <= '1';
+               EXECacheAddr(1 downto 0) <= "00";
 
             when 16#27# => -- LWU
                EXELoadType <= LOADTYPE_DWORDU;
@@ -2284,6 +2349,7 @@ begin
             executeMemWriteEnable         <= '0';
             executeMemReadEnable          <= '0';
             executeCOP0WriteEnable        <= '0';
+            executeCacheEnable            <= '0';
             llBit                         <= '0';
             hiloWait                      <= 0;
             
@@ -2348,7 +2414,8 @@ begin
 
             if (stall = 0) then
             
-               executeNew <= '0';
+               executeNew              <= '0';
+               executeCacheEnable      <= '0';
                
                resultData              <= resultDataMuxed64;    
                resultTarget            <= decodeTarget;
@@ -2561,21 +2628,82 @@ begin
 --############################### stage 4
 --##############################################################
 
+   icpu_datacache : entity work.cpu_datacache
+   port map
+   (
+      clk93             => clk93,
+      clk2x             => clk2x,
+      reset_93          => reset_93,
+      ce_93             => ce_93,
+      stall             => stall,
+      stall4            => stall4,
+      
+      slow_in           => DATACACHESLOW,
+      force_wb_in       => DATACACHEFORCEWEB,
+      
+      ram_request       => datacache_request,
+      ram_reqAddr       => datacache_reqAddr,
+      ram_active        => datacache_active,
+      ram_grant         => rdram_granted2X,
+      ram_done          => mem_finished_read,
+      ram_addr          => mem_address(28 downto 0),
+      ddr3_DOUT         => ddr3_DOUT,      
+      ddr3_DOUT_READY   => ddr3_DOUT_READY,
+      
+      writeback_ena     => datacache_wb_ena,  
+      writeback_addr    => datacache_wb_addr, 
+      writeback_data    => datacache_wb_data,
+      writeback_done    => mem_finished_write,
+      
+      tag_addr          => EXECacheAddr,
+      
+      read_ena          => datacache_readena,
+      RW_addr           => datacache_addr,
+      RW_64             => executeMem64Bit,
+      read_done         => datacache_readdone,
+      read_data         => datacache_data_out,
+      
+      write_ena         => datacache_writeena,
+      write_be          => executeMemWriteMask,
+      write_data        => std_logic_vector(executeMemWriteData),
+      write_done        => datacache_writedone,
+      
+      CacheCommandEna   => cache_commandEnable,
+      CacheCommand      => executeCacheCommand,
+      CacheCommandAddr  => executeMemAddress(31 downto 0),
+      CachecommandStall => datacache_CmdStall,
+      CachecommandDone  => datacache_CmdDone,    
+      
+      SS_reset          => SS_reset
+   );
+
    stall4Masked <= stall(4 downto 3) & (stall(2) and (not executeStallFromMEM)) & stall(1 downto 0);
    
-   process (stall, executeMem64Bit, executeMemWriteEnable, executeMemWriteData, stall4, executeMemReadEnable, executeMemAddress, executeLoadType, executeMemWriteMask, 
-            mem_finished_read, mem_finished_write, EXEReadEnable, EXEMemWriteEnable, executeStallFromMEM, executeNew, stall4Masked)
+   process (all)
       variable skipmem : std_logic;
    begin
    
-      stallNew4      <= stall4;
+      stallNew4            <= stall4;
+            
+      mem4_request         <= '0';
+      mem4_req64           <= executeMem64Bit;
+      mem4_address         <= executeMemAddress(31 downto 0);
+      mem4_rnw             <= '1';
+      mem4_dataWrite       <= std_logic_vector(executeMemWriteData);
+      mem4_writeMask       <= executeMemWriteMask;
       
-      mem4_request   <= '0';
-      mem4_req64     <= executeMem64Bit;
-      mem4_address   <= executeMemAddress(31 downto 0);
-      mem4_rnw       <= '1';
-      mem4_dataWrite <= std_logic_vector(executeMemWriteData);
-      mem4_writeMask <= executeMemWriteMask;
+      datacache_writeena   <= '0';
+      datacache_readena    <= '0';
+      
+      datacache_addr   <= executeMemAddress(31 downto 0);
+      if (executeMemReadEnable = '1') then
+         if (executeLoadType = LOADTYPE_LEFT or executeLoadType = LOADTYPE_RIGHT) then 
+            datacache_addr(1 downto 0) <= "00";
+         end if;
+         if (executeLoadType = LOADTYPE_LEFT64 or executeLoadType = LOADTYPE_RIGHT64) then 
+            datacache_addr(2 downto 0) <= "000";
+         end if;
+      end if;
       
       -- ############
       -- Load/Store
@@ -2586,13 +2714,13 @@ begin
          if (executeMemWriteEnable = '1') then
             skipmem := '0';
          
-            case (to_integer(unsigned(executeMemAddress(31 downto 29)))) is
-            
-               when 0 | 4 => null; -- cached
-               
-               when others => null;
-               
-            end case;
+            if (to_integer(unsigned(executeMemAddress(31 downto 29))) = 4 and privilegeMode = "00" and DATACACHEON_intern = '1') then
+               datacache_writeena <= '1';
+               skipmem            := '1';
+               if (datacache_writedone = '0') then
+                  stallNew4      <= '1';
+               end if;
+            end if;
             
             if (skipmem = '0') then
                mem4_request   <= '1';
@@ -2609,9 +2737,20 @@ begin
          end if;
          
          if (executeMemReadEnable = '1') then
+            skipmem := '0';
+            
+            if (to_integer(unsigned(executeMemAddress(31 downto 29))) = 4 and privilegeMode = "00" and DATACACHEON_intern = '1') then
+               datacache_readena  <= '1';
+               skipmem            := '1';
+               if (datacache_readdone = '0') then
+                  stallNew4      <= '1';
+               end if;
+            end if;
 
-            mem4_request   <= '1';
-            stallNew4      <= '1';
+            if (skipmem = '0') then
+               mem4_request   <= '1';
+               stallNew4      <= '1';
+            end if;
             
             if (executeLoadType = LOADTYPE_LEFT or executeLoadType = LOADTYPE_RIGHT) then 
                mem4_address(1 downto 0) <= "00";
@@ -2625,13 +2764,23 @@ begin
       end if;
       
    end process;
-                   
+   
+   read4_dataReadData   <= unsigned(datacache_data_out) when (writeback_UseCache = '1' or datacache_readena = '1') else unsigned(mem_finished_dataRead);
+   read4_dataReadRot64  <= byteswap32(read4_dataReadData(31 downto 0)) & byteswap32(read4_dataReadData(63 downto 32));
+   read4_dataReadRot32  <= byteswap32(read4_dataReadData(31 downto 0));
+   
+   read4_Addr         <= writebackReadAddress         when (stall4 = '1') else executeMemAddress(31 downto 0);
+   read4_oldData      <= writebackReadLastData        when (stall4 = '1') else executeMemReadLastData;
+   read4_cop1_readEna <= writeback_COP1_ReadEnable    when (stall4 = '1') else executeCOP1ReadEnable;
+   read4_cop1_target  <= cop1_stage4_target           when (stall4 = '1') else execute_COP1_Target;
+   read4_useLoadType  <= writebackLoadType            when (stall4 = '1') else executeLoadType;       
+   read4_useTarget    <= writebackTarget              when (stall4 = '1') else resultTarget;
    
    process (clk93)
-      variable dataReadData : unsigned(63 downto 0);
-      variable oldData      : unsigned(63 downto 0);
    begin
       if (rising_edge(clk93)) then
+      
+         DATACACHEON_intern <= DATACACHEON;
       
          if (reset_93 = '1') then
          
@@ -2644,9 +2793,8 @@ begin
             
          elsif (ce_93 = '1') then
          
-            stall4                  <= stallNew4;
-            dataReadData            := unsigned(mem_finished_dataRead);
-            oldData                 := writebackReadLastData;
+            stall4                  <= stallNew4;    
+            
             cop1_stage4_writeEnable <= '0';
 
             if (stall4Masked = 0) then
@@ -2669,12 +2817,12 @@ begin
                   writebackReadLastData        <= executeMemReadLastData;
 
                   writebackWriteEnable         <= resultWriteEnable;
+                  writeback_UseCache           <= datacache_readena or datacache_writeena or executeCacheEnable;
                   
                   writeback_COP1_ReadEnable    <= executeCOP1ReadEnable;
                   cop1_stage4_target           <= execute_COP1_Target;
                   
                   if (executeMemWriteEnable = '1') then
-                  
                   
                   elsif (executeMemReadEnable = '1') then
                   
@@ -2715,103 +2863,108 @@ begin
                      COP2Latch <= executeMemReadLastData;
                   end if;
 
+                  if (datacache_CmdStall = '1') then
+                     stall4 <= '1';
+                  end if;
+
                end if;
                
             end if;
             
-            if (mem_finished_write = '1') then
-               stall4 <= '0';
-               writebackNew         <= '1';
+            if (datacache_CmdDone = '1') then
+               stall4        <= '0';
+               writebackNew  <= '1';
             end if;
             
-            if (mem_finished_read = '1') then
+            if ((writeback_UseCache = '0' and mem_finished_write = '1') or datacache_writedone = '1') then
+               stall4        <= '0';
+               writebackNew  <= '1';
+            end if;
+            
+            if ((writeback_UseCache = '0' and mem_finished_read = '1') or datacache_readdone = '1') then
             
                stall4        <= '0';
                writebackNew  <= '1';
                
-               cop1_stage4_data <= byteswap32(dataReadData(31 downto 0)) & byteswap32(dataReadData(63 downto 32));
+               cop1_stage4_data <= byteswap32(read4_dataReadData(31 downto 0)) & byteswap32(read4_dataReadData(63 downto 32));
                
-               if (writeback_COP1_ReadEnable = '1') then
+               if (read4_cop1_readEna = '1') then
                   cop1_stage4_writeEnable <= '1';
                   cop1_stage4_writeMask   <= "11";
                   if (fpuRegMode = '1') then
-                     if (writebackLoadType = LOADTYPE_DWORD) then
-                        cop1_stage4_data(31 downto 0) <= byteswap32(dataReadData(31 downto 0));
+                     if (read4_useLoadType = LOADTYPE_DWORD) then
+                        cop1_stage4_data(31 downto 0) <= byteswap32(read4_dataReadData(31 downto 0));
                         cop1_stage4_writeMask         <= "01";
                      end if;
                   else
                      cop1_stage4_target(0) <= '0';
-                     if (writebackLoadType = LOADTYPE_DWORD) then
-                        if (cop1_stage4_target(0) = '1') then
-                           cop1_stage4_data(63 downto 32) <= byteswap32(dataReadData(31 downto 0));
+                     if (read4_useLoadType = LOADTYPE_DWORD) then
+                        if (read4_cop1_target(0) = '1') then
+                           cop1_stage4_data(63 downto 32) <= byteswap32(read4_dataReadData(31 downto 0));
                            cop1_stage4_writeMask          <= "10";
                         else
-                           cop1_stage4_data(31 downto 0) <= byteswap32(dataReadData(31 downto 0));
+                           cop1_stage4_data(31 downto 0) <= byteswap32(read4_dataReadData(31 downto 0));
                            cop1_stage4_writeMask         <= "01";
                         end if;
                      end if;
                   end if;
                end if;
                
-               if (writebackTarget > 0 and writeback_COP1_ReadEnable = '0') then
+               if (read4_useTarget > 0 and read4_cop1_readEna = '0') then
                   writebackWriteEnable <= '1';
                end if;
                
-               case (writebackLoadType) is
+               case (read4_useLoadType) is
                   
-                  when LOADTYPE_SBYTE => writebackData <= unsigned(resize(signed(dataReadData(7 downto 0)), 64));
-                  when LOADTYPE_SWORD => writebackData <= unsigned(resize(signed(byteswap16(dataReadData(15 downto 0))), 64));
+                  when LOADTYPE_SBYTE => writebackData <= unsigned(resize(signed(read4_dataReadData(7 downto 0)), 64));
+                  when LOADTYPE_SWORD => writebackData <= unsigned(resize(signed(byteswap16(read4_dataReadData(15 downto 0))), 64));
                   when LOADTYPE_LEFT =>
-                     dataReadData(31 downto 0) := byteswap32(dataReadData(31 downto 0));
-                     case (to_integer(writebackReadAddress(1 downto 0))) is
-                        when 3 => writebackData <= unsigned(resize(signed(dataReadData( 7 downto 0)) & signed(oldData(23 downto 0)), 64));
-                        when 2 => writebackData <= unsigned(resize(signed(dataReadData(15 downto 0)) & signed(oldData(15 downto 0)), 64));
-                        when 1 => writebackData <= unsigned(resize(signed(dataReadData(23 downto 0)) & signed(oldData( 7 downto 0)), 64)); 
-                        when 0 => writebackData <= unsigned(resize(signed(dataReadData(31 downto 0)), 64));
+                     case (to_integer(read4_Addr(1 downto 0))) is
+                        when 3 => writebackData <= unsigned(resize(signed(read4_dataReadRot32( 7 downto 0)) & signed(read4_oldData(23 downto 0)), 64));
+                        when 2 => writebackData <= unsigned(resize(signed(read4_dataReadRot32(15 downto 0)) & signed(read4_oldData(15 downto 0)), 64));
+                        when 1 => writebackData <= unsigned(resize(signed(read4_dataReadRot32(23 downto 0)) & signed(read4_oldData( 7 downto 0)), 64)); 
+                        when 0 => writebackData <= unsigned(resize(signed(read4_dataReadRot32(31 downto 0)), 64));
                         when others => null;
                      end case;
                         
-                  when LOADTYPE_DWORD  => writebackData <= unsigned(resize(signed(byteswap32(dataReadData(31 downto 0))), 64));
-                  when LOADTYPE_DWORDU => writebackData <= x"00000000" & byteswap32(dataReadData(31 downto 0));
-                  when LOADTYPE_BYTE  => writebackData <= x"00000000" & x"000000" & dataReadData(7 downto 0);
-                  when LOADTYPE_WORD  => writebackData <= x"00000000" & x"0000" & byteswap16(dataReadData(15 downto 0));
+                  when LOADTYPE_DWORD  => writebackData <= unsigned(resize(signed(byteswap32(read4_dataReadData(31 downto 0))), 64));
+                  when LOADTYPE_DWORDU => writebackData <= x"00000000" & byteswap32(read4_dataReadData(31 downto 0));
+                  when LOADTYPE_BYTE  => writebackData <= x"00000000" & x"000000" & read4_dataReadData(7 downto 0);
+                  when LOADTYPE_WORD  => writebackData <= x"00000000" & x"0000" & byteswap16(read4_dataReadData(15 downto 0));
                   when LOADTYPE_RIGHT =>
-                     dataReadData(31 downto 0) := byteswap32(dataReadData(31 downto 0));
-                     case (to_integer(writebackReadAddress(1 downto 0))) is
-                        when 3 => writebackData <= unsigned(resize(signed(dataReadData(31 downto 0)), 64));
-                        when 2 => writebackData <= unsigned(resize(signed(oldData(31 downto 24)) & signed(dataReadData(31 downto  8)), 64));
-                        when 1 => writebackData <= unsigned(resize(signed(oldData(31 downto 16)) & signed(dataReadData(31 downto 16)), 64));
-                        when 0 => writebackData <= unsigned(resize(signed(oldData(31 downto  8)) & signed(dataReadData(31 downto 24)), 64));
+                     case (to_integer(read4_Addr(1 downto 0))) is
+                        when 3 => writebackData <= unsigned(resize(signed(read4_dataReadRot32(31 downto 0)), 64));
+                        when 2 => writebackData <= unsigned(resize(signed(read4_oldData(31 downto 24)) & signed(read4_dataReadRot32(31 downto  8)), 64));
+                        when 1 => writebackData <= unsigned(resize(signed(read4_oldData(31 downto 16)) & signed(read4_dataReadRot32(31 downto 16)), 64));
+                        when 0 => writebackData <= unsigned(resize(signed(read4_oldData(31 downto  8)) & signed(read4_dataReadRot32(31 downto 24)), 64));
                         when others => null;
                      end case;
                      
-                  when LOADTYPE_QWORD =>  writebackData <= byteswap32(dataReadData(31 downto 0)) & byteswap32(dataReadData(63 downto 32));
+                  when LOADTYPE_QWORD =>  writebackData <= byteswap32(read4_dataReadData(31 downto 0)) & byteswap32(read4_dataReadData(63 downto 32));
                   
                   when LOADTYPE_LEFT64 => 
-                     dataReadData := byteswap32(dataReadData(31 downto 0)) & byteswap32(dataReadData(63 downto 32));
-                     case (to_integer(writebackReadAddress(2 downto 0))) is
-                        when 7 => writebackData <= dataReadData( 7 downto 0) & oldData(55 downto 0);
-                        when 6 => writebackData <= dataReadData(15 downto 0) & oldData(47 downto 0);
-                        when 5 => writebackData <= dataReadData(23 downto 0) & oldData(39 downto 0);
-                        when 4 => writebackData <= dataReadData(31 downto 0) & oldData(31 downto 0);
-                        when 3 => writebackData <= dataReadData(39 downto 0) & oldData(23 downto 0);
-                        when 2 => writebackData <= dataReadData(47 downto 0) & oldData(15 downto 0);
-                        when 1 => writebackData <= dataReadData(55 downto 0) & oldData( 7 downto 0);
-                        when 0 => writebackData <= dataReadData;
+                     case (to_integer(read4_Addr(2 downto 0))) is
+                        when 7 => writebackData <= read4_dataReadRot64( 7 downto 0) & read4_oldData(55 downto 0);
+                        when 6 => writebackData <= read4_dataReadRot64(15 downto 0) & read4_oldData(47 downto 0);
+                        when 5 => writebackData <= read4_dataReadRot64(23 downto 0) & read4_oldData(39 downto 0);
+                        when 4 => writebackData <= read4_dataReadRot64(31 downto 0) & read4_oldData(31 downto 0);
+                        when 3 => writebackData <= read4_dataReadRot64(39 downto 0) & read4_oldData(23 downto 0);
+                        when 2 => writebackData <= read4_dataReadRot64(47 downto 0) & read4_oldData(15 downto 0);
+                        when 1 => writebackData <= read4_dataReadRot64(55 downto 0) & read4_oldData( 7 downto 0);
+                        when 0 => writebackData <= read4_dataReadRot64;
                         when others => null;
                      end case;
                   
                   when LOADTYPE_RIGHT64 =>
-                     dataReadData := byteswap32(dataReadData(31 downto 0)) & byteswap32(dataReadData(63 downto 32));
-                     case (to_integer(writebackReadAddress(2 downto 0))) is
-                        when 7 => writebackData <= dataReadData;
-                        when 6 => writebackData <= oldData(63 downto 56) & dataReadData(63 downto  8);
-                        when 5 => writebackData <= oldData(63 downto 48) & dataReadData(63 downto 16);
-                        when 4 => writebackData <= oldData(63 downto 40) & dataReadData(63 downto 24);
-                        when 3 => writebackData <= oldData(63 downto 32) & dataReadData(63 downto 32);
-                        when 2 => writebackData <= oldData(63 downto 24) & dataReadData(63 downto 40);
-                        when 1 => writebackData <= oldData(63 downto 16) & dataReadData(63 downto 48);
-                        when 0 => writebackData <= oldData(63 downto  8) & dataReadData(63 downto 56);
+                     case (to_integer(read4_Addr(2 downto 0))) is
+                        when 7 => writebackData <= read4_dataReadRot64;
+                        when 6 => writebackData <= read4_oldData(63 downto 56) & read4_dataReadRot64(63 downto  8);
+                        when 5 => writebackData <= read4_oldData(63 downto 48) & read4_dataReadRot64(63 downto 16);
+                        when 4 => writebackData <= read4_oldData(63 downto 40) & read4_dataReadRot64(63 downto 24);
+                        when 3 => writebackData <= read4_oldData(63 downto 32) & read4_dataReadRot64(63 downto 32);
+                        when 2 => writebackData <= read4_oldData(63 downto 24) & read4_dataReadRot64(63 downto 40);
+                        when 1 => writebackData <= read4_oldData(63 downto 16) & read4_dataReadRot64(63 downto 48);
+                        when 0 => writebackData <= read4_oldData(63 downto  8) & read4_dataReadRot64(63 downto 56);
                         when others => null;
                      end case;
                      
@@ -2885,10 +3038,10 @@ begin
                cpu_export.csr      <= 7x"0" & csr_export_2;
                
 -- synthesis translate_on
-               --debugwrite <= '1';
-               --if (debugCnt(31) = '1' and debugSum(31) = '1' and debugTmr(31) = '1' and writebackTarget = 0) then
-               --   debugwrite <= '0';
-               --end if;
+               debugwrite <= '0';
+               if (debugCnt(31) = '1' and debugSum(31) = '1' and debugTmr(31) = '1' and writebackTarget = 0) then
+                  debugwrite <= '1';
+               end if;
                
             end if;
              
@@ -2957,6 +3110,7 @@ begin
       COP1_enable       => COP1_enable,
       COP2_enable       => COP2_enable,
       fpuRegMode        => fpuRegMode,
+      privilegeMode     => privilegeMode,
 
       writeEnable       => executeCOP0WriteEnable,
       regIndex          => executeCOP0Register,
@@ -3129,7 +3283,7 @@ begin
                debugStallcounter <= debugStallcounter + 1;
             end if;         
             
-            if (debugStallcounter(12) = '1') then
+            if (debugStallcounter(12) = '1' and debugwrite = '0') then
                error_stall       <= '1';
             end if;
             
