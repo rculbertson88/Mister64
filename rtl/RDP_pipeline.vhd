@@ -108,12 +108,13 @@ architecture arch of RDP_pipeline is
 
    constant STAGE_INPUT     : integer := 0;
    constant STAGE_PERSPCOR  : integer := 1;
-   constant STAGE_TEXFETCH  : integer := 2;
-   constant STAGE_TEXREAD   : integer := 3;
-   constant STAGE_PALETTE   : integer := 4;
-   constant STAGE_COMBINER  : integer := 5;
-   constant STAGE_BLENDER   : integer := 6;
-   constant STAGE_OUTPUT    : integer := 7;
+   constant STAGE_TEXCOORD  : integer := 2;
+   constant STAGE_TEXFETCH  : integer := 3;
+   constant STAGE_TEXREAD   : integer := 4;
+   constant STAGE_PALETTE   : integer := 5;
+   constant STAGE_COMBINER  : integer := 6;
+   constant STAGE_BLENDER   : integer := 7;
+   constant STAGE_OUTPUT    : integer := 8;
    
    type t_stage_std is array(0 to STAGE_OUTPUT - 1) of std_logic;
    type t_stage_u32 is array(0 to STAGE_OUTPUT - 1) of unsigned(31 downto 0);
@@ -374,27 +375,51 @@ begin
             -- synthesis translate_on                 
             
             -- ##################################################
+            -- ######### STAGE_TEXCOORD #########################
+            -- ##################################################
+            
+            stage_valid(STAGE_TEXCOORD)    <= stage_valid(STAGE_PERSPCOR);   
+            stage_addr(STAGE_TEXCOORD)     <= stage_addr(STAGE_PERSPCOR);       
+            stage_addrZ(STAGE_TEXCOORD)    <= stage_addrZ(STAGE_PERSPCOR);       
+            stage_x(STAGE_TEXCOORD)        <= stage_x(STAGE_PERSPCOR);          
+            stage_y(STAGE_TEXCOORD)        <= stage_y(STAGE_PERSPCOR);          
+            stage_cvgValue(STAGE_TEXCOORD) <= stage_cvgValue(STAGE_PERSPCOR);   
+            stage_offX(STAGE_TEXCOORD)     <= stage_offX(STAGE_PERSPCOR);   
+            stage_offY(STAGE_TEXCOORD)     <= stage_offY(STAGE_PERSPCOR);  
+            stage_Color(STAGE_TEXCOORD)    <= stage_Color(STAGE_PERSPCOR);         
+            stage_copySize(STAGE_TEXCOORD) <= stage_copySize(STAGE_PERSPCOR);         
+            stage_cvgCount(STAGE_TEXCOORD) <= stage_cvgCount(STAGE_PERSPCOR);
+
+            -- synthesis translate_off
+            stage_cvg16(STAGE_TEXCOORD)      <= stage_cvg16(STAGE_PERSPCOR);
+            stage_colorFull(STAGE_TEXCOORD)  <= stage_colorFull(STAGE_PERSPCOR);
+            stage_STWZ(STAGE_TEXCOORD)       <= stage_STWZ(STAGE_PERSPCOR);
+            stage_texCoord_S(STAGE_TEXCOORD) <= texture_S_clamped;
+            stage_texCoord_T(STAGE_TEXCOORD) <= texture_T_clamped;
+            -- synthesis translate_on                     
+            
+            -- ##################################################
             -- ######### STAGE_TEXFETCH #########################
             -- ##################################################
             
-            stage_valid(STAGE_TEXFETCH)    <= stage_valid(STAGE_PERSPCOR);   
-            stage_addr(STAGE_TEXFETCH)     <= stage_addr(STAGE_PERSPCOR);       
-            stage_addrZ(STAGE_TEXFETCH)    <= stage_addrZ(STAGE_PERSPCOR);       
-            stage_x(STAGE_TEXFETCH)        <= stage_x(STAGE_PERSPCOR);          
-            stage_y(STAGE_TEXFETCH)        <= stage_y(STAGE_PERSPCOR);          
-            stage_cvgValue(STAGE_TEXFETCH) <= stage_cvgValue(STAGE_PERSPCOR);   
-            stage_offX(STAGE_TEXFETCH)     <= stage_offX(STAGE_PERSPCOR);   
-            stage_offY(STAGE_TEXFETCH)     <= stage_offY(STAGE_PERSPCOR);  
-            stage_Color(STAGE_TEXFETCH)    <= stage_Color(STAGE_PERSPCOR);         
-            stage_copySize(STAGE_TEXFETCH) <= stage_copySize(STAGE_PERSPCOR);         
-            stage_cvgCount(STAGE_TEXFETCH) <= stage_cvgCount(STAGE_PERSPCOR);
+            stage_valid(STAGE_TEXFETCH)    <= stage_valid(STAGE_TEXCOORD);   
+            stage_addr(STAGE_TEXFETCH)     <= stage_addr(STAGE_TEXCOORD);       
+            stage_addrZ(STAGE_TEXFETCH)    <= stage_addrZ(STAGE_TEXCOORD);       
+            stage_x(STAGE_TEXFETCH)        <= stage_x(STAGE_TEXCOORD);          
+            stage_y(STAGE_TEXFETCH)        <= stage_y(STAGE_TEXCOORD);          
+            stage_cvgValue(STAGE_TEXFETCH) <= stage_cvgValue(STAGE_TEXCOORD);   
+            stage_offX(STAGE_TEXFETCH)     <= stage_offX(STAGE_TEXCOORD);   
+            stage_offY(STAGE_TEXFETCH)     <= stage_offY(STAGE_TEXCOORD);  
+            stage_Color(STAGE_TEXFETCH)    <= stage_Color(STAGE_TEXCOORD);         
+            stage_copySize(STAGE_TEXFETCH) <= stage_copySize(STAGE_TEXCOORD);         
+            stage_cvgCount(STAGE_TEXFETCH) <= stage_cvgCount(STAGE_TEXCOORD);
 
             -- synthesis translate_off
-            stage_cvg16(STAGE_TEXFETCH)      <= stage_cvg16(STAGE_PERSPCOR);
-            stage_colorFull(STAGE_TEXFETCH)  <= stage_colorFull(STAGE_PERSPCOR);
-            stage_STWZ(STAGE_TEXFETCH)       <= stage_STWZ(STAGE_PERSPCOR);
-            stage_texCoord_S(STAGE_TEXFETCH) <= texture_S_clamped;
-            stage_texCoord_T(STAGE_TEXFETCH) <= texture_T_clamped;
+            stage_cvg16(STAGE_TEXFETCH)      <= stage_cvg16(STAGE_TEXCOORD);
+            stage_colorFull(STAGE_TEXFETCH)  <= stage_colorFull(STAGE_TEXCOORD);
+            stage_STWZ(STAGE_TEXFETCH)       <= stage_STWZ(STAGE_TEXCOORD);
+            stage_texCoord_S(STAGE_TEXFETCH) <= stage_texCoord_S(STAGE_TEXCOORD);
+            stage_texCoord_T(STAGE_TEXFETCH) <= stage_texCoord_T(STAGE_TEXCOORD);
             stage_texIndex_S(STAGE_TEXFETCH) <= texture_S_index;
             stage_texIndex_T(STAGE_TEXFETCH) <= texture_T_index;
             stage_texAddr(STAGE_TEXFETCH)    <= export_TextureAddr;
@@ -717,6 +742,8 @@ begin
       -- STAGE_PERSPCOR
       cvgCount                => stage_cvgCount(STAGE_INPUT),
       
+      -- STAGE_TEXCOORD
+      
       -- STAGE_TEXFETCH
       
       -- STAGE_TEXREAD
@@ -741,13 +768,16 @@ begin
       zResultH                => zResultH
    );
    
-   -- STAGE_TEXFETCH
+   -- STAGE_TEXCOORD
    iRDP_TexCoordClamp_S : entity work.RDP_TexCoordClamp port map (texture_S_unclamped, texture_S_clamped);
    iRDP_TexCoordClamp_T : entity work.RDP_TexCoordClamp port map (texture_T_unclamped, texture_T_clamped);
     
    iRDP_TexTile_S: entity work.RDP_TexTile
    port map
    (
+      clk1x          => clk1x,
+      trigger        => pipeIn_trigger,
+   
       coordIn        => texture_S_clamped,
       tile_max       => settings_tile.Tile_sh,
       tile_min       => settings_tile.Tile_sl,
@@ -767,6 +797,9 @@ begin
    iRDP_TexTile_T: entity work.RDP_TexTile
    port map
    (
+      clk1x          => clk1x,
+      trigger        => pipeIn_trigger,
+   
       coordIn        => texture_T_clamped,
       tile_max       => settings_tile.Tile_th,
       tile_min       => settings_tile.Tile_tl,
@@ -780,6 +813,8 @@ begin
       diff_out       => texture_T_diff
    );
     
+    
+   -- STAGE_TEXFETCH + STAGE_PALETTE
    iRDP_TexFetch: entity work.RDP_TexFetch
    port map
    (
@@ -872,14 +907,14 @@ begin
       yOdd                    => stage_y(STAGE_INPUT)(0),               
                                                     
       FBAddr                  => FBAddr,             
-      FBData                  => unsigned(FBData),  
+      FBData_in               => unsigned(FBData),  
 
       FBAddr9                 => FBAddr9,
-      FBData9                 => unsigned(FBData9),             
-      FBData9Z                => unsigned(FBData9Z),   
+      FBData9_in              => unsigned(FBData9),             
+      FBData9Z_in             => unsigned(FBData9Z),   
 
       FBAddrZ                 => FBAddrZ,
-      FBDataZ                 => unsigned(FBDataZ), 
+      FBDataZ_in              => unsigned(FBDataZ), 
                               
       FBcolor                 => FBcolor,
       cvgFB                   => cvgFB,

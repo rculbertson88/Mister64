@@ -177,7 +177,7 @@ assign HDMI_FREEZE = 1'b0;
 assign AUDIO_S   = 1;
 assign AUDIO_MIX = status[8:7];
 
-assign LED_USER  = 0;
+assign LED_USER  = cart_download | bk_pending;
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
 assign BUTTONS   = 0;
@@ -231,6 +231,10 @@ wire reset_or = RESET | buttons[1] | status[0] | cart_download;
 parameter CONF_STR = {
 	"N64;SS3C000000:1000000;",
    "FS1,N64z64n64v64,Load;",
+   "-;",
+	"D0R[40],Reload Backup RAM;",
+	"D0R[41],Save Backup RAM;",
+	"D0O[42],Autosave,On,Off;",
    "-;",
 	"O[36],Savestates to SDCard,On,Off;",
 	"O[3],Autoincrement Slot,Off,On;",
@@ -308,8 +312,6 @@ wire [10:0] ps2_key;
 wire [127:0] status_in = {status[127:39],ss_slot,status[36:0]};
 wire [15:0] status_menumask = 16'd0;
 
-
-wire bk_pending;
 wire DIRECT_VIDEO;
 
 wire        ioctl_download;
@@ -321,6 +323,18 @@ reg         ioctl_wait = 0;
 
 reg [7:0] info_index;
 reg info_req;
+
+wire  [7:0] sd_lba;
+wire        sd_rd;
+wire        sd_wr;
+wire        sd_ack;
+wire  [7:0] sd_buff_addr;
+wire [15:0] sd_buff_dout;
+wire [15:0] sd_buff_din;
+wire        sd_buff_wr;
+wire        img_mounted;
+wire        img_readonly;
+wire [31:0] img_size;
 
 hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 (
@@ -355,6 +369,19 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
    .joystick_l_analog_1(joystick_analog_l1),
    .joystick_l_analog_2(joystick_analog_l2),
    .joystick_l_analog_3(joystick_analog_l3),
+   
+   .sd_lba('{sd_lba}),
+	.sd_rd(sd_rd),
+	.sd_wr(sd_wr),
+	.sd_ack(sd_ack),
+	.sd_buff_addr(sd_buff_addr),
+	.sd_buff_dout(sd_buff_dout),
+	.sd_buff_din('{sd_buff_din}),
+	.sd_buff_wr(sd_buff_wr),
+
+	.img_mounted(img_mounted),
+	.img_readonly(img_readonly),
+	.img_size(img_size),
    
    .direct_video(DIRECT_VIDEO)
 );
@@ -493,6 +520,26 @@ savestate_ui savestate_ui
 );
 defparam savestate_ui.INFO_TIMEOUT_BITS = 25;
 
+///////////////////////// SAVE/LOAD  /////////////////////////////
+
+wire  bk_pending;
+
+wire bk_load     = status[40] | (cart_download & img_mounted);
+wire bk_save     = status[41] | (OSD_STATUS & ~status[42]);
+
+reg use_img;
+
+always @(posedge clk_1x) begin
+	reg old_downloading;
+
+	old_downloading <= cart_download;
+	if(~old_downloading & cart_download) use_img <= 0;
+
+	if(img_mounted && img_size && !img_readonly) begin
+		use_img <= 1;
+	end
+end
+
 ////////////////////////////  SYSTEM  ///////////////////////////////////
 
 wire HBlank;
@@ -596,7 +643,22 @@ n64top
    .sound_out_right  (AUDIO_R),  
    
    // Saves
+   .SAVETYPE         (status[77:75]),
    .EEPROMTYPE       (eepromtype),
+   
+   .save             (bk_save),
+   .load             (bk_load),
+   .mounted          (use_img),
+   .changePending    (bk_pending),
+   .save_ongoing     (),
+   .save_rd          (sd_rd),
+   .save_wr          (sd_wr),
+   .save_lba         (sd_lba),
+   .save_ack         (sd_ack), 
+   .save_write       (sd_buff_wr),
+   .save_addr        (sd_buff_addr),
+   .save_dataIn      (sd_buff_dout),
+   .save_dataOut     (sd_buff_din),
    
    // video out   
    .video_hsync      (VGA_HS),

@@ -52,6 +52,7 @@ entity DDR3Mux is
       slow_in          : in  std_logic_vector(3 downto 0); 
       
       error            : out std_logic;
+      error_fifo       : out std_logic;
 
       ddr3_BUSY        : in  std_logic;                    
       ddr3_DOUT        : in  std_logic_vector(63 downto 0);
@@ -330,7 +331,7 @@ begin
       reset    => rspfifo_reset,  
       Din      => rspfifo_Din,     
       Wr       => (rspfifo_Wr and clk2xIndex),
-      Full     => open,    
+      Full     => error_fifo,    
       NearFull => rspfifo_nearfull,
       Dout     => rspfifo_Dout,    
       Rd       => rspfifo_Rd,      

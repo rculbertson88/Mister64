@@ -31,6 +31,8 @@ List of Errors:
 - Bit 13 - SDRAM Mux timeout
 - Bit 14 - not implemented texture mode is used
 - Bit 15 - not implemented render mode (2 pass or copy) is used
+- Bit 16 - RSP read Fifo overflow
+- Bit 17 - DDR3 - RSP write Fifo overflow
   
 ## Status
 

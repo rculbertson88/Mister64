@@ -62,6 +62,12 @@ entity pif is
       pad_3_analog_h       : in  std_logic_vector(7 downto 0);
       pad_3_analog_v       : in  std_logic_vector(7 downto 0);
       
+      eeprom_addr          : in  std_logic_vector(8 downto 0);
+      eeprom_wren          : in  std_logic;
+      eeprom_in            : in  std_logic_vector(31 downto 0);
+      eeprom_out           : out std_logic_vector(31 downto 0);
+      eeprom_change        : out std_logic := '0';
+      
       SS_reset             : in  std_logic;
       loading_savestate    : in  std_logic;
       SS_DataWrite         : in  std_logic_vector(63 downto 0);
@@ -181,10 +187,9 @@ architecture arch of pif is
    signal ram_q_b                   : std_logic_vector(7 downto 0); 
    
    -- EEPROM
-   signal eeprom_addr_a             : std_logic_vector(8 downto 0) := (others => '0');
+   signal eeprom_addr_a             : std_logic_vector(8 downto 0);
    signal eeprom_wren_a             : std_logic := '0';
-   signal eeprom_in_a               : std_logic_vector(31 downto 0) := (others => '1');
-   signal eeprom_out_a              : std_logic_vector(31 downto 0) := (others => '0');
+   signal eeprom_in_a               : std_logic_vector(31 downto 0);
       
    signal eeprom_addr_b             : std_logic_vector(10 downto 0) := (others => '0');
    signal eeprom_wren_b             : std_logic := '0';
@@ -197,6 +202,8 @@ architecture arch of pif is
       EEPROM_CLEAR
    );
    signal EEPROMState               : tEEPROMState := EEPROM_CLEAR;
+   
+   signal eeprom_addr_clear         : std_logic_vector(8 downto 0) := (others => '0');
    
 begin 
 
@@ -766,7 +773,7 @@ begin
       address_a   => eeprom_addr_a,
       data_a      => eeprom_in_a,
       wren_a      => eeprom_wren_a,
-      q_a         => eeprom_out_a,
+      q_a         => eeprom_out,
       
       clock_b     => clk1x,
       address_b   => eeprom_addr_b,
@@ -775,21 +782,24 @@ begin
       q_b         => eeprom_out_b
    );
    
+   eeprom_change <= eeprom_wren_b;
+   
+   eeprom_addr_a <= eeprom_addr_clear when (EEPROMState = EEPROM_CLEAR) else eeprom_addr;
+   eeprom_wren_a <= '1'               when (EEPROMState = EEPROM_CLEAR) else eeprom_wren;
+   eeprom_in_a   <= x"FFFFFFFF"       when (EEPROMState = EEPROM_CLEAR) else eeprom_in;
+   
    process (clk1x)
    begin
       if rising_edge(clk1x) then
       
-         eeprom_wren_a <= '0';
-         
          case (EEPROMState) is
          
             when EEPROM_IDLE =>
                null;
                
             when EEPROM_CLEAR =>
-               eeprom_addr_a <= std_logic_vector(unsigned(eeprom_addr_a) + 1);
-               eeprom_wren_a <= '1';
-               if (eeprom_addr_a = 9x"1FF") then
+               eeprom_addr_clear <= std_logic_vector(unsigned(eeprom_addr_clear) + 1);
+               if (eeprom_addr_clear = 9x"1FF") then
                    EEPROMState <= EEPROM_IDLE;
                end if;
          

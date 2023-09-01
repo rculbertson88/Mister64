@@ -7,6 +7,9 @@ use work.pRDP.all;
 entity RDP_TexTile is
    port 
    (
+      clk1x          : in  std_logic;
+      trigger        : in  std_logic;
+   
       coordIn        : in  signed(15 downto 0);
       tile_max       : in  unsigned(11 downto 0);
       tile_min       : in  unsigned(11 downto 0);
@@ -15,10 +18,10 @@ entity RDP_TexTile is
       tile_mask      : in  unsigned(3 downto 0);
       tile_shift     : in  unsigned(3 downto 0);
       
-      index_out      : out unsigned(9 downto 0);
-      index_out1     : out unsigned(9 downto 0);
-      index_out2     : out unsigned(9 downto 0);
-      index_out3     : out unsigned(9 downto 0);
+      index_out      : out unsigned(9 downto 0) := (others => '0');
+      index_out1     : out unsigned(9 downto 0) := (others => '0');
+      index_out2     : out unsigned(9 downto 0) := (others => '0');
+      index_out3     : out unsigned(9 downto 0) := (others => '0');
       frac_out       : out unsigned(4 downto 0);
       diff_out       : out signed(1 downto 0)
    );
@@ -106,40 +109,46 @@ begin
    wrapped_index2 <= not clamp_index2 when (wrap2 = '1') else clamp_index2;
    wrapped_index3 <= not clamp_index3 when (wrap3 = '1') else clamp_index3;
 
-   process (all)
+   process (clk1x)
    begin
+      if rising_edge(clk1x) then
+      
+         if (trigger = '1') then
    
-      index_out  <= clamp_index;
-      index_out1 <= clamp_index1;
-      index_out2 <= clamp_index2;
-      index_out3 <= clamp_index3;
-      
-      diff_out   <= to_signed(1, 2);
-      
-      if (tile_mask > 0) then
-         if (tile_mirror = '1') then
-            index_out  <= wrapped_index  and mask;
-            index_out1 <= wrapped_index1 and mask;
-            index_out2 <= wrapped_index2 and mask;
-            index_out3 <= wrapped_index3 and mask;
+            index_out  <= clamp_index;
+            index_out1 <= clamp_index1;
+            index_out2 <= clamp_index2;
+            index_out3 <= clamp_index3;
             
-            if (wrap = '1' and (((wrapped_index and mask) - 1) = mask)) then diff_out <= (others => '0'); end if;
-            if (wrap = '0' and ((wrapped_index and mask)       = mask)) then diff_out <= (others => '0'); end if;
-            if (wrap = '1') then
-               diff_out  <= to_signed(-1, 2);
-            end if;            
-         else
-            index_out  <= clamp_index  and mask;
-            index_out1 <= clamp_index1 and mask;
-            index_out2 <= clamp_index2 and mask;
-            index_out3 <= clamp_index3 and mask;
+            diff_out   <= to_signed(1, 2);
             
-            if (clamp_index = mask) then
-               diff_out  <= to_signed(-1, 2);
+            if (tile_mask > 0) then
+               if (tile_mirror = '1') then
+                  index_out  <= wrapped_index  and mask;
+                  index_out1 <= wrapped_index1 and mask;
+                  index_out2 <= wrapped_index2 and mask;
+                  index_out3 <= wrapped_index3 and mask;
+                  
+                  if (wrap = '1' and (((wrapped_index and mask) - 1) = mask)) then diff_out <= (others => '0'); end if;
+                  if (wrap = '0' and ((wrapped_index and mask)       = mask)) then diff_out <= (others => '0'); end if;
+                  if (wrap = '1') then
+                     diff_out  <= to_signed(-1, 2);
+                  end if;            
+               else
+                  index_out  <= clamp_index  and mask;
+                  index_out1 <= clamp_index1 and mask;
+                  index_out2 <= clamp_index2 and mask;
+                  index_out3 <= clamp_index3 and mask;
+                  
+                  if (clamp_index = mask) then
+                     diff_out  <= to_signed(-1, 2);
+                  end if;
+               end if;
             end if;
+         
          end if;
-      end if;
       
+      end if;
    end process;
    
    

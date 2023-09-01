@@ -97,7 +97,22 @@ entity n64top is
       sound_out_right         : out std_logic_vector(15 downto 0);
       
       -- save
+      SAVETYPE                : in  std_logic_vector(2 downto 0); -- 0 -> None, 1 -> EEPROM4, 2 -> EEPROM16, 3 -> SRAM32, 4 -> SRAM96, 5 -> Flash
       EEPROMTYPE              : in  std_logic_vector(1 downto 0); -- 00 -> off, 01 -> 4kbit, 10 -> 16kbit
+      
+      save                    : in  std_logic;
+      load                    : in  std_logic;
+      mounted                 : in  std_logic; 
+      changePending           : out std_logic;
+      save_ongoing            : out std_logic;
+      save_rd                 : out std_logic;
+      save_wr                 : out std_logic;
+      save_lba                : out std_logic_vector(7 downto 0);
+      save_ack                : in  std_logic;
+      save_write              : in  std_logic;
+      save_addr               : in  std_logic_vector(7 downto 0);
+      save_dataIn             : in  std_logic_vector(15 downto 0);
+      save_dataOut            : out std_logic_vector(15 downto 0);
    
       -- video out   
       video_hsync             : out std_logic := '0';
@@ -129,7 +144,7 @@ architecture arch of n64top is
    
    -- error codes
    signal errorEna               : std_logic;
-   signal errorCode              : unsigned(15 downto 0) := (others => '0');
+   signal errorCode              : unsigned(19 downto 0) := (others => '0');
    
    signal errorMEMMUX            : std_logic;
    signal errorCPU_instr         : std_logic;
@@ -147,6 +162,8 @@ architecture arch of n64top is
    signal error_sdramMux         : std_logic;
    signal errorRDP_texMode       : std_logic;
    signal errorRDP_drawMode      : std_logic;
+   signal errorRSP_FIFO          : std_logic;
+   signal errorDDR3_FIFO         : std_logic;
   
    -- irq
    signal irqRequest             : std_logic;
@@ -342,6 +359,13 @@ architecture arch of n64top is
    signal savestate_address      : integer; 
    signal savestate_busy         : std_logic; 
    
+   -- save rams
+   signal eeprom_addr            : std_logic_vector(8 downto 0);
+   signal eeprom_wren            : std_logic;
+   signal eeprom_in              : std_logic_vector(31 downto 0);
+   signal eeprom_out             : std_logic_vector(31 downto 0);
+   signal eeprom_change          : std_logic;
+   
    -- synthesis translate_off
    -- export
    signal cpu_done               : std_logic; 
@@ -402,6 +426,10 @@ begin
    process (reset_intern_1x, error_sdramMux       ) begin if (error_sdramMux        = '1') then errorCode(13) <= '1'; elsif (reset_intern_1x = '1') then errorCode(13) <= '0'; end if; end process;
    process (reset_intern_1x, errorRDP_texMode     ) begin if (errorRDP_texMode      = '1') then errorCode(14) <= '1'; elsif (reset_intern_1x = '1') then errorCode(14) <= '0'; end if; end process;
    process (reset_intern_1x, errorRDP_drawMode    ) begin if (errorRDP_drawMode     = '1') then errorCode(15) <= '1'; elsif (reset_intern_1x = '1') then errorCode(15) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRSP_FIFO        ) begin if (errorRSP_FIFO         = '1') then errorCode(16) <= '1'; elsif (reset_intern_1x = '1') then errorCode(16) <= '0'; end if; end process;
+   process (reset_intern_1x, errorDDR3_FIFO       ) begin if (errorDDR3_FIFO        = '1') then errorCode(17) <= '1'; elsif (reset_intern_1x = '1') then errorCode(17) <= '0'; end if; end process;
+   
+   errorCode(19 downto 18) <= "00";
    
    process (clk1x)
    begin
@@ -432,6 +460,7 @@ begin
       
       error_instr          => errorRSP_instr,
       error_stall          => errorRSP_stall,
+      error_fifo           => errorRSP_FIFO,
                            
       bus_addr             => bus_RSP_addr,     
       bus_dataWrite        => bus_RSP_dataWrite,
@@ -856,6 +885,12 @@ begin
       pad_2_analog_v       => pad_2_analog_v,
       pad_3_analog_h       => pad_3_analog_h,
       pad_3_analog_v       => pad_3_analog_v,
+      
+      eeprom_addr          => eeprom_addr,  
+      eeprom_wren          => eeprom_wren,  
+      eeprom_in            => eeprom_in,    
+      eeprom_out           => eeprom_out,   
+      eeprom_change        => eeprom_change,
 
       SS_reset             => SS_reset,
       loading_savestate    => loading_savestate,
@@ -883,6 +918,7 @@ begin
       slow_in          => DDR3SLOW,
       
       error            => errorDDR3,
+      error_fifo       => errorDDR3_FIFO,
                                           
       ddr3_BUSY        => ddr3_BUSY,       
       ddr3_DOUT        => ddr3_DOUT,       
@@ -1188,6 +1224,38 @@ begin
       request_address     => savestate_address,  
       request_busy        => savestate_busy    
    );
+   
+   isavemem : entity work.savemem
+   port map
+   (
+      clk                  => clk1x,  
+      reset                => reset,
+      
+      SAVETYPE             => SAVETYPE,
+      
+      save                 => save,          
+      load                 => load,          
+                                            
+      mounted              => mounted,       
+      anyChange            => eeprom_change,     
+                                            
+      changePending        => changePending, 
+      save_ongoing         => save_ongoing,  
+                                            
+      eeprom_addr          => eeprom_addr,   
+      eeprom_wren          => eeprom_wren,   
+      eeprom_in            => eeprom_in,     
+      eeprom_out           => eeprom_out,    
+                                            
+      save_rd              => save_rd,       
+      save_wr              => save_wr,       
+      save_lba             => save_lba,      
+      save_ack             => save_ack,      
+      save_write           => save_write,    
+      save_addr            => save_addr,     
+      save_dataIn          => save_dataIn,   
+      save_dataOut         => save_dataOut  
+   );
 
    -- export
 -- synthesis translate_off
@@ -1204,8 +1272,3 @@ begin
 -- synthesis translate_on
 
 end architecture;
-
-
-
-
-

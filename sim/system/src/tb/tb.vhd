@@ -177,7 +177,22 @@ begin
       pad_3_analog_v        => x"00", 
       
       -- saves              
+      SAVETYPE              => "001",
       EEPROMTYPE            => "01",
+      
+      save                  => '0', 
+      load                  => '0', 
+      mounted               => '0', 
+      changePending         => open,
+      save_ongoing          => open,
+      save_rd               => open,
+      save_wr               => open,
+      save_lba              => open,
+      save_ack              => '0', 
+      save_write            => '0', 
+      save_addr             => 8x"0",
+      save_dataIn           => 16x"0",
+      save_dataOut          => open,
              
       -- video out
       video_hsync           => open,

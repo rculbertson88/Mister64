@@ -20,7 +20,7 @@ entity VI is
       irq_out          : out std_logic := '0';
       
       errorEna         : in  std_logic;
-      errorCode        : in  unsigned(15 downto 0);
+      errorCode        : in  unsigned(19 downto 0);
       fpscountOn       : in  std_logic;
       
       rdram_request    : out std_logic := '0';

@@ -75,6 +75,7 @@ src/tb/cpu_mul.vhd ^
 ../../rtl/SDRamMux.vhd ^
 ../../rtl/statemanager.vhd ^
 ../../rtl/savestates.vhd ^
+../../rtl/savemem.vhd ^
 ../../rtl/n64top.vhd 
 
 vcom -2008 -quiet -work sim/tb ^
