@@ -23,6 +23,7 @@ entity RSP is
       
       error_instr          : out std_logic;
       error_stall          : out std_logic;
+      error_Fifo           : out std_logic;
       
       bus_addr             : in  unsigned(19 downto 0); 
       bus_dataWrite        : in  std_logic_vector(31 downto 0);
@@ -659,7 +660,7 @@ begin
       reset    => fifoin_reset,  
       Din      => ddr3_DOUT,     
       Wr       => (ddr3_DOUT_READY and dma_store),      
-      Full     => open,    
+      Full     => error_Fifo,    
       NearFull => fifoin_nearfull,
       Dout     => fifoin_Dout,    
       Rd       => (fifoin_Rd and clk2xIndex),      

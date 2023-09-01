@@ -24,6 +24,8 @@ entity RDP_Zbuffer is
       -- STAGE_PERSPCOR
       cvgCount                : in  unsigned(3 downto 0);
       
+      -- STAGE_TEXCOORD
+      
       -- STAGE_TEXFETCH
       
       -- STAGE_TEXREAD
@@ -64,8 +66,11 @@ architecture arch of RDP_Zbuffer is
       
    signal new_z             : unsigned(17 downto 0) := (others => '0');
       
+   -- STAGE_TEXCOORD
+   signal new_z_1           : unsigned(17 downto 0)  := (others => '0');   
+   
    -- STAGE_TEXFETCH     
-   signal new_z_1           : unsigned(17 downto 0)  := (others => '0');
+   signal new_z_2           : unsigned(17 downto 0)  := (others => '0');
    
    -- STAGE_TEXREAD
    signal oldZ_mantissa     : unsigned(10 downto 0);
@@ -82,13 +87,13 @@ architecture arch of RDP_Zbuffer is
    signal old_z             : unsigned(17 downto 0)  := (others => '0');
    signal planar            : std_logic := '0';
    signal old_dz            : unsigned(15 downto 0)  := (others => '0');
-   signal new_z_2           : unsigned(17 downto 0)  := (others => '0');
+   signal new_z_3           : unsigned(17 downto 0)  := (others => '0');
    
    -- STAGE_PALETTE
    signal dz_compare        : unsigned(15 downto 0);
    
    signal dzNew             : unsigned(15 downto 0) := (others => '0');
-   signal new_z_3           : unsigned(17 downto 0)  := (others => '0');
+   signal new_z_4           : unsigned(17 downto 0)  := (others => '0');
    signal planar_1          : std_logic := '0';
    signal old_z_1           : unsigned(17 downto 0)  := (others => '0');
    
@@ -111,7 +116,7 @@ architecture arch of RDP_Zbuffer is
    signal is_near           : std_logic := '0';
    signal is_far            : std_logic := '0';
    signal is_overflow       : std_logic := '0';
-   signal new_z_4           : unsigned(17 downto 0)  := (others => '0');
+   signal new_z_5           : unsigned(17 downto 0)  := (others => '0');
   
 begin 
   
@@ -157,7 +162,7 @@ begin
       end if;
    end process;
    
-   -- STAGE_TEXFETCH   
+   -- STAGE_TEXCOORD   
    process (clk1x)
    begin
       if rising_edge(clk1x) then
@@ -165,6 +170,20 @@ begin
          if (trigger = '1') then
          
             new_z_1 <= unsigned(new_z);
+
+         end if;
+         
+      end if;
+   end process;
+   
+   -- STAGE_TEXFETCH   
+   process (clk1x)
+   begin
+      if rising_edge(clk1x) then
+         
+         if (trigger = '1') then
+         
+            new_z_2 <= new_z_1;
 
          end if;
          
@@ -187,7 +206,7 @@ begin
          
          if (trigger = '1') then
          
-            new_z_2 <= new_z_1;
+            new_z_3 <= new_z_2;
             
             old_z   <= oldZ_mantShifted + oldZ_addValue;
  
@@ -221,7 +240,7 @@ begin
          
          if (trigger = '1') then
          
-            new_z_3  <= new_z_2;
+            new_z_4  <= new_z_3;
             old_z_1  <= old_z;
             planar_1 <= planar;
          
@@ -243,14 +262,14 @@ begin
    end process;
    
    -- STAGE_COMBINER
-   zNewSigned  <=  "00" & signed(new_z_3);
+   zNewSigned  <=  "00" & signed(new_z_4);
    dzNewSigned <=  '0' & signed(dzNew) & "000";
    diffZ       <= zNewSigned - dzNewSigned;
    
    calc_max      <= '1' when (old_z_1 = 18x"3FFFF") else '0';
-   calc_front    <= '1' when (new_z_3 < old_z_1) else '0';
+   calc_front    <= '1' when (new_z_4 < old_z_1) else '0';
    calc_near     <= '1' when (planar_1 = '1' or to_integer(diffZ) <= to_integer(old_z_1)) else '0';
-   calc_far      <= '1' when (planar_1 = '1' or (new_z_3 + (dzNew & "000")) > old_z_1) else '0'; 
+   calc_far      <= '1' when (planar_1 = '1' or (new_z_4 + (dzNew & "000")) > old_z_1) else '0'; 
    calc_overflow <= '1' when (cvgFB + cvgCount_4 >= 8) else '0';
    
    process (clk1x)
@@ -259,7 +278,7 @@ begin
          
          if (trigger = '1') then
          
-            new_z_4 <= new_z_3;
+            new_z_5 <= new_z_4;
             
             is_max       <= calc_max;
             is_front     <= calc_front;
@@ -279,7 +298,7 @@ begin
             end if;
 
             -- synthesis translate_off
-            export_zNewRaw  <= 14x"0" & new_z_3;
+            export_zNewRaw  <= 14x"0" & new_z_4;
             export_zOld     <= 14x"0" & old_z_1;
             export_dzOld    <= old_dz_1;
             export_dzNew    <= dzNew;
@@ -332,14 +351,14 @@ begin
                zUsePixel <= '1';
             end if;
 
-            if    (new_z_4(17 downto 11) < 16#40#) then zResult <= "000" & new_z_4(16 downto 6) & "00";
-            elsif (new_z_4(17 downto 11) < 16#60#) then zResult <= "001" & new_z_4(15 downto 5) & "00";
-            elsif (new_z_4(17 downto 11) < 16#70#) then zResult <= "010" & new_z_4(14 downto 4) & "00";
-            elsif (new_z_4(17 downto 11) < 16#78#) then zResult <= "011" & new_z_4(13 downto 3) & "00";
-            elsif (new_z_4(17 downto 11) < 16#7C#) then zResult <= "100" & new_z_4(12 downto 2) & "00";
-            elsif (new_z_4(17 downto 11) < 16#7E#) then zResult <= "101" & new_z_4(11 downto 1) & "00";
-            elsif (new_z_4(17 downto 11) < 16#7F#) then zResult <= "110" & new_z_4(10 downto 0) & "00";
-            else                                        zResult <= "111" & new_z_4(10 downto 0) & "00";
+            if    (new_z_5(17 downto 11) < 16#40#) then zResult <= "000" & new_z_5(16 downto 6) & "00";
+            elsif (new_z_5(17 downto 11) < 16#60#) then zResult <= "001" & new_z_5(15 downto 5) & "00";
+            elsif (new_z_5(17 downto 11) < 16#70#) then zResult <= "010" & new_z_5(14 downto 4) & "00";
+            elsif (new_z_5(17 downto 11) < 16#78#) then zResult <= "011" & new_z_5(13 downto 3) & "00";
+            elsif (new_z_5(17 downto 11) < 16#7C#) then zResult <= "100" & new_z_5(12 downto 2) & "00";
+            elsif (new_z_5(17 downto 11) < 16#7E#) then zResult <= "101" & new_z_5(11 downto 1) & "00";
+            elsif (new_z_5(17 downto 11) < 16#7F#) then zResult <= "110" & new_z_5(10 downto 0) & "00";
+            else                                        zResult <= "111" & new_z_5(10 downto 0) & "00";
             end if;
             
             zResult(1 downto 0) <= dzPixEnc(3 downto 2);

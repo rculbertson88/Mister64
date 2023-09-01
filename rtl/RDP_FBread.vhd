@@ -19,14 +19,14 @@ entity RDP_FBread is
       yOdd                    : in  std_logic;
       
       FBAddr                  : out unsigned(10 downto 0);
-      FBData                  : in  unsigned(31 downto 0);
+      FBData_in               : in  unsigned(31 downto 0);
       
       FBAddr9                 : out unsigned(7 downto 0);
-      FBData9                 : in  unsigned(31 downto 0);
-      FBData9Z                : in  unsigned(31 downto 0);
+      FBData9_in              : in  unsigned(31 downto 0);
+      FBData9Z_in             : in  unsigned(31 downto 0);
       
       FBAddrZ                 : out unsigned(11 downto 0);
-      FBDataZ                 : in  unsigned(15 downto 0);
+      FBDataZ_in              : in  unsigned(15 downto 0);
      
       FBcolor                 : out  tcolor4_u8 := (others => (others => '0'));
       cvgFB                   : out unsigned(2 downto 0) := (others => '0');
@@ -39,10 +39,20 @@ end entity;
 architecture arch of RDP_FBread is
 
    signal muxselect  : std_logic := '0';
-   signal Fbdata16   : unsigned(15 downto 0);
-   
    signal muxselect9 : unsigned(3 downto 0) := (others => '0');
-   signal Fbdata16_9 : unsigned(1 downto 0);
+
+   -- 1 cycle delay
+   signal FBData        : unsigned(31 downto 0);
+   signal FBData9       : unsigned(31 downto 0);
+   signal FBData9Z      : unsigned(31 downto 0);
+   signal FBDataZ       : unsigned(15 downto 0);
+   
+   signal muxselect_1   : std_logic := '0';
+   signal muxselect9_1  : unsigned(3 downto 0) := (others => '0');
+   
+   signal Fbdata16      : unsigned(15 downto 0);
+   signal Fbdata16_9    : unsigned(1 downto 0);
+   
 
 begin 
    
@@ -52,14 +62,9 @@ begin
    
    FBAddr9 <= yOdd & xIndex9(10 downto 4);
    
-   Fbdata16   <= byteswap16(FBData(31 downto 16)) when (muxselect = '1') else byteswap16(FBData(15 downto 0));
-   
-   Fbdata16_9(1) <= FBData9((to_integer(muxselect9) * 2) + 1);
-   Fbdata16_9(0) <= FBData9((to_integer(muxselect9) * 2) + 0);
-   
-   
    FBAddrZ <= yOdd & xIndexPx(10 downto 0);
-
+   
+   
    process (clk1x)
    begin
       if rising_edge(clk1x) then
@@ -69,13 +74,37 @@ begin
             muxselect  <= xIndexPx(0);
             muxselect9 <= xIndex9(3 downto 0);
          
+            FBData    <= FBData_in;
+            FBData9   <= FBData9_in;  
+            FBData9Z  <= FBData9Z_in; 
+            FBDataZ   <= FBDataZ_in;  
+         
+         end if;
+
+      end if;
+   end process;
+   
+   Fbdata16   <= byteswap16(FBData(31 downto 16)) when (muxselect_1 = '1') else byteswap16(FBData(15 downto 0));
+   
+   Fbdata16_9(1) <= FBData9((to_integer(muxselect9_1) * 2) + 1);
+   Fbdata16_9(0) <= FBData9((to_integer(muxselect9_1) * 2) + 0);
+   
+   process (clk1x)
+   begin
+      if rising_edge(clk1x) then
+         
+         if (trigger = '1') then
+         
+            muxselect_1  <= muxselect;
+            muxselect9_1 <= muxselect9;
+         
             FBData9_old  <= FBData9;
             FBData9_oldZ <= FBData9Z;
             
             old_Z_mem(15 downto 0) <= byteswap16(FBDataZ);
    
-            old_Z_mem(17) <= FBData9Z((to_integer(muxselect9) * 2) + 1);
-            old_Z_mem(16) <= FBData9Z((to_integer(muxselect9) * 2) + 0);
+            old_Z_mem(17) <= FBData9Z((to_integer(muxselect9_1) * 2) + 1);
+            old_Z_mem(16) <= FBData9Z((to_integer(muxselect9_1) * 2) + 0);
          
             case (settings_colorImage.FB_size) is
                when SIZE_16BIT =>
