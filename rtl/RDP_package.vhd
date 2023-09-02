@@ -246,16 +246,22 @@ package pRDP is
       LOADTYPE_TILE
    ); 
    
-   type tcolor3_u8 is array(0 to 2) of unsigned(7 downto 0);
+   type tcolor3_u8  is array(0 to 2) of unsigned(7 downto 0);
    type tcolor3_u13 is array(0 to 2) of unsigned(12 downto 0);
    type tcolor3_u14 is array(0 to 2) of unsigned(13 downto 0);
    type tcolor3_s10 is array(0 to 2) of signed(9 downto 0);
    type tcolor3_s12 is array(0 to 2) of signed(11 downto 0);
+   type tcolor3_s16 is array(0 to 2) of signed(15 downto 0);
    type tcolor3_s20 is array(0 to 2) of signed(19 downto 0);
+   type tcolor3_s32 is array(0 to 2) of signed(31 downto 0);
    
-   type tcolor4_u8 is array(0 to 3) of unsigned(7 downto 0);
+   type tcolor4_u8  is array(0 to 3) of unsigned(7 downto 0);
+   type tcolor4_u12 is array(0 to 3) of unsigned(11 downto 0);
+   type tcolor4_u32 is array(0 to 3) of unsigned(31 downto 0);
    type tcolor4_s16 is array(0 to 3) of signed(15 downto 0);
    type tcolor4_s32 is array(0 to 3) of signed(31 downto 0);
+   
+   type tcolor44_u8 is array(0 to 3) of tcolor4_u8;
    
    type tTextureRamAddr is array(0 to 7) of std_logic_vector(7 downto 0);
    type tTextureRamData is array(0 to 7) of std_logic_vector(15 downto 0);
@@ -270,6 +276,10 @@ package pRDP is
    constant FORMAT_CI   : unsigned(2 downto 0) := "010";
    constant FORMAT_IA   : unsigned(2 downto 0) := "011";
    constant FORMAT_I    : unsigned(2 downto 0) := "100";
+   
+   constant TEXMODE_UNFILTERED : unsigned(1 downto 0) := "00";
+   constant TEXMODE_UPPER      : unsigned(1 downto 0) := "10";
+   constant TEXMODE_LOWER      : unsigned(1 downto 0) := "11";
 
    -- export
    -- synthesis translate_off

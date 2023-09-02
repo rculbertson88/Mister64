@@ -11,6 +11,8 @@ entity RDP_pipeline is
       clk1x                   : in  std_logic;
       reset                   : in  std_logic;
       
+      DISABLEFILTER           : in  std_logic;
+      
       errorCombine            : out std_logic;
       error_combineAlpha      : out std_logic;
       error_texMode           : out std_logic; 
@@ -74,8 +76,15 @@ entity RDP_pipeline is
       export_Color            : out rdp_export_type := (others => (others => '0'));
       export_LOD              : out rdp_export_type := (others => (others => '0'));
       export_TexCoord         : out rdp_export_type := (others => (others => '0'));
-      export_TexFetch         : out rdp_export_type := (others => (others => '0'));
-      export_TexColor         : out rdp_export_type := (others => (others => '0'));
+      export_TexFetch0        : out rdp_export_type := (others => (others => '0'));
+      export_TexFetch1        : out rdp_export_type := (others => (others => '0'));
+      export_TexFetch2        : out rdp_export_type := (others => (others => '0'));
+      export_TexFetch3        : out rdp_export_type := (others => (others => '0'));
+      export_texmode          : out unsigned(1 downto 0) := (others => '0');
+      export_TexColor0        : out rdp_export_type := (others => (others => '0'));
+      export_TexColor1        : out rdp_export_type := (others => (others => '0'));
+      export_TexColor2        : out rdp_export_type := (others => (others => '0'));
+      export_TexColor3        : out rdp_export_type := (others => (others => '0'));
       export_Comb             : out rdp_export_type := (others => (others => '0'));
       export_FBMem            : out rdp_export_type := (others => (others => '0'));
       export_Z                : out rdp_export_type := (others => (others => '0'));
@@ -130,6 +139,8 @@ architecture arch of RDP_pipeline is
    type t_stage_c32s is array(0 to STAGE_OUTPUT - 1) of tcolor4_s32;
    type t_stage_c16s is array(0 to STAGE_OUTPUT - 1) of tcolor4_s16;
    type t_stage_c8u is array(0 to STAGE_OUTPUT - 1) of tcolor4_u8;
+   type t_stage_c12u is array(0 to STAGE_OUTPUT - 1) of tcolor4_u12;
+   type t_stage_c32u is array(0 to STAGE_OUTPUT - 1) of tcolor4_u32;
    
    -- stage register
    signal stage_valid         : unsigned(0 to STAGE_OUTPUT - 1);
@@ -202,7 +213,9 @@ architecture arch of RDP_pipeline is
    signal texture_S_index1    : unsigned(9 downto 0);
    signal texture_S_index2    : unsigned(9 downto 0);
    signal texture_S_index3    : unsigned(9 downto 0);
+   signal texture_S_indexN    : unsigned(9 downto 0);
    signal texture_T_index     : unsigned(9 downto 0);
+   signal texture_T_indexN    : unsigned(9 downto 0);
    signal texture_S_frac      : unsigned(4 downto 0);
    signal texture_T_frac      : unsigned(4 downto 0);
    signal texture_S_diff      : signed(1 downto 0);
@@ -223,24 +236,28 @@ architecture arch of RDP_pipeline is
    signal stage_STWZ          : t_stage_c32s;
    signal stage_texCoord_S    : t_stage_s16;
    signal stage_texCoord_T    : t_stage_s16;
-   signal stage_texIndex_S    : t_stage_u10;
-   signal stage_texIndex_T    : t_stage_u10;
-   signal stage_texAddr       : t_stage_u12;
-   signal stage_texFt_addr    : t_stage_u32;
-   signal stage_texFt_data    : t_stage_u32;
-   signal stage_texFt_db1     : t_stage_u32;
-   signal stage_texFt_db3     : t_stage_u32;
+   signal stage_texIndex_S0   : t_stage_u10;
+   signal stage_texIndex_SN   : t_stage_u10;
+   signal stage_texIndex_T0   : t_stage_u10;
+   signal stage_texIndex_TN   : t_stage_u10;
+   signal stage_texAddr       : t_stage_c12u;
+   signal stage_texFt_addr    : t_stage_c32u;
+   signal stage_texFt_data    : t_stage_c32u;
+   signal stage_texFt_db1     : t_stage_c32u;
+   signal stage_texFt_db3     : t_stage_c32u;
+   signal stage_texFt_mode    : t_stage_u2;
    signal stage_combineC      : t_stage_c8u;
    signal stage_zNewRaw       : t_stage_u32;
    signal stage_zOld          : t_stage_u32;
    signal stage_dzOld         : t_stage_u16;
    signal stage_dzNew         : t_stage_u16;
    
-   signal export_TextureAddr  : unsigned(11 downto 0);
-   signal export_TexFt_addr   : unsigned(31 downto 0);
-   signal export_TexFt_data   : unsigned(31 downto 0);
-   signal export_TexFt_db1    : unsigned(31 downto 0);
-   signal export_TexFt_db3    : unsigned(31 downto 0);
+   signal export_TextureAddr  : tcolor4_u12;
+   signal export_TexFt_addr   : tcolor4_u32;
+   signal export_TexFt_data   : tcolor4_u32;
+   signal export_TexFt_db1    : tcolor4_u32;
+   signal export_TexFt_db3    : tcolor4_u32;
+   signal export_TexFt_mode   : unsigned(1 downto 0);
    signal export_zNewRaw      : unsigned(31 downto 0);
    signal export_zOld         : unsigned(31 downto 0);
    signal export_dzOld        : unsigned(15 downto 0);
@@ -420,8 +437,10 @@ begin
             stage_STWZ(STAGE_TEXFETCH)       <= stage_STWZ(STAGE_TEXCOORD);
             stage_texCoord_S(STAGE_TEXFETCH) <= stage_texCoord_S(STAGE_TEXCOORD);
             stage_texCoord_T(STAGE_TEXFETCH) <= stage_texCoord_T(STAGE_TEXCOORD);
-            stage_texIndex_S(STAGE_TEXFETCH) <= texture_S_index;
-            stage_texIndex_T(STAGE_TEXFETCH) <= texture_T_index;
+            stage_texIndex_S0(STAGE_TEXFETCH) <= texture_S_index;
+            stage_texIndex_SN(STAGE_TEXFETCH) <= texture_S_indexN;
+            stage_texIndex_T0(STAGE_TEXFETCH) <= texture_T_index;
+            stage_texIndex_TN(STAGE_TEXFETCH) <= texture_T_indexN;
             stage_texAddr(STAGE_TEXFETCH)    <= export_TextureAddr;
             -- synthesis translate_on         
             
@@ -446,14 +465,16 @@ begin
             stage_FBData9Z(STAGE_TEXREAD) <= FBData9_oldZ;
 
             -- synthesis translate_off
-            stage_cvg16(STAGE_TEXREAD)      <= stage_cvg16(STAGE_TEXFETCH);
-            stage_colorFull(STAGE_TEXREAD)  <= stage_colorFull(STAGE_TEXFETCH);
-            stage_STWZ(STAGE_TEXREAD)       <= stage_STWZ(STAGE_TEXFETCH);
-            stage_texCoord_S(STAGE_TEXREAD) <= stage_texCoord_S(STAGE_TEXFETCH);
-            stage_texCoord_T(STAGE_TEXREAD) <= stage_texCoord_T(STAGE_TEXFETCH);
-            stage_texIndex_S(STAGE_TEXREAD) <= stage_texIndex_S(STAGE_TEXFETCH);
-            stage_texIndex_T(STAGE_TEXREAD) <= stage_texIndex_T(STAGE_TEXFETCH);
-            stage_texAddr(STAGE_TEXREAD)    <= stage_texAddr(STAGE_TEXFETCH);
+            stage_cvg16(STAGE_TEXREAD)       <= stage_cvg16(STAGE_TEXFETCH);
+            stage_colorFull(STAGE_TEXREAD)   <= stage_colorFull(STAGE_TEXFETCH);
+            stage_STWZ(STAGE_TEXREAD)        <= stage_STWZ(STAGE_TEXFETCH);
+            stage_texCoord_S(STAGE_TEXREAD)  <= stage_texCoord_S(STAGE_TEXFETCH);
+            stage_texCoord_T(STAGE_TEXREAD)  <= stage_texCoord_T(STAGE_TEXFETCH);
+            stage_texIndex_S0(STAGE_TEXREAD) <= stage_texIndex_S0(STAGE_TEXFETCH);
+            stage_texIndex_SN(STAGE_TEXREAD) <= stage_texIndex_SN(STAGE_TEXFETCH);
+            stage_texIndex_T0(STAGE_TEXREAD) <= stage_texIndex_T0(STAGE_TEXFETCH);
+            stage_texIndex_TN(STAGE_TEXREAD) <= stage_texIndex_TN(STAGE_TEXFETCH);
+            stage_texAddr(STAGE_TEXREAD)     <= stage_texAddr(STAGE_TEXFETCH);
             -- synthesis translate_on         
             
             -- ##################################################
@@ -477,14 +498,16 @@ begin
             stage_FBData9Z(STAGE_PALETTE) <= stage_FBData9Z(STAGE_TEXREAD);      
 
             -- synthesis translate_off
-            stage_cvg16(STAGE_PALETTE)      <= stage_cvg16(STAGE_TEXREAD);
-            stage_colorFull(STAGE_PALETTE)  <= stage_colorFull(STAGE_TEXREAD);
-            stage_STWZ(STAGE_PALETTE)       <= stage_STWZ(STAGE_TEXREAD);
-            stage_texCoord_S(STAGE_PALETTE) <= stage_texCoord_S(STAGE_TEXREAD);
-            stage_texCoord_T(STAGE_PALETTE) <= stage_texCoord_T(STAGE_TEXREAD);
-            stage_texIndex_S(STAGE_PALETTE) <= stage_texIndex_S(STAGE_TEXREAD);
-            stage_texIndex_T(STAGE_PALETTE) <= stage_texIndex_T(STAGE_TEXREAD);
-            stage_texAddr(STAGE_PALETTE)    <= stage_texAddr(STAGE_TEXREAD);
+            stage_cvg16(STAGE_PALETTE)       <= stage_cvg16(STAGE_TEXREAD);
+            stage_colorFull(STAGE_PALETTE)   <= stage_colorFull(STAGE_TEXREAD);
+            stage_STWZ(STAGE_PALETTE)        <= stage_STWZ(STAGE_TEXREAD);
+            stage_texCoord_S(STAGE_PALETTE)  <= stage_texCoord_S(STAGE_TEXREAD);
+            stage_texCoord_T(STAGE_PALETTE)  <= stage_texCoord_T(STAGE_TEXREAD);
+            stage_texIndex_S0(STAGE_PALETTE) <= stage_texIndex_S0(STAGE_TEXREAD);
+            stage_texIndex_SN(STAGE_PALETTE) <= stage_texIndex_SN(STAGE_TEXREAD);
+            stage_texIndex_T0(STAGE_PALETTE) <= stage_texIndex_T0(STAGE_TEXREAD);
+            stage_texIndex_TN(STAGE_PALETTE) <= stage_texIndex_TN(STAGE_TEXREAD);
+            stage_texAddr(STAGE_PALETTE)     <= stage_texAddr(STAGE_TEXREAD);
             -- synthesis translate_on         
             
             -- ##################################################
@@ -528,18 +551,21 @@ begin
             if (texture_copy( 0) = '0') then copyBE(7 downto 6) <= "00"; end if;
             
             -- synthesis translate_off
-            stage_cvg16(STAGE_COMBINER)      <= stage_cvg16(STAGE_PALETTE);
-            stage_colorFull(STAGE_COMBINER)  <= stage_colorFull(STAGE_PALETTE);
-            stage_STWZ(STAGE_COMBINER)       <= stage_STWZ(STAGE_PALETTE);
-            stage_texCoord_S(STAGE_COMBINER) <= stage_texCoord_S(STAGE_PALETTE);
-            stage_texCoord_T(STAGE_COMBINER) <= stage_texCoord_T(STAGE_PALETTE);
-            stage_texIndex_S(STAGE_COMBINER) <= stage_texIndex_S(STAGE_PALETTE);
-            stage_texIndex_T(STAGE_COMBINER) <= stage_texIndex_T(STAGE_PALETTE);
-            stage_texAddr(STAGE_COMBINER)    <= stage_texAddr(STAGE_PALETTE);
-            stage_texFt_addr(STAGE_COMBINER) <= export_TexFt_addr;
-            stage_texFt_data(STAGE_COMBINER) <= export_TexFt_data;
-            stage_texFt_db1(STAGE_COMBINER)  <= export_TexFt_db1; 
-            stage_texFt_db3(STAGE_COMBINER)  <= export_TexFt_db3; 
+            stage_cvg16(STAGE_COMBINER)       <= stage_cvg16(STAGE_PALETTE);
+            stage_colorFull(STAGE_COMBINER)   <= stage_colorFull(STAGE_PALETTE);
+            stage_STWZ(STAGE_COMBINER)        <= stage_STWZ(STAGE_PALETTE);
+            stage_texCoord_S(STAGE_COMBINER)  <= stage_texCoord_S(STAGE_PALETTE);
+            stage_texCoord_T(STAGE_COMBINER)  <= stage_texCoord_T(STAGE_PALETTE);
+            stage_texIndex_S0(STAGE_COMBINER) <= stage_texIndex_S0(STAGE_PALETTE);
+            stage_texIndex_SN(STAGE_COMBINER) <= stage_texIndex_SN(STAGE_PALETTE);
+            stage_texIndex_T0(STAGE_COMBINER) <= stage_texIndex_T0(STAGE_PALETTE);
+            stage_texIndex_TN(STAGE_COMBINER) <= stage_texIndex_TN(STAGE_PALETTE);
+            stage_texAddr(STAGE_COMBINER)     <= stage_texAddr(STAGE_PALETTE);
+            stage_texFt_addr(STAGE_COMBINER)  <= export_TexFt_addr;
+            stage_texFt_data(STAGE_COMBINER)  <= export_TexFt_data;
+            stage_texFt_db1(STAGE_COMBINER)   <= export_TexFt_db1; 
+            stage_texFt_db3(STAGE_COMBINER)   <= export_TexFt_db3; 
+            stage_texFt_mode(STAGE_COMBINER)  <= export_TexFt_mode; 
             
             export_copyFetch.addr    <= 6x"0" & stage_addr(STAGE_PALETTE);
             export_copyFetch.data    <= texture_copy;
@@ -584,13 +610,16 @@ begin
             stage_STWZ(STAGE_BLENDER)        <= stage_STWZ(STAGE_COMBINER);
             stage_texCoord_S(STAGE_BLENDER)  <= stage_texCoord_S(STAGE_COMBINER);
             stage_texCoord_T(STAGE_BLENDER)  <= stage_texCoord_T(STAGE_COMBINER);
-            stage_texIndex_S(STAGE_BLENDER)  <= stage_texIndex_S(STAGE_COMBINER);
-            stage_texIndex_T(STAGE_BLENDER)  <= stage_texIndex_T(STAGE_COMBINER);
+            stage_texIndex_S0(STAGE_BLENDER) <= stage_texIndex_S0(STAGE_COMBINER);
+            stage_texIndex_SN(STAGE_BLENDER) <= stage_texIndex_SN(STAGE_COMBINER);
+            stage_texIndex_T0(STAGE_BLENDER) <= stage_texIndex_T0(STAGE_COMBINER);
+            stage_texIndex_TN(STAGE_BLENDER) <= stage_texIndex_TN(STAGE_COMBINER);
             stage_texAddr(STAGE_BLENDER)     <= stage_texAddr(STAGE_COMBINER);
             stage_texFt_addr(STAGE_BLENDER)  <= stage_texFt_addr(STAGE_COMBINER);
             stage_texFt_data(STAGE_BLENDER)  <= stage_texFt_data(STAGE_COMBINER);
             stage_texFt_db1(STAGE_BLENDER)   <= stage_texFt_db1(STAGE_COMBINER);
             stage_texFt_db3(STAGE_BLENDER)   <= stage_texFt_db3(STAGE_COMBINER);
+            stage_texFt_mode(STAGE_BLENDER)  <= stage_texFt_mode(STAGE_COMBINER);
             stage_combineC(STAGE_BLENDER)(0) <= combine_color(0);
             stage_combineC(STAGE_BLENDER)(1) <= combine_color(1);
             stage_combineC(STAGE_BLENDER)(2) <= combine_color(2);
@@ -677,21 +706,71 @@ begin
             export_TexCoord.debug2  <= unsigned(stage_STWZ(STAGE_OUTPUT - 1)(1));
             export_TexCoord.debug3  <= unsigned(stage_STWZ(STAGE_OUTPUT - 1)(2));             
                
-            export_TexFetch.addr    <= stage_texFt_addr(STAGE_OUTPUT - 1);
-            export_TexFetch.data    <= resize(stage_texFt_data(STAGE_OUTPUT - 1), 64);
-            export_TexFetch.x       <= resize(stage_texIndex_S(STAGE_OUTPUT - 1), 16);
-            export_TexFetch.y       <= resize(stage_texIndex_T(STAGE_OUTPUT - 1), 16);
-            export_TexFetch.debug1  <= stage_texFt_db1(STAGE_OUTPUT - 1);
-            export_TexFetch.debug2  <= resize(stage_texAddr(STAGE_OUTPUT - 1), 32);
-            export_TexFetch.debug3  <= stage_texFt_db3(STAGE_OUTPUT - 1);          
+            export_TexFetch0.addr   <= stage_texFt_addr(STAGE_OUTPUT - 1)(0);
+            export_TexFetch0.data   <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(0), 64);
+            export_TexFetch0.x      <= resize(stage_texIndex_S0(STAGE_OUTPUT - 1), 16);
+            export_TexFetch0.y      <= resize(stage_texIndex_T0(STAGE_OUTPUT - 1), 16);
+            export_TexFetch0.debug1 <= stage_texFt_db1(STAGE_OUTPUT - 1)(0);
+            export_TexFetch0.debug2 <= resize(stage_texAddr(STAGE_OUTPUT - 1)(0), 32);
+            export_TexFetch0.debug3 <= stage_texFt_db3(STAGE_OUTPUT - 1)(0);  
+
+            export_TexFetch1.addr   <= stage_texFt_addr(STAGE_OUTPUT - 1)(1);
+            export_TexFetch1.data   <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(1), 64);
+            export_TexFetch1.x      <= resize(stage_texIndex_SN(STAGE_OUTPUT - 1), 16);
+            export_TexFetch1.y      <= resize(stage_texIndex_T0(STAGE_OUTPUT - 1), 16);
+            export_TexFetch1.debug1 <= stage_texFt_db1(STAGE_OUTPUT - 1)(1);
+            export_TexFetch1.debug2 <= resize(stage_texAddr(STAGE_OUTPUT - 1)(1), 32);
+            export_TexFetch1.debug3 <= stage_texFt_db3(STAGE_OUTPUT - 1)(1); 
+
+            export_TexFetch2.addr   <= stage_texFt_addr(STAGE_OUTPUT - 1)(2);
+            export_TexFetch2.data   <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(2), 64);
+            export_TexFetch2.x      <= resize(stage_texIndex_S0(STAGE_OUTPUT - 1), 16);
+            export_TexFetch2.y      <= resize(stage_texIndex_TN(STAGE_OUTPUT - 1), 16);
+            export_TexFetch2.debug1 <= stage_texFt_db1(STAGE_OUTPUT - 1)(2);
+            export_TexFetch2.debug2 <= resize(stage_texAddr(STAGE_OUTPUT - 1)(2), 32);
+            export_TexFetch2.debug3 <= stage_texFt_db3(STAGE_OUTPUT - 1)(2); 
+
+            export_TexFetch3.addr   <= stage_texFt_addr(STAGE_OUTPUT - 1)(3);
+            export_TexFetch3.data   <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(3), 64);
+            export_TexFetch3.x      <= resize(stage_texIndex_SN(STAGE_OUTPUT - 1), 16);
+            export_TexFetch3.y      <= resize(stage_texIndex_TN(STAGE_OUTPUT - 1), 16);
+            export_TexFetch3.debug1 <= stage_texFt_db1(STAGE_OUTPUT - 1)(3);
+            export_TexFetch3.debug2 <= resize(stage_texAddr(STAGE_OUTPUT - 1)(3), 32);
+            export_TexFetch3.debug3 <= stage_texFt_db3(STAGE_OUTPUT - 1)(3);             
                
-            export_TexColor.addr    <= (others => '0');
-            export_TexColor.data    <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(31 downto 24), 64);
-            export_TexColor.x       <= resize(stage_texIndex_S(STAGE_OUTPUT - 1), 16);
-            export_TexColor.y       <= resize(stage_texIndex_T(STAGE_OUTPUT - 1), 16);
-            export_TexColor.debug1  <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(23 downto 16), 32);
-            export_TexColor.debug2  <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(15 downto 8), 32);
-            export_TexColor.debug3  <= resize(stage_texFt_data(STAGE_OUTPUT - 1)( 7 downto 0), 32);
+            export_texmode          <= stage_texFt_mode(STAGE_OUTPUT - 1);
+               
+            export_TexColor0.addr   <= (others => '0');
+            export_TexColor0.data   <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(0)(31 downto 24), 64);
+            export_TexColor0.x      <= resize(stage_texIndex_S0(STAGE_OUTPUT - 1), 16);
+            export_TexColor0.y      <= resize(stage_texIndex_T0(STAGE_OUTPUT - 1), 16);
+            export_TexColor0.debug1 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(0)(23 downto 16), 32);
+            export_TexColor0.debug2 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(0)(15 downto 8), 32);
+            export_TexColor0.debug3 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(0)( 7 downto 0), 32);
+            
+            export_TexColor1.addr   <= (others => '0');
+            export_TexColor1.data   <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(1)(31 downto 24), 64);
+            export_TexColor1.x      <= resize(stage_texIndex_SN(STAGE_OUTPUT - 1), 16);
+            export_TexColor1.y      <= resize(stage_texIndex_T0(STAGE_OUTPUT - 1), 16);
+            export_TexColor1.debug1 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(1)(23 downto 16), 32);
+            export_TexColor1.debug2 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(1)(15 downto 8), 32);
+            export_TexColor1.debug3 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(1)( 7 downto 0), 32);
+            
+            export_TexColor2.addr   <= (others => '0');
+            export_TexColor2.data   <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(2)(31 downto 24), 64);
+            export_TexColor2.x      <= resize(stage_texIndex_S0(STAGE_OUTPUT - 1), 16);
+            export_TexColor2.y      <= resize(stage_texIndex_TN(STAGE_OUTPUT - 1), 16);
+            export_TexColor2.debug1 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(2)(23 downto 16), 32);
+            export_TexColor2.debug2 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(2)(15 downto 8), 32);
+            export_TexColor2.debug3 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(2)( 7 downto 0), 32);
+            
+            export_TexColor3.addr   <= (others => '0');
+            export_TexColor3.data   <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(3)(31 downto 24), 64);
+            export_TexColor3.x      <= resize(stage_texIndex_SN(STAGE_OUTPUT - 1), 16);
+            export_TexColor3.y      <= resize(stage_texIndex_TN(STAGE_OUTPUT - 1), 16);
+            export_TexColor3.debug1 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(3)(23 downto 16), 32);
+            export_TexColor3.debug2 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(3)(15 downto 8), 32);
+            export_TexColor3.debug3 <= resize(stage_texFt_data(STAGE_OUTPUT - 1)(3)( 7 downto 0), 32);
                
             export_Comb.addr        <= resize(stage_combineC(STAGE_OUTPUT - 1)(3), 32);
             export_Comb.data        <= (others => '0');
@@ -790,8 +869,8 @@ begin
       index_out1     => texture_S_index1,
       index_out2     => texture_S_index2,
       index_out3     => texture_S_index3,
-      frac_out       => texture_S_frac,
-      diff_out       => texture_S_diff
+      index_outN     => texture_S_indexN,
+      frac_out       => texture_S_frac
    );
    
    iRDP_TexTile_T: entity work.RDP_TexTile
@@ -809,8 +888,8 @@ begin
       tile_shift     => settings_tile.Tile_shiftT, 
                      
       index_out      => texture_T_index,
-      frac_out       => texture_T_frac,
-      diff_out       => texture_T_diff
+      index_outN     => texture_T_indexN,
+      frac_out       => texture_T_frac
    );
     
     
@@ -821,6 +900,8 @@ begin
       clk1x                => clk1x,
       trigger              => pipeIn_trigger,
       
+      DISABLEFILTER        => DISABLEFILTER,
+      
       error_texMode        => error_texMode,
       
       settings_otherModes  => settings_otherModes,
@@ -829,8 +910,13 @@ begin
       index_S1             => texture_S_index1,
       index_S2             => texture_S_index2,
       index_S3             => texture_S_index3,
+      index_SN             => texture_S_indexN,
       index_T              => texture_T_index,
-                           
+      index_TN             => texture_T_indexN,
+      
+      frac_S               => texture_S_frac,
+      frac_T               => texture_T_frac,                 
+      
       tex_addr             => TextureAddr,
       tex_data             => TextureRamData,
       
@@ -840,10 +926,11 @@ begin
       export_TexFt_data    => export_TexFt_data,
       export_TexFt_db1     => export_TexFt_db1, 
       export_TexFt_db3     => export_TexFt_db3, 
+      export_TexFt_mode    => export_TexFt_mode, 
       -- synthesis translate_on
                       
-      tex_color            => texture_color,
-      tex_alpha            => texture_alpha,
+      tex_color_out        => texture_color,
+      tex_alpha_out        => texture_alpha,
       tex_copy             => texture_copy
    );
 

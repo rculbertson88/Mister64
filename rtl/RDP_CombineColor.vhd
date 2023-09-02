@@ -37,17 +37,17 @@ architecture arch of RDP_CombineColor is
    signal primcolor        : tcolor3_u8;
    signal envcolor         : tcolor3_u8;
             
-   signal color_sub1       : tcolor3_s10 := (others => (others => '0'));
-   signal color_sub2       : tcolor3_s10 := (others => (others => '0'));
-   signal color_mul        : tcolor3_s10 := (others => (others => '0'));
-   signal color_add        : tcolor3_s10 := (others => (others => '0'));
+   signal color_sub1       : tcolor3_s16 := (others => (others => '0'));
+   signal color_sub2       : tcolor3_s16 := (others => (others => '0'));
+   signal color_mul        : tcolor3_s16 := (others => (others => '0'));
+   signal color_add        : tcolor3_s16 := (others => (others => '0'));
    
-   signal combiner_sub     : tcolor3_s10;
-   signal combiner_mul     : tcolor3_s20;
-   signal combiner_add     : tcolor3_s20;
-   signal combiner_cut     : tcolor3_s12;
+   signal combiner_sub     : tcolor3_s16;
+   signal combiner_mul     : tcolor3_s32;
+   signal combiner_add     : tcolor3_s32;
+   signal combiner_cut     : tcolor3_s16;
    
-   signal combiner_save    : tcolor3_s10;
+   signal combiner_save    : tcolor3_s16;
    
    signal errorCombine     : std_logic;
 
@@ -76,12 +76,12 @@ begin
          color_sub1(i) <= (others => '0');
          case (to_integer(mode_sub1)) is
             when 0 => color_sub1(i) <= combiner_save(i);
-            when 1 => color_sub1(i) <= "00" & signed(texture_color(i));
+            when 1 => color_sub1(i) <= x"00" & signed(texture_color(i));
             when 2 => errorCombine <= '1'; -- tex2
-            when 3 => color_sub1(i) <= "00" & signed(primcolor(i));
-            when 4 => color_sub1(i) <= '0' & pipeInColor(i)(8 downto 0);
-            when 5 => color_sub1(i) <= "00" & signed(envcolor(i));
-            when 6 => color_sub1(i) <= 10x"100";
+            when 3 => color_sub1(i) <= x"00" & signed(primcolor(i));
+            when 4 => color_sub1(i) <= pipeInColor(i);
+            when 5 => color_sub1(i) <= x"00" & signed(envcolor(i));
+            when 6 => color_sub1(i) <= 16x"100";
             when 7 => errorCombine <= '1'; --noise
             when others => null;
          end case;
@@ -89,11 +89,11 @@ begin
          color_sub2(i) <= (others => '0');
          case (to_integer(mode_sub2)) is
             when 0 => color_sub2(i) <= combiner_save(i);
-            when 1 => color_sub2(i) <= "00" & signed(texture_color(i));
+            when 1 => color_sub2(i) <= x"00" & signed(texture_color(i));
             when 2 => errorCombine <= '1'; -- tex2
-            when 3 => color_sub2(i) <= "00" & signed(primcolor(i));
-            when 4 => color_sub2(i) <= '0' & pipeInColor(i)(8 downto 0);
-            when 5 => color_sub2(i) <= "00" & signed(envcolor(i));
+            when 3 => color_sub2(i) <= x"00" & signed(primcolor(i));
+            when 4 => color_sub2(i) <= pipeInColor(i);
+            when 5 => color_sub2(i) <= x"00" & signed(envcolor(i));
             when 6 => errorCombine <= '1'; -- key center
             when 7 => errorCombine <= '1'; -- k4
             when others => null;
@@ -102,18 +102,18 @@ begin
          color_mul(i) <= (others => '0');
          case (to_integer(mode_mul)) is
             when  0 => color_mul(i) <= combiner_save(i);
-            when  1 => color_mul(i) <= "00" & signed(texture_color(i));
+            when  1 => color_mul(i) <= x"00" & signed(texture_color(i));
             when  2 => errorCombine <= '1'; --tex2
-            when  3 => color_mul(i) <= "00" & signed(primcolor(i));
-            when  4 => color_mul(i) <= '0' & pipeInColor(i)(8 downto 0);
-            when  5 => color_mul(i) <= "00" & signed(envcolor(i));
+            when  3 => color_mul(i) <= x"00" & signed(primcolor(i));
+            when  4 => color_mul(i) <= pipeInColor(i);
+            when  5 => color_mul(i) <= x"00" & signed(envcolor(i));
             when  6 => errorCombine <= '1'; -- key scale
             when  7 => errorCombine <= '1'; -- combiner color
             when  8 => errorCombine <= '1'; -- tex1 A
             when  9 => errorCombine <= '1'; -- tex2 A
-            when 10 => color_mul(i) <= "00" & signed(settings_primcolor.prim_A);
-            when 11 => color_mul(i) <= '0' & pipeInColor(3)(8 downto 0);
-            when 12 => color_mul(i) <= "00" & signed(settings_envcolor.env_A);
+            when 10 => color_mul(i) <= x"00" & signed(settings_primcolor.prim_A);
+            when 11 => color_mul(i) <= pipeInColor(3);
+            when 12 => color_mul(i) <= x"00" & signed(settings_envcolor.env_A);
             when 13 => errorCombine <= '1'; -- lod frac
             when 14 => errorCombine <= '1'; -- primlevel frac
             when 15 => errorCombine <= '1'; -- k5
@@ -123,12 +123,12 @@ begin
          color_add(i) <= (others => '0');
          case (to_integer(mode_add)) is
             when 0 => color_add(i) <= combiner_save(i);
-            when 1 => color_add(i) <= "00" & signed(texture_color(i));
+            when 1 => color_add(i) <= x"00" & signed(texture_color(i));
             when 2 => errorCombine <= '1'; --tex2
-            when 3 => color_add(i) <= "00" & signed(primcolor(i));
-            when 4 => color_add(i) <= '0' & pipeInColor(i)(8 downto 0);
-            when 5 => color_add(i) <= "00" & signed(envcolor(i));
-            when 6 => color_add(i) <= 10x"100";
+            when 3 => color_add(i) <= x"00" & signed(primcolor(i));
+            when 4 => color_add(i) <= pipeInColor(i);
+            when 5 => color_add(i) <= x"00" & signed(envcolor(i));
+            when 6 => color_add(i) <= 16x"100";
             when others => null;
          end case;
    
@@ -142,7 +142,7 @@ begin
       combiner_sub(i)   <= color_sub1(i) - color_sub2(i);
       combiner_mul(i)   <= combiner_sub(i) * color_mul(i); 
       combiner_add(i)   <= combiner_mul(i) + (color_add(i) & x"80");
-      combiner_cut(i)   <= combiner_add(i)(19 downto 8);
+      combiner_cut(i)   <= combiner_add(i)(23 downto 8);
    
    end generate;
    
@@ -156,7 +156,7 @@ begin
          if (trigger = '1' or step2 = '1') then
          
             for i in 0 to 2 loop
-               combiner_save(i) <= combiner_cut(i)(9 downto 0);
+               combiner_save(i) <= combiner_cut(i);
             end loop;
          
          end if;

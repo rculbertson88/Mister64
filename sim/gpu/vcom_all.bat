@@ -18,6 +18,7 @@ vcom -2008 -quiet -work sim/n64 ^
 ../../rtl/RDP_raster.vhd ^
 ../../rtl/RDP_TexCoordClamp.vhd ^
 ../../rtl/RDP_TexTile.vhd ^
+../../rtl/RDP_TexSingle.vhd ^
 ../../rtl/RDP_TexFetch.vhd ^
 ../../rtl/RDP_FBread.vhd ^
 ../../rtl/RDP_CombineColor.vhd ^

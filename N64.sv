@@ -246,6 +246,7 @@ parameter CONF_STR = {
    "O[29],Data FORCE WB,Off,On;",
    "O[27:24],Cache Delay,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15;",
    "O[23:20],DDR3 Delay,0,16,24,32,40,48,56,64,72,80,88,96,104,112;",
+   "O[30],Texture Filter,On,Off;",
    "O[11],Write Bit 9,On,Off;",
    "O[12],Read Bit 9,On,Off;",
    "O[13],Wait Bit 9,On,Off;",
@@ -575,6 +576,7 @@ n64top
    .DATACACHESLOW(status[27:24]),
    .DATACACHEFORCEWEB(status[29]),
    .DDR3SLOW(status[23:20]),
+   .DISABLEFILTER(status[30]),
    
    .write9(!status[11]), 
    .read9(!status[12]),  

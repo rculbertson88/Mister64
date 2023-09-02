@@ -28,7 +28,8 @@ entity n64top is
       DATACACHEON             : in  std_logic;
       DATACACHESLOW           : in  std_logic_vector(3 downto 0); 
       DATACACHEFORCEWEB       : in  std_logic; 
-      DDR3SLOW                : in  std_logic_vector(3 downto 0); 
+      DDR3SLOW                : in  std_logic_vector(3 downto 0);
+      DISABLEFILTER           : in  std_logic;       
       
       write9                  : in  std_logic;
       read9                   : in  std_logic;
@@ -528,6 +529,7 @@ begin
       error_texMode        => errorRDP_texMode,
       error_drawMode       => errorRDP_drawMode,
       
+      DISABLEFILTER        => DISABLEFILTER,
       write9               => write9,
       read9                => read9,
       wait9                => wait9,

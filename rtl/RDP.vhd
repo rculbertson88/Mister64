@@ -21,6 +21,7 @@ entity RDP is
       error_texMode        : out std_logic; 
       error_drawMode       : out std_logic; 
       
+      DISABLEFILTER        : in  std_logic;
       write9               : in  std_logic;
       read9                : in  std_logic;
       wait9                : in  std_logic;
@@ -347,8 +348,15 @@ architecture arch of RDP is
    signal export_Color              : rdp_export_type;
    signal export_LOD                : rdp_export_type;
    signal export_TexCoord           : rdp_export_type;
-   signal export_TexFetch           : rdp_export_type;
-   signal export_TexColor           : rdp_export_type;
+   signal export_TexFetch0          : rdp_export_type;
+   signal export_TexFetch1          : rdp_export_type;
+   signal export_TexFetch2          : rdp_export_type;
+   signal export_TexFetch3          : rdp_export_type;
+   signal export_texmode            : unsigned(1 downto 0);
+   signal export_TexColor0          : rdp_export_type;
+   signal export_TexColor1          : rdp_export_type;
+   signal export_TexColor2          : rdp_export_type;
+   signal export_TexColor3          : rdp_export_type;
    signal export_Comb               : rdp_export_type;
    signal export_FBMem              : rdp_export_type;
    signal export_Z                  : rdp_export_type;
@@ -1083,6 +1091,8 @@ begin
    (
       clk1x                   => clk1x,                
       reset                   => reset,   
+      
+      DISABLEFILTER           => DISABLEFILTER,
 
       errorCombine            => errorCombine,
       error_combineAlpha      => error_combineAlpha,
@@ -1147,8 +1157,15 @@ begin
       export_Color            => export_Color,   
       export_LOD              => export_LOD,   
       export_TexCoord         => export_TexCoord,   
-      export_TexFetch         => export_TexFetch,   
-      export_TexColor         => export_TexColor,   
+      export_TexFetch0        => export_TexFetch0,   
+      export_TexFetch1        => export_TexFetch1,   
+      export_TexFetch2        => export_TexFetch2,   
+      export_TexFetch3        => export_TexFetch3,   
+      export_texmode          => export_texmode,   
+      export_TexColor0        => export_TexColor0,   
+      export_TexColor1        => export_TexColor1,   
+      export_TexColor2        => export_TexColor2,   
+      export_TexColor3        => export_TexColor3,   
       export_Comb             => export_Comb,   
       export_FBMem            => export_FBMem,   
       export_Z                => export_Z,   
@@ -1521,8 +1538,30 @@ begin
                if (useTexture = '1') then
                   export_gpu32(19, tracecounts_out(19), export_LOD,      outfile); tracecounts_out(19) <= tracecounts_out(19) + 1;
                   export_gpu32(11, tracecounts_out(11), export_TexCoord, outfile); tracecounts_out(11) <= tracecounts_out(11) + 1;
-                  export_gpu32( 7, tracecounts_out( 7), export_TexFetch, outfile); tracecounts_out( 7) <= tracecounts_out( 7) + 1;
-                  export_gpu32(13, tracecounts_out(13), export_TexColor, outfile); tracecounts_out(13) <= tracecounts_out(13) + 1;
+                  if (settings_otherModes.sampleType = '1' or settings_otherModes.enTlut = '1') then
+                     export_gpu32(7, tracecounts_out(7) + 0, export_TexFetch0, outfile);
+                     export_gpu32(7, tracecounts_out(7) + 1, export_TexFetch1, outfile);
+                     export_gpu32(7, tracecounts_out(7) + 2, export_TexFetch2, outfile);
+                     export_gpu32(7, tracecounts_out(7) + 3, export_TexFetch3, outfile);
+                     tracecounts_out(7) <= tracecounts_out(7) + 4;
+                  else
+                     export_gpu32(7, tracecounts_out(7), export_TexFetch0, outfile);
+                     tracecounts_out(7) <= tracecounts_out(7) + 1;
+                  end if;
+                  
+                  if (export_texmode = TEXMODE_UNFILTERED) then                 
+                     export_gpu32(13, tracecounts_out(13), export_TexColor0, outfile); tracecounts_out(13) <= tracecounts_out(13) + 1;
+                  elsif (export_texmode = TEXMODE_UPPER) then 
+                     export_gpu32(13, tracecounts_out(13) + 0, export_TexColor1, outfile);
+                     export_gpu32(13, tracecounts_out(13) + 1, export_TexColor2, outfile);
+                     export_gpu32(13, tracecounts_out(13) + 2, export_TexColor3, outfile);
+                     tracecounts_out(13) <= tracecounts_out(13) + 3;
+                  elsif (export_texmode = TEXMODE_LOWER) then 
+                     export_gpu32(13, tracecounts_out(13) + 0, export_TexColor1, outfile);
+                     export_gpu32(13, tracecounts_out(13) + 1, export_TexColor2, outfile);
+                     export_gpu32(13, tracecounts_out(13) + 2, export_TexColor0, outfile);
+                     tracecounts_out(13) <= tracecounts_out(13) + 3;
+                  end if;
                end if;
                export_gpu32(23, tracecounts_out(23), export_Comb    , outfile); tracecounts_out(23) <= tracecounts_out(23) + 1;
                if (settings_otherModes.imageRead = '1') then
