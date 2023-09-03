@@ -34,6 +34,7 @@ set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_comman
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_raster.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_TexCoordClamp.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_TexTile.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_TexSingle.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_TexFetch.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_FBread.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) RDP_CombineColor.vhd ]

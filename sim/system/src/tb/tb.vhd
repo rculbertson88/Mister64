@@ -113,6 +113,7 @@ begin
       DATACACHESLOW         => "0000",
       DATACACHEFORCEWEB     => '0',
       DDR3SLOW              => "0000",
+      DISABLEFILTER         => '0',
       
       write9                => '1',
       read9                 => '1',

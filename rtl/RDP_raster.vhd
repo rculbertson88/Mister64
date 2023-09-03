@@ -846,6 +846,9 @@ begin
                   if (polystate = POLYFINISH and pipe_busy = '1') then
                      pipeIn_trigger  <= '1';
                      pipeIn_valid    <= '0';
+                     if (settings_otherModes.cycleType = "01" and pipeIn_trigger = '1') then
+                        pipeIn_trigger <= '0';
+                     end if;
                   end if;
                
                   if (startLine = '1' and allinval = '0' and allover = '0' and allunder = '0') then
