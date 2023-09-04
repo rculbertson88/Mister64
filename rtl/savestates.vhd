@@ -108,8 +108,8 @@ architecture arch of savestates is
    );
    signal state : tstate := IDLE;
    
-   signal count               : integer range 0 to 1048576 := 0;
-   signal maxcount            : integer range 0 to 1048576;
+   signal count               : integer range 0 to 2097152 := 0;
+   signal maxcount            : integer range 0 to 2097152;
                
    signal settle              : integer range 0 to SETTLECOUNT := 0;
    
@@ -194,12 +194,12 @@ begin
                   savemode             <= '0';
                   savetype_counter     <= 12;
                   settle               <= 0;
-               elsif (save = '1') then
-                  resetMode            <= '0';
-                  savemode             <= '1';
-                  savetype_counter     <= 0;
-                  state                <= WAITPAUSE;
-                  header_amount        <= header_amount + 1;
+               --elsif (save = '1') then
+               --   resetMode            <= '0';
+               --   savemode             <= '1';
+               --   savetype_counter     <= 0;
+               --   state                <= WAITPAUSE;
+               --   header_amount        <= header_amount + 1;
                elsif (load = '1') then
                   state                <= WAITPAUSE;
                   reset_intern         <= '1';
@@ -449,6 +449,10 @@ begin
                   state          <= LOADMEMORY_READ;
                   count          <= 1;
                   maxcount       <= savetypes(savetype_counter).size;
+                  -- delete 8192 more, so area behind 8 mbyte is clean to be used as buffer for rdram read out of bounds
+                  if (savetype_counter = 13 and resetMode = '1') then
+                     maxcount <= 1056768;
+                  end if;
                   RAMAddrNext    <= (others => '0');
                else
                   state          <= RESETTING;

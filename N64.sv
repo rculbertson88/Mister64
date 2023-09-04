@@ -572,6 +572,7 @@ n64top
    .fpscountOn(status[28]),
    
    .CICTYPE(status[68:65]),
+   .RAMSIZE8(~status[70]),
    .DATACACHEON(status[16]),
    .DATACACHESLOW(status[27:24]),
    .DATACACHEFORCEWEB(status[29]),
@@ -608,6 +609,7 @@ n64top
    .ddr3_WE          (DDRAM_WE        ),
    
    // ROM+SRAM+FLASH
+   .cartAvailable    (cart_loaded    ),
    .sdram_ena        (sdram_ena      ),
    .sdram_rnw        (sdram_rnw      ),
    .sdram_Adr        (sdram_Adr      ),

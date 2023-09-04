@@ -310,6 +310,12 @@ begin
       export_TextureAddr(2)(1) <= not addr_calcR2(2);
       export_TextureAddr(3) <= addr_calcR3(12 downto 1);
       export_TextureAddr(3)(1) <= not addr_calcR3(2);
+      if (settings_tile.Tile_size = SIZE_8BIT or settings_tile.Tile_size = SIZE_4BIT) then
+         export_TextureAddr(0)(0) <= not addr_calcR0(1); 
+         export_TextureAddr(1)(0) <= not addr_calcR1(1); 
+         export_TextureAddr(2)(0) <= not addr_calcR2(1); 
+         export_TextureAddr(3)(0) <= not addr_calcR3(1); 
+      end if;      
       -- synthesis translate_on
       
       pal4Index0Next   <= not addr_calcR0(1 downto 0);

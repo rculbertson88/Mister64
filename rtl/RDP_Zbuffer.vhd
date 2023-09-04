@@ -34,8 +34,7 @@ entity RDP_Zbuffer is
       -- STAGE_PALETTE
       
       -- STAGE_COMBINER
-      cvgFB                   : in  unsigned(2 downto 0);
-      cvgCount_4              : in  unsigned(3 downto 0);
+      cvg_overflow            : in  std_logic;
       
       -- synthesis translate_off
       export_zNewRaw          : out unsigned(31 downto 0);
@@ -45,9 +44,14 @@ entity RDP_Zbuffer is
       -- synthesis translate_on
       
       blend_enable            : out std_logic := '0';
+      zOverflow               : out std_logic := '0';
       zUsePixel               : out std_logic := '0';
       zResult                 : out unsigned(15 downto 0) := (others => '0');
-      zResultH                : out unsigned(1 downto 0) := (others => '0')
+      zResultH                : out unsigned(1 downto 0) := (others => '0');
+      
+      -- STAGE_BLENDER
+      cvgCount_combine        : in  unsigned(3 downto 0);
+      cvgCount_out            : out  unsigned(3 downto 0) := (others => '0')
    );
 end entity;
 
@@ -109,7 +113,6 @@ architecture arch of RDP_Zbuffer is
    signal calc_front        : std_logic;
    signal calc_near         : std_logic;
    signal calc_far          : std_logic;
-   signal calc_overflow     : std_logic;
    
    signal is_max            : std_logic := '0';
    signal is_front          : std_logic := '0';
@@ -117,6 +120,14 @@ architecture arch of RDP_Zbuffer is
    signal is_far            : std_logic := '0';
    signal is_overflow       : std_logic := '0';
    signal new_z_5           : unsigned(17 downto 0)  := (others => '0');
+   signal old_z_2           : unsigned(17 downto 0)  := (others => '0');
+   
+   -- STAGE BLENDER
+   signal cvg_dzShift       : unsigned(3 downto 0);
+   signal cvg_oldZ_shifted  : unsigned(17 downto 0);
+   signal cvg_newZ_shifted  : unsigned(17 downto 0);
+   signal cvg_sub           : unsigned(17 downto 0);
+   signal cvg_mul           : unsigned(7 downto 0);
   
 begin 
   
@@ -141,8 +152,7 @@ begin
       
    -- STAGE_PERSPCOR
    new_z_calc     <= resize((zIn_1 & "00"), 27) + resize(corrected_sum, 27);
-   
-   new_z_selected <= zIn_1(21 downto 3) when (cvgCount = 8) else new_z_calc(23 downto 5);
+   new_z_selected <= new_z_calc(23 downto 5);
    
    process (clk1x)
    begin
@@ -270,7 +280,6 @@ begin
    calc_front    <= '1' when (new_z_4 < old_z_1) else '0';
    calc_near     <= '1' when (planar_1 = '1' or to_integer(diffZ) <= to_integer(old_z_1)) else '0';
    calc_far      <= '1' when (planar_1 = '1' or (new_z_4 + (dzNew & "000")) > old_z_1) else '0'; 
-   calc_overflow <= '1' when (cvgFB + cvgCount_4 >= 8) else '0';
    
    process (clk1x)
    begin
@@ -279,20 +288,21 @@ begin
          if (trigger = '1') then
          
             new_z_5 <= new_z_4;
+            old_z_2 <= old_z_1;
             
             is_max       <= calc_max;
             is_front     <= calc_front;
             is_near      <= calc_near;
             is_far       <= calc_far; 
-            is_overflow  <= calc_overflow;
+            is_overflow  <= cvg_overflow;
 
             blend_enable <= '0';
             if (settings_otherModes.zCompare = '1') then
-               if (settings_otherModes.forceBlend = '1' or (calc_overflow = '0' and settings_otherModes.AntiAlias = '1' and calc_far = '1')) then
+               if (settings_otherModes.forceBlend = '1' or (cvg_overflow = '0' and settings_otherModes.AntiAlias = '1' and calc_far = '1')) then
                   blend_enable <= '1';
                end if;
             else
-               if (settings_otherModes.forceBlend = '1' or (calc_overflow = '0' and settings_otherModes.AntiAlias = '1')) then
+               if (settings_otherModes.forceBlend = '1' or (cvg_overflow = '0' and settings_otherModes.AntiAlias = '1')) then
                   blend_enable <= '1';
                end if;
             end if;
@@ -309,6 +319,19 @@ begin
       end if;
    end process;
    
+   zOverflow <= is_overflow;
+
+
+   cvg_dzShift(3) <= '1' when (dzNew(15 downto 8) > 0) else '0';
+   cvg_dzShift(2) <= '1' when ((dzNew(15 downto 12) & dzNew(7 downto 4)) > 0) else '0';
+   cvg_dzShift(1) <= '1' when ((dzNew(15 downto 14) & dzNew(11 downto 10) & dzNew(7 downto 6) & dzNew(3 downto 2)) > 0) else '0';
+   cvg_dzShift(0) <= '1' when ((dzNew(15) or dzNew(13) or dzNew(11) or dzNew(9) or dzNew(7) or dzNew(5) or dzNew(3) or dzNew(1)) = '1') else '0';
+   
+   cvg_oldZ_shifted <= shift_right(old_z_2, to_integer(cvg_dzShift));
+   cvg_newZ_shifted <= shift_right(new_z_5, to_integer(cvg_dzShift));
+   
+   cvg_sub <= cvg_oldZ_shifted - cvg_newZ_shifted;
+   cvg_mul <= cvgCount_combine * cvg_sub(3 downto 0);
    
    -- STAGE_BLENDER
    process (clk1x)
@@ -316,6 +339,8 @@ begin
       if rising_edge(clk1x) then
          
          if (trigger = '1') then
+         
+            cvgCount_out <= cvgCount_combine;
          
             zUsePixel <= '0';
             case (settings_otherModes.zMode) is
@@ -334,8 +359,8 @@ begin
                         zUsePixel <= is_near or is_max;
                      end if;
                   else
-                     zUsePixel <= '1';
-                     -- todo: update cvg
+                     zUsePixel    <= '1';
+                     cvgCount_out <= cvg_mul(6 downto 3);
                   end if;
             
                when "10" =>

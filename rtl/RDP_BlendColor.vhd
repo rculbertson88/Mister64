@@ -18,6 +18,7 @@ entity RDP_BlendColor is
       settings_fogcolor       : in  tsettings_fogcolor;
      
       blend_ena               : in  std_logic;
+      zOverflow               : in  std_logic;
       combine_color           : in  tcolor3_u8;
       combine_alpha           : in  unsigned(7 downto 0);
       FB_color                : in  tcolor4_u8;
@@ -44,6 +45,7 @@ architecture arch of RDP_BlendColor is
    signal color_2_A_reduced   : unsigned(4 downto 0);
    
    signal blend               : std_logic;
+   signal zCheck              : std_logic;
          
    signal blend_mul1          : tcolor3_u13;
    signal blend_mul2          : tcolor3_u14;
@@ -168,17 +170,23 @@ begin
       
    end generate;
    
+   zCheck <= zOverflow when (mode2 = '0' or (mode2 = '1' and step2 = '1')) else '1';
+   
    process (clk1x)
       variable blender_result : tcolor3_u8;
    begin
       if rising_edge(clk1x) then
          
-         if (blend = '1') then
-            for i in 0 to 2 loop
-               blender_result(i) := blend_add(i)(12 downto 5);
-            end loop;
+         if (settings_otherModes.colorOnCvg = '0' or zCheck = '1') then
+            if (blend = '1') then
+               for i in 0 to 2 loop
+                  blender_result(i) := blend_add(i)(12 downto 5);
+               end loop;
+            else
+               blender_result := color_1_R;
+            end if;
          else
-            blender_result := color_1_R;
+            blender_result := color_2_R;
          end if;
 
          if (step2 = '1') then 

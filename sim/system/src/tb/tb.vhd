@@ -109,6 +109,7 @@ begin
       fpscountOn            => '1',
       
       CICTYPE               => "0000",
+      RAMSIZE8              => '1',
       DATACACHEON           => '1',
       DATACACHESLOW         => "0000",
       DATACACHEFORCEWEB     => '0',
@@ -145,6 +146,7 @@ begin
       ddr3_RD               => DDRAM_RD,
       
       -- ROM+SRAM+FLASH
+      cartAvailable         => '1',
       sdram_ena             => sdram_ena,      
       sdram_rnw             => sdram_rnw,     
       sdram_Adr             => sdram_Adr,      

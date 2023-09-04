@@ -26,7 +26,6 @@ entity memorymux is
       mem_dataRead         : out std_logic_vector(63 downto 0); 
       mem_done             : out std_logic;
       
-      RAMMASK              : in  unsigned(23 downto 0);
       rdram_request        : out std_logic := '0';
       rdram_rnw            : out std_logic := '0'; 
       rdram_address        : out unsigned(27 downto 0):= (others => '0');
@@ -35,6 +34,13 @@ entity memorymux is
       rdram_dataWrite      : out std_logic_vector(63 downto 0) := (others => '0');
       rdram_done           : in  std_logic;
       rdram_dataRead       : in  std_logic_vector(63 downto 0);
+      
+      bus_RDR_addr         : out unsigned(19 downto 0) := (others => '0'); 
+      bus_RDR_dataWrite    : out std_logic_vector(31 downto 0);
+      bus_RDR_read         : out std_logic;
+      bus_RDR_write        : out std_logic;
+      bus_RDR_dataRead     : in  std_logic_vector(31 downto 0);
+      bus_RDR_done         : in  std_logic;         
       
       bus_RSP_addr         : out unsigned(19 downto 0) := (others => '0'); 
       bus_RSP_dataWrite    : out std_logic_vector(31 downto 0);
@@ -140,6 +146,16 @@ begin
       else
          data_rotated := byteswap32(mem_dataWrite(31 downto 0));
       end if;
+      
+      -- RDRAM Regs
+      bus_RDR_read       <= '0';
+      bus_RDR_write      <= '0';
+      bus_RDR_addr       <= mem_address(19 downto 2) & "00";
+      bus_RDR_dataWrite  <= data_rotated;
+      if (mem_request = '1' and address >= 16#03F00000# and address < 16#04000000#) then
+         bus_RDR_read    <= mem_rnw;
+         bus_RDR_write   <= not mem_rnw;
+      end if;        
       
       -- rsp
       bus_RSP_read       <= '0';
@@ -247,10 +263,10 @@ begin
 
    end process;
 
-   dataFromBusses <= bus_RSP_dataRead or bus_RDP_dataRead or bus_MI_dataRead or bus_VI_dataRead or bus_AI_dataRead or bus_PIreg_dataRead or bus_RI_dataRead or 
+   dataFromBusses <= bus_RDR_dataRead or bus_RSP_dataRead or bus_RDP_dataRead or bus_MI_dataRead or bus_VI_dataRead or bus_AI_dataRead or bus_PIreg_dataRead or bus_RI_dataRead or 
                      bus_SI_dataRead or bus_PIcart_dataRead or bus_PIF_dataRead;
    
-   bus_done <= bus_RSP_done or bus_RDP_done or bus_MI_done or bus_VI_done or bus_AI_done or bus_PIreg_done or bus_RI_done or 
+   bus_done <= bus_RDR_done or bus_RSP_done or bus_RDP_done or bus_MI_done or bus_VI_done or bus_AI_done or bus_PIreg_done or bus_RI_done or 
                bus_SI_done or bus_PIcart_done or bus_PIF_done;
 
    process (clk1x)
@@ -278,7 +294,7 @@ begin
                   last_addr <= mem_address;
                   
                   rdram_rnw       <= mem_rnw;
-                  rdram_address   <= "0000" & mem_address(23 downto 3) & "000";
+                  rdram_address   <= mem_address(27 downto 3) & "000";
                   rdram_burstcount<= 7x"00" & mem_size;
                   
                   rdram_dataWrite <= mem_dataWrite(31 downto 0) & mem_dataWrite(63 downto 32);
@@ -295,15 +311,17 @@ begin
                   if (mem_request = '1') then
                   
                      if (mem_address(28 downto 0) < 16#03F00000#) then -- RAM
-                     
-                        if (mem_address(25 downto 0) <= RAMMASK) then
-                           state           <= WAITRAM;
-                           rdram_request   <= '1';
-                        else
-                           report "Accessed behind main ram" severity warning; 
-                           error <= '1';
-                        end if;
+                        state           <= WAITRAM;
+                        rdram_request   <= '1';
                          
+                     elsif (mem_address(28 downto 0) >= 16#03F00000# and mem_address(28 downto 0) < 16#04000000#) then -- RDRAM Regs
+                        state    <= WAITBUS; 
+                        if (mem_rnw = '1') then
+                           bus_slow <= 15;
+                        else
+                           bus_slow <= 3;
+                        end if;                     
+                        
                      elsif (mem_address(28 downto 0) >= 16#04000000# and mem_address(28 downto 0) < 16#04040000#) then -- RSP RAMs
                         state    <= WAITBUS; 
                         if (mem_rnw = '1') then
