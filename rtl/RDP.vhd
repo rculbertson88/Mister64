@@ -306,14 +306,12 @@ architecture arch of RDP is
    signal pixel64BE                 : std_logic_vector(7 downto 0) := (others => '0');
    signal pixel64addr               : std_logic_vector(19 downto 0) := (others => '0');
    signal pixel64filled             : std_logic := '0';
-   signal pixel64timeout            : integer range 0 to 15;
    
    -- Z Buffer
    signal pixel64Zdata              : std_logic_vector(63 downto 0) := (others => '0');
    signal pixel64ZBE                : std_logic_vector(7 downto 0) := (others => '0');
    signal pixel64Zaddr              : std_logic_vector(19 downto 0) := (others => '0');
    signal pixel64Zfilled            : std_logic := '0';
-   signal pixel64Ztimeout           : integer range 0 to 15;
    
    -- FB Bit 9 writing
    signal pixel9data                : std_logic_vector(31 downto 0) := (others => '0');
@@ -324,6 +322,8 @@ architecture arch of RDP is
    signal pixel9Zdata               : std_logic_vector(31 downto 0) := (others => '0');
    signal pixel9Zaddr               : std_logic_vector(17 downto 0) := (others => '0');
    signal pixel9Zfilled             : std_logic := '0';
+
+   signal writePixelsDone           : std_logic;
 
    -- savestates
    type t_ssarray is array(0 to 1) of unsigned(63 downto 0);
@@ -786,6 +786,7 @@ begin
       commandAbort            => commandAbort,
          
       poly_done               => poly_done,       
+      writePixelsDone         => writePixelsDone,       
       settings_poly           => settings_poly,       
       poly_start              => poly_start,     
       poly_loading_mode       => poly_loading_mode,     
@@ -1255,8 +1256,6 @@ begin
          
          elsif (writePixel = '1' and writePixelAddr(25 downto 23) = 0) then -- todo: move max ram check to ddr3mux
          
-            pixel64timeout <= 15;
-         
             if (pixel64filled = '0' or writePixelAddr(22 downto 3) /= unsigned(pixel64Addr)) then
                fifoOut_Wr  <= pixel64filled;
                pixel64Addr <= std_logic_vector(writePixelAddr(22 downto 3));
@@ -1280,14 +1279,10 @@ begin
                end case;
             end if;
          
-         elsif (pixel64timeout > 0) then
+         elsif (poly_done = '1') then
          
-            pixel64timeout <= pixel64timeout - 1;
-            if (pixel64timeout = 1) then
-               pixel64filled  <= '0';
-               fifoOut_Wr     <= '1';
-               pixel64timeout <= 0;
-            end if;
+            pixel64filled  <= '0';
+            fifoOut_Wr     <= pixel64filled;
             
          end if;
 
@@ -1302,9 +1297,7 @@ begin
          fifoOutZ_Wr   <= '0';
          fifoOutZ_Din  <= pixel64ZBE & pixel64ZAddr & pixel64Zdata;
          
-         if (writePixelZ = '1' and writePixelAddrZ(25 downto 23) = 0) then -- todo: move max ram check to ddr3mux
-         
-            pixel64Ztimeout <= 15;
+         if (writePixelZ = '1' and writePixelAddrZ(25 downto 23) = 0) then
          
             if (pixel64Zfilled = '0' or writePixelAddrZ(22 downto 3) /= unsigned(pixel64ZAddr)) then
                fifoOutZ_Wr    <= pixel64Zfilled and writeZ;
@@ -1321,14 +1314,10 @@ begin
                when others => null;
             end case;
          
-         elsif (pixel64Ztimeout > 0) then
-         
-            pixel64Ztimeout <= pixel64Ztimeout - 1;
-            if (pixel64Ztimeout = 1) then
-               pixel64Zfilled  <= '0';
-               fifoOutZ_Wr     <= writeZ;
-               pixel64Ztimeout <= 0;
-            end if;
+         elsif (poly_done = '1') then
+
+            pixel64Zfilled  <= '0';
+            fifoOutZ_Wr     <= pixel64Zfilled and writeZ;
             
          end if;
 
@@ -1359,7 +1348,7 @@ begin
                when others => null;
             end case;
          
-         elsif (writePixel = '1' and writePixelAddr(25 downto 23) = 0) then -- todo: move max ram check to ddr3mux
+         elsif (writePixel = '1' and writePixelAddr(25 downto 23) = 0) then
          
             if (pixel9filled = '0' or writePixelAddr(22 downto 5) /= unsigned(pixel9Addr)) then
                pixel9data   <= std_logic_vector(writePixelFBData9); -- must fill in old data because only 2 bits are updated, byte enable not possible
@@ -1393,7 +1382,7 @@ begin
          
          if (writePixelZ = '1' and writePixelAddrZ(25 downto 23) = 0) then -- todo: move max ram check to ddr3mux
          
-            if (pixel9filled = '0' or writePixelAddrZ(22 downto 5) /= unsigned(pixel9ZAddr)) then
+            if (pixel9Zfilled = '0' or writePixelAddrZ(22 downto 5) /= unsigned(pixel9ZAddr)) then
                pixel9Zdata   <= std_logic_vector(writePixelFBData9Z); -- must fill in old data because only 2 bits are updated, byte enable not possible
                rdp9fifoZ_Wr  <= pixel9Zfilled and write9;
                pixel9ZAddr   <= std_logic_vector(writePixelAddrZ(22 downto 5));
@@ -1412,6 +1401,11 @@ begin
 
       end if;
    end process;
+   
+   writePixelsDone <= '1' when (fifoout_empty = '1' and fifooutZ_empty = '1' and rdp9fifo_empty = '1' and rdp9fifoZ_empty = '1' and
+                                pixel64filled = '0' and pixel64Zfilled = '0' and pixel9filled   = '0' and pixel9Zfilled   = '0' and
+                                fifoOut_Wr    = '0' and fifoOutZ_Wr    = '0' and rdp9fifo_Wr    = '0' and rdp9fifoZ_Wr    = '0') else '0';
+                                
    
 --##############################################################
 --############################### savestates

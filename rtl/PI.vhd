@@ -12,6 +12,7 @@ entity PI is
       reset                : in  std_logic;
       
       fastDecay            : in  std_logic;
+      cartAvailable        : in  std_logic;
       
       irq_out              : out std_logic := '0';
       
@@ -26,7 +27,6 @@ entity PI is
       sdram_done           : in  std_logic;
       sdram_dataRead       : in  std_logic_vector(31 downto 0);
       
-      RAMMASK              : in  unsigned(23 downto 0);
       rdram_request        : out std_logic := '0';
       rdram_rnw            : out std_logic := '0'; 
       rdram_address        : out unsigned(27 downto 0):= (others => '0');
@@ -261,7 +261,7 @@ begin
                         report "SRAM + FLASH read not implemented" severity warning;
                         error_PI      <= '1';
                         bus_cart_done <= '1';
-                     elsif (bus_cart_addr(28 downto 0) < 16#13FF0000#) then -- game rom
+                     elsif (bus_cart_addr(28 downto 0) < 16#13FF0000# and cartAvailable = '1') then -- game rom
                         if (PI_STATUS_IObusy = '1') then
                            PI_STATUS_IObusy  <= '0';
                            bus_cart_dataRead <= writtenData;

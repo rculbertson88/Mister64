@@ -23,6 +23,7 @@ entity RDP_command is
       commandAbort            : out std_logic := '0';
                
       poly_done               : in  std_logic;
+      writePixelsDone         : in  std_logic;
       settings_poly           : out tsettings_poly := SETTINGSPOLYINIT;
       poly_start              : out std_logic := '0';
       poly_loading_mode       : out std_logic := '0';
@@ -62,7 +63,8 @@ architecture arch of RDP_command is
       EVALSHADE,
       EVALTEXTURE,
       EVALZBUFFER,
-      WAITRASTER
+      WAITRASTER,
+      WAITPIXELWRITE
    ); 
    signal state  : tState := IDLE;
    
@@ -711,6 +713,11 @@ begin
                   
                when WAITRASTER =>
                   if (poly_done = '1') then
+                     state <= WAITPIXELWRITE;
+                  end if;
+                  
+               when WAITPIXELWRITE =>
+                  if (writePixelsDone = '1') then
                      if (commandRAMPtr = commandCntNext) then
                         state <= IDLE;
                      else

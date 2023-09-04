@@ -570,7 +570,7 @@ begin
                SP_DMA_CURRENT_WORKLEN  <= ('0' & SP_DMA_LEN) + 1;
             end if;
             
-            if (SP_STATUS_dmabusy = '1' and SP_DMA_CURRENT_WORKLEN = 0) then
+            if (SP_STATUS_dmabusy = '1' and SP_DMA_CURRENT_WORKLEN = 0 and dma_startnext = '0') then
                if ((dma_isWrite = '1' and fifoout_empty = '1' and fifoout_Wr = '0' and (fifoout_Wr_1 = '0' or use2Xclock = '1')) or (dma_isWrite = '0' and fifoin_Empty = '1')) then
                   if (SP_DMA_CURRENT_COUNT > 0) then
                      SP_DMA_CURRENT_COUNT    <= SP_DMA_CURRENT_COUNT - 1;
@@ -579,7 +579,7 @@ begin
                   else
                      SP_DMA_CURRENT_LEN    <= (others => '1');
                      if (SP_STATUS_dmafull = '1') then
-                        dma_startnext         <= '1';
+                        dma_startnext     <= '1';
                      else
                         SP_STATUS_dmabusy <= '0';
                      end if;

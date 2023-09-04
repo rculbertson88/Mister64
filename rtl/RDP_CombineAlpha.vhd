@@ -24,7 +24,9 @@ entity RDP_CombineAlpha is
       tex_alpha               : in  unsigned(7 downto 0);
       lod_frac                : in  unsigned(7 downto 0);
       cvgCount                : in  unsigned(3 downto 0);
+      cvgFB                   : in  unsigned(2 downto 0);
 
+      cvg_overflow            : out std_logic;
       combine_alpha           : out unsigned(7 downto 0) := (others => '0');
       combine_CVGCount        : out unsigned(3 downto 0) := (others => '0')
    );
@@ -46,7 +48,10 @@ architecture arch of RDP_CombineAlpha is
    signal combiner_mul       : signed(19 downto 0);
    signal combiner_add       : signed(19 downto 0);
    signal combiner_cut       : signed(11 downto 0);
-   
+   signal combiner_result    : unsigned(7 downto 0);
+   signal cvgmul             : unsigned(11 downto 0);
+   signal cvgCount_select    : unsigned(3 downto 0);
+
    signal combine_alpha_next : signed(9 downto 0) := (others => '0');
 
 begin 
@@ -117,10 +122,19 @@ begin
    combiner_mul <= combiner_sub * alpha_mul; 
    combiner_add <= combiner_mul + (alpha_add & x"80");
    combiner_cut <= combiner_add(19 downto 8);
+   
+   
+   combiner_result <= (others => '0') when (combiner_cut(8 downto 7) = "11") else
+                      (others => '1') when (combiner_cut(8) = '1') else
+                      unsigned(combiner_cut(7 downto 0));
+                      
+   cvgmul <= (combiner_result * cvgCount) + 4;
+   
+   cvgCount_select <= cvgmul(11 downto 8) when (settings_otherModes.cvgTimesAlpha = '1') else cvgCount;
+
+   cvg_overflow <= '1' when (cvgFB + cvgCount_select >= 8) else '0';
 
    process (clk1x)
-      variable result : unsigned(7 downto 0);
-      variable cvgmul : unsigned(11 downto 0);
    begin
       if rising_edge(clk1x) then
       
@@ -132,25 +146,13 @@ begin
          
          if (trigger = '1') then
             
-            if (combiner_cut(8 downto 7) = "11") then
-               result := (others => '0');
-            elsif (combiner_cut(8) = '1') then 
-               result := (others => '1');
-            else
-               result := unsigned(combiner_cut(7 downto 0));
-            end if;
+            combine_alpha <= combiner_result;
             
-            combine_alpha <= result;
-            
-            combine_CVGCount <= cvgCount;
-            cvgmul := (result * cvgCount) + 4;
-            if (settings_otherModes.cvgTimesAlpha = '1') then               
-               combine_CVGCount <= cvgmul(11 downto 8);
-            end if;
+            combine_CVGCount <= cvgCount_select;
             
             if (settings_otherModes.alphaCvgSelect = '0') then
                if (settings_otherModes.key = '0') then
-                  combine_alpha <= result; -- todo : add dither
+                  combine_alpha <= combiner_result; -- todo : add dither
                else
                   error_combineAlpha <= '1'; -- todo: key alpha mode
                end if;

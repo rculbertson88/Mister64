@@ -49,6 +49,7 @@ entity DDR3Mux is
       clk2x            : in  std_logic;
       clk2xIndex       : in  std_logic;
       
+      RAMSIZE8         : in  std_logic;
       slow_in          : in  std_logic_vector(3 downto 0); 
       
       error            : out std_logic;
@@ -114,6 +115,8 @@ architecture arch of DDR3Mux is
    signal remain        : unsigned(9 downto 0);
    signal lastReadReq   : std_logic;
    
+   signal RAMSIZE8_2x   : std_logic;
+   
    type tdone is array(0 to DDR3MUXCOUNT - 1) of std_logic_vector(1 downto 0);
    signal done    : tdone := (others => (others => '0'));
    signal granted : tdone := (others => (others => '0'));
@@ -149,6 +152,8 @@ begin
          rspfifo_Rd  <= '0';
          rdpfifo_Rd  <= '0';
          rdpfifoZ_Rd <= '0';
+         
+         RAMSIZE8_2x <= RAMSIZE8;
       
          if (ddr3_BUSY = '0') then
             ddr3_WE <= '0';
@@ -231,6 +236,18 @@ begin
                         ddr3_WE                       <= '1';
                         done(activeIndex)             <= use2Xclock & '1'; 
                      end if;
+                     
+                     -- writing/reading behind ram
+                     if ((RAMSIZE8_2x = '1' and rdram_address(activeIndex)(27 downto 23) > 0) or (RAMSIZE8_2x = '0' and rdram_address(activeIndex)(27 downto 22) > 0)) then
+                        if (activeIndex /= DDR3MUX_SS) then
+                           error   <= '1';
+                           if (rdram_rnw(activeIndex) = '1') then
+                              ddr3_ADDR(24 downto 0) <= 25x"100000";
+                           else
+                              ddr3_WE <= '0';
+                           end if;
+                        end if;
+                     end if;
                    
                   elsif (rspfifo_empty = '0' and rspfifo_Rd = '0') then
                   
@@ -239,7 +256,12 @@ begin
                      ddr3_DIN   <= rspfifo_Dout(63 downto 0);      
                      ddr3_BE    <= (others => '1');       
                      ddr3_ADDR(24 downto 0) <= "0000" & rspfifo_Dout(84 downto 64);
-                     ddr3_BURSTCNT <= x"01";                  
+                     ddr3_BURSTCNT <= x"01";           
+
+                     if ((RAMSIZE8_2x = '1' and rspfifo_Dout(84) = '1') or (RAMSIZE8_2x = '0' and rspfifo_Dout(84 downto 83) /= "00")) then
+                        ddr3_WE <= '0';
+                        error   <= '1';
+                     end if;                     
                      
                   elsif (rdpfifo_empty = '0' and rdpfifo_Rd = '0') then
                   
@@ -250,6 +272,11 @@ begin
                      ddr3_ADDR(24 downto 0) <= "00000" & rdpfifo_Dout(83 downto 64);
                      ddr3_BURSTCNT <= x"01";
                      
+                     if (RAMSIZE8_2x = '0' and rdpfifo_Dout(83) = '1') then
+                        ddr3_WE <= '0';
+                        error   <= '1';
+                     end if;  
+                     
                   elsif (rdpfifoZ_empty = '0' and rdpfifoZ_Rd = '0') then
                   
                      rdpfifoZ_Rd <= '1';
@@ -258,6 +285,11 @@ begin
                      ddr3_BE     <= rdpfifoZ_Dout(91 downto 84);       
                      ddr3_ADDR(24 downto 0) <= "00000" & rdpfifoZ_Dout(83 downto 64);
                      ddr3_BURSTCNT <= x"01";
+                     
+                     if (RAMSIZE8_2x = '0' and rdpfifo_Dout(83) = '1') then
+                        ddr3_WE <= '0';
+                        error   <= '1';
+                     end if;  
                   
                   end if;   
                   

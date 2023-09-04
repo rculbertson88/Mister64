@@ -25,6 +25,7 @@ entity n64top is
       fpscountOn              : in  std_logic;
       
       CICTYPE                 : in  std_logic_vector(3 downto 0);
+      RAMSIZE8                : in  std_logic;
       DATACACHEON             : in  std_logic;
       DATACACHESLOW           : in  std_logic_vector(3 downto 0); 
       DATACACHEFORCEWEB       : in  std_logic; 
@@ -61,6 +62,7 @@ entity n64top is
       ddr3_RD                 : out std_logic := '0';    
    
       -- ROM+SRAM+FLASH 
+      cartAvailable           : in  std_logic;
       sdram_ena               : out std_logic;
       sdram_rnw               : out std_logic;
       sdram_Adr               : out std_logic_vector(26 downto 0);
@@ -129,8 +131,6 @@ entity n64top is
 end entity;
 
 architecture arch of n64top is
-   
-   constant RAMMASK : unsigned(23 downto 0) := x"7FFFFF";
    
    -- reset and clocks
    signal reset_intern_1x        : std_logic := '0';
@@ -233,6 +233,13 @@ architecture arch of n64top is
    signal mem_dataWrite          : std_logic_vector(63 downto 0); 
    signal mem_dataRead           : std_logic_vector(63 downto 0); 
    signal mem_done               : std_logic;
+   
+   signal bus_RDR_addr           : unsigned(19 downto 0); 
+   signal bus_RDR_dataWrite      : std_logic_vector(31 downto 0);
+   signal bus_RDR_read           : std_logic;
+   signal bus_RDR_write          : std_logic;
+   signal bus_RDR_dataRead       : std_logic_vector(31 downto 0);    
+   signal bus_RDR_done           : std_logic;       
    
    signal bus_RSP_addr           : unsigned(19 downto 0); 
    signal bus_RSP_dataWrite      : std_logic_vector(31 downto 0);
@@ -613,6 +620,21 @@ begin
       SS_DataRead          => SS_DataRead_RDP
    );
    
+   iRDRAMRegs : entity work.RDRAMRegs
+   port map
+   (
+      clk1x                => clk1x,        
+      ce                   => ce_1x,           
+      reset                => reset_intern_1x, 
+                           
+      bus_addr             => bus_RDR_addr,     
+      bus_dataWrite        => bus_RDR_dataWrite,
+      bus_read             => bus_RDR_read,     
+      bus_write            => bus_RDR_write,    
+      bus_dataRead         => bus_RDR_dataRead, 
+      bus_done             => bus_RDR_done
+   );
+   
    iMI : entity work.MI
    port map
    (
@@ -786,6 +808,7 @@ begin
       reset                => reset_intern_1x, 
       
       fastDecay            => is_simu,
+      cartAvailable        => cartAvailable,
 
       irq_out              => irqVector(4),
       
@@ -800,7 +823,6 @@ begin
       sdram_done           => sdramMux_done(SDRAMMUX_PI),      
       sdram_dataRead       => sdramMux_dataRead,
                              
-      RAMMASK              => RAMMASK,
       rdram_request        => rdram_request(DDR3MUX_PI),   
       rdram_rnw            => rdram_rnw(DDR3MUX_PI),       
       rdram_address        => rdram_address(DDR3MUX_PI),   
@@ -917,6 +939,7 @@ begin
       clk2x            => clk2x,  
       clk2xIndex       => clk2xIndex, 
       
+      RAMSIZE8         => RAMSIZE8,
       slow_in          => DDR3SLOW,
       
       error            => errorDDR3,
@@ -1011,7 +1034,6 @@ begin
       
       error                => errorMEMMUX,
       
-      RAMMASK              => RAMMASK,
       mem_request          => mem_request,  
       mem_rnw              => mem_rnw,       
       mem_address          => mem_address,  
@@ -1030,6 +1052,13 @@ begin
       rdram_dataWrite      => rdram_dataWrite(DDR3MUX_MEMMUX), 
       rdram_done           => rdram_done(DDR3MUX_MEMMUX),      
       rdram_dataRead       => rdram_dataRead,      
+      
+      bus_RDR_addr         => bus_RDR_addr,     
+      bus_RDR_dataWrite    => bus_RDR_dataWrite,
+      bus_RDR_read         => bus_RDR_read,     
+      bus_RDR_write        => bus_RDR_write,    
+      bus_RDR_dataRead     => bus_RDR_dataRead,       
+      bus_RDR_done         => bus_RDR_done,       
       
       bus_RSP_addr         => bus_RSP_addr,     
       bus_RSP_dataWrite    => bus_RSP_dataWrite,

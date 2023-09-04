@@ -32,8 +32,8 @@ architecture arch of RSP_divsqrt is
 
    -- regs
    signal DivDP         : std_logic := '0';
-   signal DivIn         : signed(15 downto 0);
-   signal DivOut        : signed(15 downto 0);
+   signal DivIn         : signed(15 downto 0) := (others => '0');
+   signal DivOut        : signed(15 downto 0) := (others => '0');
    signal mask          : std_logic := '0';
    
    signal outshift      : integer range 0 to 31 := 0;

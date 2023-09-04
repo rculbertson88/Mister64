@@ -58,6 +58,7 @@ src/tb/cpu_mul.vhd ^
 ../../rtl/SI.vhd ^
 ../../rtl/RI.vhd ^
 ../../rtl/MI.vhd ^
+../../rtl/RDRAMRegs.vhd ^
 ../../rtl/RDP_package.vhd ^
 ../../rtl/RDP_command.vhd ^
 ../../rtl/RDP_raster.vhd ^

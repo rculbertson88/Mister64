@@ -154,7 +154,6 @@ architecture arch of RDP_pipeline is
    signal stage_offX          : t_stage_u2 := (others => (others => '0'));
    signal stage_offY          : t_stage_u2 := (others => (others => '0'));
    signal stage_cvgCount      : t_stage_u4 := (others => (others => '0'));
-   signal stage_cvgCombi      : t_stage_u4 := (others => (others => '0'));
    signal stage_Color         : t_stage_c16s := (others => (others => (others => '0')));
    signal stage_FBcolor       : t_stage_c8u := (others => (others => (others => '0')));
    signal stage_cvgFB         : t_stage_u3 := (others => (others => '0'));
@@ -175,6 +174,8 @@ architecture arch of RDP_pipeline is
    signal texture_T_unclamped : signed(18 downto 0) := (others => '0');
    
    -- modules  
+   signal tile2               : unsigned(2 downto 0);
+   
    signal texture_color       : tcolor3_u8;
    signal texture_alpha       : unsigned(7 downto 0);
    signal texture_copy        : unsigned(63 downto 0);
@@ -182,6 +183,7 @@ architecture arch of RDP_pipeline is
    signal combine_color       : tcolor3_u8;
    signal combine_alpha       : unsigned(7 downto 0);
    signal combine_CVGCount    : unsigned(3 downto 0);
+   signal cvg_overflow        : std_logic;
       
    signal FBcolor             : tcolor4_u8;
    signal cvgFB               : unsigned(2 downto 0);
@@ -225,9 +227,11 @@ architecture arch of RDP_pipeline is
    
    signal dzPixEnc            : unsigned(3 downto 0) := (others => '0');
    signal blend_enable        : std_logic;
+   signal zOverflow           : std_logic;
    signal zUsePixel           : std_logic;
    signal zResult             : unsigned(15 downto 0);
    signal zResultH            : unsigned(1 downto 0);
+   signal zCVGCount           : unsigned(3 downto 0);
 
    -- export only
    -- synthesis translate_off
@@ -268,7 +272,7 @@ begin
 
    pipe_busy <= '1' when (stage_valid > 0) else '0';
    
-   cvg_sum   <= stage_cvgCombi(STAGE_BLENDER) + ('0' & stage_cvgFB(STAGE_BLENDER));
+   cvg_sum   <= zCVGCount + ('0' & stage_cvgFB(STAGE_BLENDER));
                 
    -- perspective correction - input stage
    wslopeMul    <= ('1' & signed(pipeInWtempslope)) * ('0' & signed(pipeInWNormLow));
@@ -597,7 +601,6 @@ begin
             stage_offX(STAGE_BLENDER)     <= stage_offX(STAGE_COMBINER);   
             stage_offY(STAGE_BLENDER)     <= stage_offY(STAGE_COMBINER);   
             stage_cvgCount(STAGE_BLENDER) <= stage_cvgCount(STAGE_COMBINER);
-            stage_cvgCombi(STAGE_BLENDER) <= combine_CVGCount;
             stage_FBcolor(STAGE_BLENDER)  <= stage_FBcolor(STAGE_COMBINER);
             stage_cvgFB(STAGE_BLENDER)    <= stage_cvgFB(STAGE_COMBINER);  
             stage_FBData9(STAGE_BLENDER)  <= stage_FBData9(STAGE_COMBINER);
@@ -646,7 +649,7 @@ begin
             writePixelFBData9Z <= stage_FBData9Z(STAGE_OUTPUT - 1);
             
             -- todo: alpha compare check
-            if ((settings_otherModes.AntiAlias = '1' and stage_cvgCombi(STAGE_OUTPUT - 1) = 0) or (settings_otherModes.AntiAlias = '0' and stage_cvgValue(STAGE_OUTPUT - 1)(7) = '0')) then
+            if ((settings_otherModes.AntiAlias = '1' and zCVGCount = 0) or (settings_otherModes.AntiAlias = '0' and stage_cvgValue(STAGE_OUTPUT - 1)(7) = '0')) then
                writePixel  <= '0';
                writePixelZ <= '0';
             end if;
@@ -660,7 +663,7 @@ begin
                         writePixelCvg <= cvg_sum(2 downto 0);
                      end if;
                   else
-                     writePixelCvg <= resize(stage_cvgCombi(STAGE_OUTPUT - 1) - 1, 3);
+                     writePixelCvg <= resize(zCVGCount - 1, 3);
                   end if;
                   
                when "01" => writePixelCvg <= cvg_sum(2 downto 0);
@@ -831,8 +834,7 @@ begin
       -- STAGE_PALETTE
       
       -- STAGE_COMBINER
-      cvgFB                   => stage_cvgFB(STAGE_PALETTE),
-      cvgCount_4              => stage_cvgCount(STAGE_PALETTE),
+      cvg_overflow            => cvg_overflow,
       
       -- synthesis translate_off
       export_zNewRaw          => export_zNewRaw,
@@ -842,14 +844,21 @@ begin
       -- synthesis translate_on
       
       blend_enable            => blend_enable,
+      zOverflow               => zOverflow,
       zUsePixel               => zUsePixel,
       zResult                 => zResult,
-      zResultH                => zResultH
+      zResultH                => zResultH,
+      
+      -- STAGE_BLENDER
+      cvgCount_combine        => combine_CVGCount,
+      cvgCount_out            => zCVGCount
    );
    
    -- STAGE_TEXCOORD
    iRDP_TexCoordClamp_S : entity work.RDP_TexCoordClamp port map (texture_S_unclamped, texture_S_clamped);
    iRDP_TexCoordClamp_T : entity work.RDP_TexCoordClamp port map (texture_T_unclamped, texture_T_clamped);
+    
+   tile2 <= settings_poly.tile + 1; -- todo: add real LOD
     
    iRDP_TexTile_S: entity work.RDP_TexTile
    port map
@@ -893,7 +902,7 @@ begin
    );
     
     
-   -- STAGE_TEXFETCH + STAGE_PALETTE
+   -- STAGE_TEXFETCH + STAGE_PALETTE   
    iRDP_TexFetch: entity work.RDP_TexFetch
    port map
    (
@@ -975,7 +984,9 @@ begin
       tex_alpha               => texture_alpha,
       lod_frac                => x"FF", -- todo
       cvgCount                => stage_cvgCount(STAGE_PALETTE),
+      cvgFB                   => stage_cvgFB(STAGE_PALETTE),
                               
+      cvg_overflow            => cvg_overflow,
       combine_alpha           => combine_alpha,
       combine_CVGCount        => combine_CVGCount
    );
@@ -1025,6 +1036,7 @@ begin
       settings_fogcolor       => settings_fogcolor,
       
       blend_ena               => blend_enable,
+      zOverflow               => zOverflow,
       combine_color           => combine_color,
       combine_alpha           => combine_alpha,
       FB_color                => stage_FBcolor(STAGE_COMBINER),     
