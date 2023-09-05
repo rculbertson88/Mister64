@@ -526,6 +526,7 @@ begin
             stage_cvgValue(STAGE_COMBINER) <= stage_cvgValue(STAGE_PALETTE);   
             stage_offX(STAGE_COMBINER)     <= stage_offX(STAGE_PALETTE);   
             stage_offY(STAGE_COMBINER)     <= stage_offY(STAGE_PALETTE);   
+            stage_Color(STAGE_COMBINER)    <= stage_Color(STAGE_PALETTE);
             stage_cvgCount(STAGE_COMBINER) <= stage_cvgCount(STAGE_PALETTE);
             stage_cvgFB(STAGE_COMBINER)    <= stage_cvgFB(STAGE_PALETTE); 
             stage_FBcolor(STAGE_COMBINER)  <= stage_FBcolor(STAGE_PALETTE);
@@ -1037,6 +1038,7 @@ begin
       
       blend_ena               => blend_enable,
       zOverflow               => zOverflow,
+      pipeInColor             => stage_Color(STAGE_COMBINER),
       combine_color           => combine_color,
       combine_alpha           => combine_alpha,
       FB_color                => stage_FBcolor(STAGE_COMBINER),     
