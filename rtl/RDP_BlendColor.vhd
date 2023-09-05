@@ -19,6 +19,7 @@ entity RDP_BlendColor is
      
       blend_ena               : in  std_logic;
       zOverflow               : in  std_logic;
+      pipeInColor             : in  tcolor4_s16;
       combine_color           : in  tcolor3_u8;
       combine_alpha           : in  unsigned(7 downto 0);
       FB_color                : in  tcolor4_u8;
@@ -128,17 +129,21 @@ begin
    
       end loop;
       
-      color_1_A <= (others => '0');
+      
       case (to_integer(mode_1_A)) is
          when 0 => 
-            -- todo: use combiner color 2 for step 2
+            -- todo: use combiner color 2 for step 2?
             color_1_A <= combine_alpha;
          when 1 =>
             color_1_A <= settings_fogcolor.fog_A;
          when 2 => 
-            -- todo: should add ditherAlpha and clamp against 0xFF
-            color_1_A <= settings_blendcolor.blend_A;
-         --when 3 => fog
+            -- todo: should add ditherAlpha
+            if (pipeInColor(3)(8) = '1') then
+               color_1_A <= (others => '1');
+            else
+               color_1_A <= unsigned(pipeInColor(3)(7 downto 0));
+            end if;
+         when 3 => color_1_A <= (others => '0'); -- zero
          when others => null;
       end case;
       
