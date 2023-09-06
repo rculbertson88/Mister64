@@ -26,7 +26,9 @@ entity RDP_BlendColor is
       blend_shift_a           : in unsigned(2 downto 0);
       blend_shift_b           : in unsigned(2 downto 0);
       
-      blender_color           : out tcolor3_u8
+      blend_divEna            : out std_logic := '0';
+      blend_divVal            : out unsigned(3 downto 0) := (others => '0');
+      blender_color           : out tcolor3_u14
    );
 end entity;
 
@@ -67,10 +69,6 @@ begin
       -- todo: also disable for step 2?
       blend <= blend_ena;
       if (mode_1_A = 0 and mode_2_A = 0 and combine_alpha = 255) then
-         blend <= '0';
-      end if;
-      
-      if (settings_otherModes.forceBlend = '0') then -- hack until special blend mode for AA is implemented
          blend <= '0';
       end if;
       
@@ -178,29 +176,45 @@ begin
    zCheck <= zOverflow when (mode2 = '0' or (mode2 = '1' and step2 = '1')) else '1';
    
    process (clk1x)
-      variable blender_result : tcolor3_u8;
+      variable blender_result : tcolor3_u14;
    begin
       if rising_edge(clk1x) then
          
-         if (settings_otherModes.colorOnCvg = '0' or zCheck = '1') then
-            if (blend = '1') then
-               for i in 0 to 2 loop
-                  blender_result(i) := blend_add(i)(12 downto 5);
-               end loop;
-            else
-               blender_result := color_1_R;
-            end if;
-         else
-            blender_result := color_2_R;
-         end if;
-
-         if (step2 = '1') then 
-            blender_next <= blender_result;
-         end if;
+         for i in 0 to 2 loop
          
-         if (trigger = '1') then
-            blender_color <= blender_result;
-         end if;
+            if (settings_otherModes.colorOnCvg = '0' or zCheck = '1') then
+               if (blend = '1') then
+                  blender_result(i) := blend_add(i);
+               else
+                  blender_result(i) := "0" & color_1_R(i) & "00000";
+               end if;
+            else
+               blender_result(i) := "0" & color_2_R(i) & "00000";
+            end if;
+   
+            if (step2 = '1') then 
+               blender_next(i) <= blender_result(i)(12 downto 5);
+            end if;
+            
+            if (trigger = '1') then
+            
+               blend_divVal <= ('0' & color_1_A_reduced(4 downto 2)) + ('0' & color_2_A_reduced(4 downto 2)) + 1;
+            
+               blend_divEna <= '0';
+               if (settings_otherModes.colorOnCvg = '0' or zCheck = '1') then
+                  if (blend = '1') then
+                     if ((mode2 = '1' and step2 = '0') or mode2 = '0') then
+                        if (settings_otherModes.forceBlend = '0') then
+                           blend_divEna <= '1';
+                        end if;
+                     end if;
+                  end if;
+               end if;
+               
+               blender_color(i) <= blender_result(i);
+            end if;
+         
+         end loop;
          
       end if;
    end process;

@@ -249,6 +249,7 @@ package pRDP is
    type tcolor3_u8  is array(0 to 2) of unsigned(7 downto 0);
    type tcolor3_u13 is array(0 to 2) of unsigned(12 downto 0);
    type tcolor3_u14 is array(0 to 2) of unsigned(13 downto 0);
+   type tcolor3_u30 is array(0 to 2) of unsigned(29 downto 0);
    type tcolor3_s10 is array(0 to 2) of signed(9 downto 0);
    type tcolor3_s12 is array(0 to 2) of signed(11 downto 0);
    type tcolor3_s16 is array(0 to 2) of signed(15 downto 0);
