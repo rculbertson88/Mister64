@@ -191,7 +191,9 @@ architecture arch of RDP_pipeline is
    signal FBData9_oldZ        : unsigned(31 downto 0);
    signal old_Z_mem           : unsigned(17 downto 0);
       
-   signal blender_color       : tcolor3_u8;
+   signal blend_divEna        : std_logic;
+   signal blend_divVal        : unsigned(3 downto 0);
+   signal blender_color       : tcolor3_u14;
    
    -- stage calc
    signal wslopeMul           : signed(17 downto 0);
@@ -232,6 +234,30 @@ architecture arch of RDP_pipeline is
    signal zResult             : unsigned(15 downto 0);
    signal zResultH            : unsigned(1 downto 0);
    signal zCVGCount           : unsigned(3 downto 0);
+   
+   type tblendmults is array(0 to 15) of unsigned(17 downto 0);
+   constant blendmults : tblendmults := 
+   (
+      18x"3ffff",
+      18x"20001",
+      18x"10001",
+      18x"0aaab",
+      18x"08001",
+      18x"06667",
+      18x"05556",
+      18x"04925",
+      18x"04001",
+      18x"038e4",
+      18x"03334",
+      18x"02e8c",
+      18x"02aab",
+      18x"02763",
+      18x"02493",
+      18x"02223"
+   );
+   
+   signal blendmul            : unsigned(17 downto 0);
+   signal blenddiv            : tcolor3_u30;
 
    -- export only
    -- synthesis translate_off
@@ -291,6 +317,18 @@ begin
    outBoundSLo <= '1' when (outBoundSmask /= WMask and outBoundSmask /= 0 and wShiftedS(29) = '1') else '0';
    outBoundTHi <= '1' when (outBoundTmask /= WMask and outBoundTmask /= 0 and wShiftedT(29) = '0') else '0';
    outBoundTLo <= '1' when (outBoundTmask /= WMask and outBoundTmask /= 0 and wShiftedT(29) = '1') else '0';
+   
+   -- blend div
+   process (all)
+   begin
+   
+      blendmul <= blendmults(to_integer(blend_divVal));
+      
+      for i in 0 to 2 loop
+         blenddiv(i) <= blender_color(i)(13 downto 2) * blendmul;
+      end loop;
+      
+   end process;
    
    process (clk1x)
       variable cvgCounter : unsigned(3 downto 0);
@@ -641,7 +679,13 @@ begin
             writePixelAddr    <= stage_addr(STAGE_OUTPUT - 1);
             writePixelX       <= stage_x(STAGE_OUTPUT - 1);
             writePixelY       <= stage_y(STAGE_OUTPUT - 1);
-            writePixelColor   <= blender_color;
+            for i in 0 to 2 loop
+               if (blend_divEna = '1') then
+                  writePixelColor(i) <= blenddiv(i)(24 downto 17);
+               else
+                  writePixelColor(i) <= blender_color(i)(12 downto 5);
+               end if;
+            end loop;
             writePixelFBData9 <= stage_FBData9(STAGE_OUTPUT - 1);
             
             writePixelZ        <= stage_valid(STAGE_OUTPUT - 1) and zUsePixel and settings_otherModes.zUpdate;
@@ -1045,6 +1089,8 @@ begin
       blend_shift_a           => "000",
       blend_shift_b           => "000",
       
+      blend_divEna            => blend_divEna,
+      blend_divVal            => blend_divVal,
       blender_color           => blender_color
    );
 
