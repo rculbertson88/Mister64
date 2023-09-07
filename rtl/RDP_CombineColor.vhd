@@ -22,6 +22,7 @@ entity RDP_CombineColor is
      
       pipeInColor             : in  tcolor4_s16;
       texture_color           : in  tcolor3_u8;
+      tex_alpha               : in  unsigned(7 downto 0);
 
       combine_color           : out tcolor3_u8
    );
@@ -109,7 +110,7 @@ begin
             when  5 => color_mul(i) <= x"00" & signed(envcolor(i));
             when  6 => errorCombine <= '1'; -- key scale
             when  7 => errorCombine <= '1'; -- combiner color
-            when  8 => errorCombine <= '1'; -- tex1 A
+            when  8 => color_mul(i) <= x"00" & signed(tex_alpha);
             when  9 => errorCombine <= '1'; -- tex2 A
             when 10 => color_mul(i) <= x"00" & signed(settings_primcolor.prim_A);
             when 11 => color_mul(i) <= pipeInColor(3);

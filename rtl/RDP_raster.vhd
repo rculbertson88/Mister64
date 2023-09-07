@@ -705,12 +705,19 @@ begin
                   end if;
                   
                when REQUESTFB =>
-                  polystate <= WAITREADRAM;
-                  FBreq     <= '1';
-                  FBaddr    <= calcFBAddr;
-                  FBZaddr   <= calcZAddr;
-                  FBsize    <= lineInfo.xEnd - lineInfo.xStart;
-                  FBodd     <= lineInfo.y(0);
+                  if (allinval = '0' and allover = '0' and allunder = '0') then
+                     polystate <= WAITREADRAM;
+                     FBreq     <= '1';
+                     FBaddr    <= calcFBAddr;
+                     FBZaddr   <= calcZAddr;
+                     FBsize    <= lineInfo.xEnd - lineInfo.xStart;
+                     FBodd     <= lineInfo.y(0);
+                  else
+                     startLine <= '1';
+                     if (startLine = '1') then
+                        polystate <= WAITLINE;
+                     end if;
+                  end if;
                   
                when WAITREADRAM =>
                   if (FBdone = '1') then
@@ -739,7 +746,7 @@ begin
                startLine <= '0';
             end if;
             
-            if (startLine = '1' and (allinval = '1' or allover = '1' or allunder = '1')) then
+            if (startLine = '1' and linestate = LINEIDLE and (allinval = '1' or allover = '1' or allunder = '1')) then
                startLine <= '0';
             end if;
             

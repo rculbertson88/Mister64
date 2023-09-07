@@ -146,8 +146,6 @@ architecture arch of RDP_pipeline is
    signal stage_valid         : unsigned(0 to STAGE_OUTPUT - 1);
    signal stage_addr          : t_stage_u26 := (others => (others => '0'));
    signal stage_addrZ         : t_stage_u26 := (others => (others => '0'));
-   signal stage_xIndexPx      : t_stage_u12 := (others => (others => '0'));
-   signal stage_xIndex9       : t_stage_u12 := (others => (others => '0'));
    signal stage_x             : t_stage_u12 := (others => (others => '0'));
    signal stage_y             : t_stage_u12 := (others => (others => '0'));
    signal stage_cvgValue      : t_stage_u8 := (others => (others => '0'));
@@ -366,8 +364,6 @@ begin
             stage_valid(STAGE_INPUT)      <= pipeIn_valid;
             stage_addr(STAGE_INPUT)       <= pipeIn_addr;
             stage_addrZ(STAGE_INPUT)      <= pipeIn_AddrZ;
-            stage_xIndexPx(STAGE_INPUT)   <= pipeIn_xIndexPx;
-            stage_xIndex9(STAGE_INPUT)    <= pipeIn_xIndex9;
             stage_x(STAGE_INPUT)          <= pipeIn_X;
             stage_y(STAGE_INPUT)          <= pipeIn_Y;
             stage_cvgValue(STAGE_INPUT)   <= pipeIn_cvgValue;
@@ -407,9 +403,7 @@ begin
             
             stage_valid(STAGE_PERSPCOR)    <= stage_valid(STAGE_INPUT);   
             stage_addr(STAGE_PERSPCOR)     <= stage_addr(STAGE_INPUT);  
-            stage_addrZ(STAGE_PERSPCOR)    <= stage_addrZ(STAGE_INPUT);  
-            stage_xIndexPx(STAGE_PERSPCOR) <= stage_xIndexPx(STAGE_INPUT);
-            stage_xIndex9(STAGE_PERSPCOR)  <= stage_xIndex9(STAGE_INPUT);           
+            stage_addrZ(STAGE_PERSPCOR)    <= stage_addrZ(STAGE_INPUT);            
             stage_x(STAGE_PERSPCOR)        <= stage_x(STAGE_INPUT);          
             stage_y(STAGE_PERSPCOR)        <= stage_y(STAGE_INPUT);          
             stage_cvgValue(STAGE_PERSPCOR) <= stage_cvgValue(STAGE_INPUT);   
@@ -472,6 +466,10 @@ begin
             stage_Color(STAGE_TEXFETCH)    <= stage_Color(STAGE_TEXCOORD);         
             stage_copySize(STAGE_TEXFETCH) <= stage_copySize(STAGE_TEXCOORD);         
             stage_cvgCount(STAGE_TEXFETCH) <= stage_cvgCount(STAGE_TEXCOORD);
+            stage_FBcolor(STAGE_TEXFETCH)  <= FBcolor;
+            stage_cvgFB(STAGE_TEXFETCH)    <= cvgFB;
+            stage_FBData9(STAGE_TEXFETCH)  <= FBData9_old;
+            stage_FBData9Z(STAGE_TEXFETCH) <= FBData9_oldZ;
 
             -- synthesis translate_off
             stage_cvg16(STAGE_TEXFETCH)      <= stage_cvg16(STAGE_TEXCOORD);
@@ -501,10 +499,10 @@ begin
             stage_Color(STAGE_TEXREAD)    <= stage_Color(STAGE_TEXFETCH);
             stage_copySize(STAGE_TEXREAD) <= stage_copySize(STAGE_TEXFETCH);
             stage_cvgCount(STAGE_TEXREAD) <= stage_cvgCount(STAGE_TEXFETCH);
-            stage_FBcolor(STAGE_TEXREAD)  <= FBcolor;
-            stage_cvgFB(STAGE_TEXREAD)    <= cvgFB;
-            stage_FBData9(STAGE_TEXREAD)  <= FBData9_old;
-            stage_FBData9Z(STAGE_TEXREAD) <= FBData9_oldZ;
+            stage_FBcolor(STAGE_TEXREAD)  <= stage_FBcolor(STAGE_TEXFETCH);
+            stage_cvgFB(STAGE_TEXREAD)    <= stage_cvgFB(STAGE_TEXFETCH);
+            stage_FBData9(STAGE_TEXREAD)  <= stage_FBData9(STAGE_TEXFETCH);
+            stage_FBData9Z(STAGE_TEXREAD) <= stage_FBData9Z(STAGE_TEXFETCH);
 
             -- synthesis translate_off
             stage_cvg16(STAGE_TEXREAD)       <= stage_cvg16(STAGE_TEXFETCH);
@@ -872,9 +870,9 @@ begin
       -- STAGE_TEXCOORD
       
       -- STAGE_TEXFETCH
+      old_Z_mem               => old_Z_mem,
       
       -- STAGE_TEXREAD
-      old_Z_mem               => old_Z_mem,
       
       -- STAGE_PALETTE
       
@@ -1006,6 +1004,7 @@ begin
       
       pipeInColor             => stage_Color(STAGE_PALETTE),
       texture_color           => texture_color,
+      tex_alpha               => texture_alpha,
      
       combine_color           => combine_color
    );
@@ -1045,9 +1044,9 @@ begin
       settings_otherModes     => settings_otherModes,
       settings_colorImage     => settings_colorImage,
                                                     
-      xIndexPx                => stage_xIndexPx(STAGE_INPUT),            
-      xIndex9                 => stage_xIndex9(STAGE_INPUT),           
-      yOdd                    => stage_y(STAGE_INPUT)(0),               
+      xIndexPx                => pipeIn_xIndexPx,            
+      xIndex9                 => pipeIn_xIndex9,           
+      yOdd                    => pipeIn_Y(0),               
                                                     
       FBAddr                  => FBAddr,             
       FBData_in               => unsigned(FBData),  

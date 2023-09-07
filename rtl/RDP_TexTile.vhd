@@ -78,7 +78,7 @@ begin
          if (to_integer(shifted(15 downto 3)) >= to_integer(tile_max)) then
             clamp_index <= clampMax;
             frac        <= (others => '0');
-         elsif (shifted < 0) then
+         elsif (relative < 0) then
             clamp_index <= (others => '0');
             frac        <= (others => '0');
          end if;

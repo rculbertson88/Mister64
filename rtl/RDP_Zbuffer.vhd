@@ -27,9 +27,9 @@ entity RDP_Zbuffer is
       -- STAGE_TEXCOORD
       
       -- STAGE_TEXFETCH
+      old_Z_mem               : in unsigned(17 downto 0);
       
       -- STAGE_TEXREAD
-      old_Z_mem               : in unsigned(17 downto 0);
       
       -- STAGE_PALETTE
       
@@ -75,6 +75,7 @@ architecture arch of RDP_Zbuffer is
    
    -- STAGE_TEXFETCH     
    signal new_z_2           : unsigned(17 downto 0)  := (others => '0');
+   signal old_Z_mem_1       : unsigned(17 downto 0)  := (others => '0');
    
    -- STAGE_TEXREAD
    signal oldZ_mantissa     : unsigned(10 downto 0);
@@ -193,7 +194,8 @@ begin
          
          if (trigger = '1') then
          
-            new_z_2 <= new_z_1;
+            new_z_2     <= new_z_1;
+            old_Z_mem_1 <= old_Z_mem;
 
          end if;
          
@@ -201,14 +203,14 @@ begin
    end process;
    
    -- STAGE_TEXREAD
-   oldZ_mantissa   <= old_Z_mem(12 downto 2);
-   oldZ_shift      <= to_unsigned(6, 3) - old_Z_mem(15 downto 13) when (old_Z_mem(15 downto 13) < 7) else (others => '0');
+   oldZ_mantissa   <= old_Z_mem_1(12 downto 2);
+   oldZ_shift      <= to_unsigned(6, 3) - old_Z_mem_1(15 downto 13) when (old_Z_mem_1(15 downto 13) < 7) else (others => '0');
    oldZ_mantShifted <= ("000000" & oldZ_mantissa) sll to_integer(oldZ_shift);
-   oldZ_addValue   <= oldAddTable(to_integer(old_Z_mem(15 downto 13)));
+   oldZ_addValue   <= oldAddTable(to_integer(old_Z_mem_1(15 downto 13)));
    
-   old_dz_mem      <= old_Z_mem(1 downto 0) & old_Z_mem(17 downto 16);
+   old_dz_mem      <= old_Z_mem_1(1 downto 0) & old_Z_mem_1(17 downto 16);
    old_dz_raw      <= to_unsigned(1, 16) sll to_integer(old_dz_mem);
-   dzmin           <= shift_right(to_unsigned(16, 5), to_integer(old_Z_mem(14 downto 13)));
+   dzmin           <= shift_right(to_unsigned(16, 5), to_integer(old_Z_mem_1(14 downto 13)));
    
    process (clk1x)
    begin
@@ -221,7 +223,7 @@ begin
             old_z   <= oldZ_mantShifted + oldZ_addValue;
  
             planar <= '0';
-            if (old_Z_mem(15 downto 13) < 3) then
+            if (old_Z_mem_1(15 downto 13) < 3) then
                if (old_dz_raw /= x"8000") then
                   if (to_integer(old_dz_raw(14 downto 0) & '0') < to_integer(dzmin)) then
                      old_dz <= 11x"0" & dzmin;
@@ -279,7 +281,7 @@ begin
    calc_max      <= '1' when (old_z_1 = 18x"3FFFF") else '0';
    calc_front    <= '1' when (new_z_4 < old_z_1) else '0';
    calc_near     <= '1' when (planar_1 = '1' or to_integer(diffZ) <= to_integer(old_z_1)) else '0';
-   calc_far      <= '1' when (planar_1 = '1' or (new_z_4 + (dzNew & "000")) > old_z_1) else '0'; 
+   calc_far      <= '1' when (planar_1 = '1' or (new_z_4 + (dzNew & "000")) >= old_z_1) else '0'; 
    
    process (clk1x)
    begin
