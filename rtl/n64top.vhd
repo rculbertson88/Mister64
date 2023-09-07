@@ -584,7 +584,7 @@ begin
       sdram_granted        => sdramMux_granted(SDRAMMUX_RDP),      
       sdram_done           => sdramMux_done(SDRAMMUX_RDP),      
       sdram_dataRead       => sdram_dataRead,
-      sdram_valid          => sdram_done,    
+      sdram_valid          => (sdram_done and sdram_rnw),    
                               
       rdp9fifo_reset       => rdp9fifo_reset,   
       rdp9fifo_Din         => rdp9fifo_Din,     
