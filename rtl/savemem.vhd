@@ -2,6 +2,8 @@ library IEEE;
 use IEEE.std_logic_1164.all;  
 use IEEE.numeric_std.all; 
 
+use work.pFunctions.all;
+
 entity savemem is
    port 
    (
@@ -23,6 +25,15 @@ entity savemem is
       eeprom_wren          : out std_logic := '0';
       eeprom_in            : out std_logic_vector(31 downto 0) := (others => '0');
       eeprom_out           : in  std_logic_vector(31 downto 0);
+      
+      sdram_request        : out std_logic := '0';
+      sdram_rnw            : out std_logic := '0'; 
+      sdram_address        : out unsigned(26 downto 0):= (others => '0');
+      sdram_burstcount     : out unsigned(7 downto 0):= (others => '0');
+      sdram_writeMask      : out std_logic_vector(3 downto 0) := (others => '0'); 
+      sdram_dataWrite      : out std_logic_vector(31 downto 0) := (others => '0');
+      sdram_done           : in  std_logic;
+      sdram_dataRead       : in  std_logic_vector(31 downto 0);
 
       save_rd              : out std_logic := '0';
       save_wr              : out std_logic := '0';
@@ -38,7 +49,7 @@ end entity;
 architecture arch of savemem is
    
    signal DOSAVE   : std_logic;
-   signal MAXBLOCK : integer range 0 to 127; 
+   signal MAXBLOCK : integer range 0 to 255; 
    
    type tState is
    (
@@ -54,6 +65,7 @@ architecture arch of savemem is
       SAVE_REQDATA,
       SAVE_WAITEEPROM,
       SAVE_READEEPROM,
+      SAVE_WAITSDRAM,
       SAVE_READDATA,
       SAVE_REQWRITE,
       SAVE_WAITACKSTART,
@@ -76,13 +88,20 @@ architecture arch of savemem is
 
 begin 
 
-   DOSAVE <= '1' when (SAVETYPE = "001" or SAVETYPE = "010") else '0';
+   DOSAVE <= '1' when (SAVETYPE = "001" or SAVETYPE = "010" or SAVETYPE = "011" or SAVETYPE = "100") else '0';
    
-   MAXBLOCK <= 0 when (SAVETYPE = "001") else
-               3;
+   MAXBLOCK <=   0 when (SAVETYPE = "001") else -- EEPROM4
+                 3 when (SAVETYPE = "010") else -- EEPROM16
+                63 when (SAVETYPE = "011") else -- SRAM32
+               191 when (SAVETYPE = "100") else -- SRAM96
+               255 when (SAVETYPE = "101") else -- FLASH
+                 0; -- unused
    
 
    changePending <= anyChangeBuf;
+  
+   sdram_burstcount <= x"01";
+   sdram_writeMask  <= x"F";
   
    process (clk)
    begin
@@ -90,6 +109,7 @@ begin
       
          mem_wrenA      <= '0';  
          eeprom_wren    <= '0';  
+         sdram_request  <= '0';  
          
          if (save_ack = '1') then
             save_rd <= '0';
@@ -152,10 +172,15 @@ begin
                      eeprom_addr <= std_logic_vector(blockCnt(1 downto 0)) & mem_addrA;
                      eeprom_in   <= mem_DataOutA;
                      eeprom_wren <= '1';
+                  elsif (SAVETYPE = "011" or SAVETYPE = "100" or SAVETYPE = "101") then
+                     sdram_request   <= '1';
+                     sdram_rnw       <= '0';
+                     sdram_address   <= resize(blockCnt(7 downto 0) & unsigned(mem_addrA & "00"), 27) + to_unsigned(16#400000#, 27);
+                     sdram_dataWrite <= byteswap32(mem_DataOutA);
                   end if;
                   
                when LOAD_WAITACK =>
-                  if (SAVETYPE = "001" or SAVETYPE = "010") then
+                  if ((SAVETYPE = "001" or SAVETYPE = "010") or (sdram_done = '1' and (SAVETYPE = "011" or SAVETYPE = "100" or SAVETYPE = "101"))) then
                      if (unsigned(mem_addrA) = 127) then
                         if (blockCnt = MAXBLOCK) then
                            state        <= IDLE;
@@ -175,6 +200,11 @@ begin
                   if (SAVETYPE = "001" or SAVETYPE = "010") then
                      eeprom_addr <= std_logic_vector(blockCnt(1 downto 0)) & mem_addrA;
                      state       <= SAVE_WAITEEPROM;
+                  elsif (SAVETYPE = "011" or SAVETYPE = "100" or SAVETYPE = "101") then
+                     sdram_request   <= '1';
+                     sdram_rnw       <= '1';
+                     sdram_address   <= resize(blockCnt(7 downto 0) & unsigned(mem_addrA & "00"), 27) + to_unsigned(16#400000#, 27);
+                     state           <= SAVE_WAITSDRAM;
                   end if;
                
                when SAVE_WAITEEPROM =>
@@ -184,6 +214,13 @@ begin
                   state        <= SAVE_READDATA;
                   mem_wrenA    <= '1';
                   mem_DataInA  <= eeprom_out; 
+                  
+               when SAVE_WAITSDRAM =>
+                  if (sdram_done = '1') then
+                     state        <= SAVE_READDATA;
+                     mem_wrenA    <= '1';
+                     mem_DataInA  <= byteswap32(sdram_dataRead); 
+                  end if;
                   
                when SAVE_READDATA =>
                   if (unsigned(mem_addrA) = 127) then

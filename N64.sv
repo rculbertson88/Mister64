@@ -361,7 +361,8 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 
 	.status(status),
 	.status_in(status_in),
-	.status_set(statusUpdate),
+	//.status_set(statusUpdate),
+	.status_set(0),
 	.status_menumask(status_menumask),
 	.info_req(info_req),
 	.info(info_index),

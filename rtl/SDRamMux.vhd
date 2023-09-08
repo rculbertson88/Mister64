@@ -8,10 +8,11 @@ use IEEE.numeric_std.all;
 
 package pSDRAM is
 
-   constant SDRAMMUXCOUNT : integer := 2;
+   constant SDRAMMUXCOUNT : integer := 3;
    
-   constant SDRAMMUX_PI   : integer := 0;
-   constant SDRAMMUX_RDP  : integer := 1;
+   constant SDRAMMUX_SAV  : integer := 0;
+   constant SDRAMMUX_PI   : integer := 1;
+   constant SDRAMMUX_RDP  : integer := 2;
    
    type tSDRAMSingle     is array(0 to SDRAMMUXCOUNT - 1) of std_logic;
    type tSDRAMReqAddr    is array(0 to SDRAMMUXCOUNT - 1) of unsigned(26 downto 0);

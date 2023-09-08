@@ -374,6 +374,10 @@ architecture arch of n64top is
    signal eeprom_out             : std_logic_vector(31 downto 0);
    signal eeprom_change          : std_logic;
    
+   signal change_sram            : std_logic;
+   signal change_flash           : std_logic;
+   signal any_change             : std_logic;
+   
    -- synthesis translate_off
    -- export
    signal cpu_done               : std_logic; 
@@ -807,12 +811,16 @@ begin
       ce                   => ce_1x,           
       reset                => reset_intern_1x, 
       
+      SAVETYPE             => SAVETYPE,
       fastDecay            => is_simu,
       cartAvailable        => cartAvailable,
 
       irq_out              => irqVector(4),
       
       error_PI             => error_PI,
+      
+      change_sram          => change_sram, 
+      change_flash         => change_flash,
                            
       sdram_request        => sdramMux_request(SDRAMMUX_PI),   
       sdram_rnw            => sdramMux_rnw(SDRAMMUX_PI),       
@@ -830,6 +838,7 @@ begin
       rdram_writeMask      => rdram_writeMask(DDR3MUX_PI), 
       rdram_dataWrite      => rdram_dataWrite(DDR3MUX_PI), 
       rdram_done           => rdram_done(DDR3MUX_PI),      
+      rdram_dataRead       => rdram_dataRead,      
                             
       bus_reg_addr         => bus_PIreg_addr,     
       bus_reg_dataWrite    => bus_PIreg_dataWrite,
@@ -1256,6 +1265,8 @@ begin
       request_busy        => savestate_busy    
    );
    
+   any_change <= change_flash or change_sram or eeprom_change;
+   
    isavemem : entity work.savemem
    port map
    (
@@ -1268,7 +1279,7 @@ begin
       load                 => load,          
                                             
       mounted              => mounted,       
-      anyChange            => eeprom_change,     
+      anyChange            => any_change,     
                                             
       changePending        => changePending, 
       save_ongoing         => save_ongoing,  
@@ -1277,6 +1288,15 @@ begin
       eeprom_wren          => eeprom_wren,   
       eeprom_in            => eeprom_in,     
       eeprom_out           => eeprom_out,    
+      
+      sdram_request        => sdramMux_request(SDRAMMUX_SAV),   
+      sdram_rnw            => sdramMux_rnw(SDRAMMUX_SAV),       
+      sdram_address        => sdramMux_address(SDRAMMUX_SAV),   
+      sdram_burstcount     => sdramMux_burstcount(SDRAMMUX_SAV),
+      sdram_writeMask      => sdramMux_writeMask(SDRAMMUX_SAV), 
+      sdram_dataWrite      => sdramMux_dataWrite(SDRAMMUX_SAV), 
+      sdram_done           => sdramMux_done(SDRAMMUX_SAV),      
+      sdram_dataRead       => sdramMux_dataRead,
                                             
       save_rd              => save_rd,       
       save_wr              => save_wr,       
