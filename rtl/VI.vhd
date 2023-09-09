@@ -19,6 +19,9 @@ entity VI is
       
       irq_out          : out std_logic := '0';
       
+      ISPAL            : in  std_logic;
+      CROPBOTTOM       : in  unsigned(1 downto 0);
+      
       errorEna         : in  std_logic;
       errorCode        : in  unsigned(19 downto 0);
       fpscountOn       : in  std_logic;
@@ -308,7 +311,10 @@ begin
       clk2x                => clk2x,
       clkvid               => clkvid,
       ce                   => ce,
-      reset_1x             => reset_1x, 
+      reset_1x             => reset_1x,
+
+      ISPAL                => ISPAL,        
+      CROPBOTTOM           => CROPBOTTOM,
   
       errorEna             => errorEna, 
       errorCode            => errorCode,

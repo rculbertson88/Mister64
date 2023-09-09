@@ -242,21 +242,11 @@ parameter CONF_STR = {
 	"RH,Save state (Alt-F1);",
 	"RI,Restore state (F1);",
 	"-;",
-   "O[16],Data Cache,Off,On;",
-   "O[29],Data FORCE WB,Off,On;",
-   "O[27:24],Cache Delay,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15;",
-   "O[23:20],DDR3 Delay,0,16,24,32,40,48,56,64,72,80,88,96,104,112;",
    "O[30],Texture Filter,On,Off;",
-   "O[11],Write Bit 9,On,Off;",
-   "O[12],Read Bit 9,On,Off;",
-   "O[13],Wait Bit 9,On,Off;",
-   "O[14],Write Z,On,Off;",
-   "O[15],Read Z,On,Off;",
-	"-;",
-   "O[1],Swap Interlaced,Off,On;",
    "O[2],Error Overlay,Off,On;",
    "O[28],FPS Overlay,Off,On;",
    "O[8:7],Stereo Mix,None,25%,50%,100%;",
+   "O[45:44],Crop Bottom,None,8,16,24;",
    "-;",
    
    "P2,System settings;",
@@ -271,6 +261,19 @@ parameter CONF_STR = {
    "P2O[73],TransferPak,Off,On;",
    "P2O[74],RTC,Off,On;",
    "P2O[77:75],Save Type,None,EEPROM4,EEPROM16,SRAM32,SRAM96,Flash;",
+   "-;",
+   
+   "P3,Debug settings;",
+   "P3O[43],Data Cache,On,Off;",
+   "P3O[29],Data FORCE WB,Off,On;",
+   "P3O[27:24],Cache Delay,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15;",
+   "P3O[23:20],DDR3 Delay,0,16,24,32,40,48,56,64,72,80,88,96,104,112;",
+   "P3O[11],Write Bit 9,On,Off;",
+   "P3O[12],Read Bit 9,On,Off;",
+   "P3O[13],Wait Bit 9,On,Off;",
+   "P3O[14],Write Z,On,Off;",
+   "P3O[15],Read Z,On,Off;",
+   "P3O[1],Swap Interlaced,Off,On;",
    "-;",
    
 	"R0,Reset;",
@@ -392,7 +395,7 @@ assign joy = joy_unmod[14] ? 20'b0 : joy_unmod;
 
 ////////////////////////////  PIFROM download  ///////////////////////////////////
 
-reg  [8:0] pifrom_wraddress;
+reg  [9:0] pifrom_wraddress;
 reg [31:0] pifrom_wrdata;   
 reg        pifrom_wren;   
 reg        pifrom_download;
@@ -408,7 +411,7 @@ always @(posedge clk_1x) begin
          if(~ioctl_addr[1]) begin
             pifrom_wrdata[31:24] <= ioctl_dout[7:0];
             pifrom_wrdata[23:16] <= ioctl_dout[15:8];
-            pifrom_wraddress    <= ioctl_addr[10:2];                                  
+            pifrom_wraddress    <= {ioctl_index[6], ioctl_addr[10:2]};                                  
          end else begin
             pifrom_wrdata[15:8] <= ioctl_dout[7:0];
             pifrom_wrdata[7:0]  <= ioctl_dout[15:8];
@@ -572,9 +575,11 @@ n64top
    .errorCodesOn(status[2]),
    .fpscountOn(status[28]),
    
+   .ISPAL(status[79]),
+   .CROPBOTTOM(status[45:44]),
    .CICTYPE(status[68:65]),
    .RAMSIZE8(~status[70]),
-   .DATACACHEON(status[16]),
+   .DATACACHEON(~status[43]),
    .DATACACHESLOW(status[27:24]),
    .DATACACHEFORCEWEB(status[29]),
    .DDR3SLOW(status[23:20]),
