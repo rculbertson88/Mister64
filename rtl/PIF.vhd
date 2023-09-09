@@ -12,12 +12,13 @@ entity pif is
       ce                   : in  std_logic;
       reset                : in  std_logic;
       
+      ISPAL                : in  std_logic;
       CICTYPE              : in  std_logic_vector(3 downto 0);
       EEPROMTYPE           : in  std_logic_vector(1 downto 0); -- 00 -> off, 01 -> 4kbit, 10 -> 16kbit
       
       error                : out std_logic := '0';
       
-      pifrom_wraddress     : in  std_logic_vector(8 downto 0);
+      pifrom_wraddress     : in  std_logic_vector(9 downto 0);
       pifrom_wrdata        : in  std_logic_vector(31 downto 0);
       pifrom_wren          : in  std_logic;
       
@@ -104,6 +105,7 @@ architecture arch of pif is
    signal bus_read_ram     : std_logic := '0';
    signal bus_write_ram    : std_logic := '0';
    
+   signal pifrom_addr      : std_logic_vector(9 downto 0);
    signal pifrom_data      : std_logic_vector(31 downto 0) := (others => '0');
    signal pifrom_locked    : std_logic := '0';
 
@@ -207,11 +209,13 @@ architecture arch of pif is
    
 begin 
 
+   pifrom_addr <= ISPAL & std_logic_vector(bus_addr(10 downto 2));
+
    ipifrom : entity work.pifrom
    port map
    (
       clk       => clk1x,
-      address   => std_logic_vector(bus_addr(10 downto 2)),
+      address   => pifrom_addr,
       data      => pifrom_data,
 
       wraddress => pifrom_wraddress,

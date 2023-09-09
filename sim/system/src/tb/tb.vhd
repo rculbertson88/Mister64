@@ -108,6 +108,8 @@ begin
       errorCodesOn          => '1',
       fpscountOn            => '1',
       
+      ISPAL                 => '0',
+      CROPBOTTOM            => "00",
       CICTYPE               => "0000",
       RAMSIZE8              => '1',
       DATACACHEON           => '1',
@@ -130,7 +132,7 @@ begin
       state_loaded          => open,
       
       -- PIFROM download port
-      pifrom_wraddress      => 9x"000",
+      pifrom_wraddress      => 10x"000",
       pifrom_wrdata         => x"00000000",   
       pifrom_wren           => '0',     
                
@@ -180,7 +182,7 @@ begin
       pad_3_analog_v        => x"00", 
       
       -- saves              
-      SAVETYPE              => "001",
+      SAVETYPE              => "011",
       EEPROMTYPE            => "01",
       
       save                  => '0', 

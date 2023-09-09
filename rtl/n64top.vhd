@@ -24,6 +24,9 @@ entity n64top is
       errorCodesOn            : in  std_logic;
       fpscountOn              : in  std_logic;
       
+      ISPAL                   : in  std_logic;
+      CROPBOTTOM              : in  unsigned(1 downto 0);
+      
       CICTYPE                 : in  std_logic_vector(3 downto 0);
       RAMSIZE8                : in  std_logic;
       DATACACHEON             : in  std_logic;
@@ -46,7 +49,7 @@ entity n64top is
       state_loaded            : out std_logic;
       
       -- PIFROM download port
-      pifrom_wraddress        : in std_logic_vector(8 downto 0);
+      pifrom_wraddress        : in std_logic_vector(9 downto 0);
       pifrom_wrdata           : in std_logic_vector(31 downto 0);
       pifrom_wren             : in std_logic;
          
@@ -678,6 +681,9 @@ begin
       
       irq_out              => irqVector(3),
       
+      ISPAL                => ISPAL,
+      CROPBOTTOM           => CROPBOTTOM,
+      
       errorEna             => errorEna, 
       errorCode            => errorCode,
       fpscountOn           => fpscountOn,
@@ -869,6 +875,7 @@ begin
       ce                   => ce_1x,           
       reset                => reset_intern_1x,   
 
+      ISPAL                => ISPAL,
       CICTYPE              => CICTYPE,
       EEPROMTYPE           => EEPROMTYPE,
       

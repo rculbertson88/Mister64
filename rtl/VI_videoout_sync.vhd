@@ -80,12 +80,7 @@ begin
          videoout_reports.newLine <= '0';
              
          videoout_reports.vsync    <= '0';
-         --videoout_reports.dotclock <= '0';
-         --if (videoout_settings.GPUSTAT_VerRes = '1') then
-         --   if (vsyncCount >= 5 and vsyncCount < 8) then videoout_reports.vsync <= '1'; end if;
-         --else
-            if (vsyncCount >= 10 and vsyncCount < 13) then videoout_reports.vsync <= '1'; end if;
-         --end if;
+         if (vsyncCount >= 10 and vsyncCount < 13) then videoout_reports.vsync <= '1'; end if;
 
          if (reset = '1') then
                
@@ -101,8 +96,6 @@ begin
                   
          elsif (ce = '1') then
          
-            --videoout_reports.irq_VBLANK <= '0';
-            
             --gpu timing calc
             if (videoout_settings.isPAL = '1') then
                htotal <= (62500000 / 50 / 312); -- overwritten below
@@ -137,11 +130,6 @@ begin
                vposNew := vpos + 1;
                if (vposNew >= vtotal) then
                   vposNew := 0;
-                  --if (videoout_settings.GPUSTAT_VertInterlace = '1') then
-                  --   videoout_reports.GPUSTAT_InterlaceField <= not videoout_reports.GPUSTAT_InterlaceField;
-                  --else
-                  --   videoout_reports.GPUSTAT_InterlaceField <= '0';
-                  --end if;
                end if;
                
                vpos <= vposNew;
@@ -159,7 +147,6 @@ begin
                if (isVsync /= videoout_reports.inVsync) then
                   if (isVsync = '1') then
                      videoout_request.fetch      <= '0';
-                     --videoout_reports.irq_VBLANK <= '1';
                      if (videoout_settings.CTRL_SERRATE = '1') then 
                         interlacedDisplayFieldNew := not videoout_reports.interlacedDisplayField;
                      else 
@@ -170,54 +157,10 @@ begin
                end if;
                videoout_reports.interlacedDisplayField <= interlacedDisplayFieldNew;
                
-             
-               --videoout_reports.GPUSTAT_DrawingOddline <= '0';
-               --videoout_reports.activeLineLSB          <= '0';
-               --if (mode480i = '1') then
-               --   if (videoout_settings.vramRange(10) = '0' and interlacedDisplayFieldNew = '1') then videoout_reports.activeLineLSB <= '1'; end if;
-               --   if (videoout_settings.vramRange(10) = '1' and interlacedDisplayFieldNew = '0') then videoout_reports.activeLineLSB <= '1'; end if;
-               --
-               --   if (videoout_settings.vramRange(10) = '0' and isVsync = '0' and interlacedDisplayFieldNew = '1') then videoout_reports.GPUSTAT_DrawingOddline <= '1'; end if;
-               --   if (videoout_settings.vramRange(10) = '1' and isVsync = '0' and interlacedDisplayFieldNew = '0') then videoout_reports.GPUSTAT_DrawingOddline <= '1'; end if;
-               --else
-               --   if (videoout_settings.vramRange(10) = '0' and (vposNew mod 2) = 1) then videoout_reports.GPUSTAT_DrawingOddline <= '1'; end if;
-               --   if (videoout_settings.vramRange(10) = '1' and (vposNew mod 2) = 0) then videoout_reports.GPUSTAT_DrawingOddline <= '1'; end if;
-               --end if;
-               
                vposNew := vposNew + 1;
-               if (vDisplayStart > 0) then
-                  if (vposNew >= vDisplayStart and vposNew < vDisplayEnd) then 
-                     --if (videoout_settings.GPUSTAT_VerRes = '1') then
-                     --   if (videoout_reports.activeLineLSB = '1') then
-                     --      videoout_request.lineInNext <= to_unsigned(((vposNew - vDisplayStart) * 2) + 1, 9);
-                     --   else
-                     --      videoout_request.lineInNext <= to_unsigned((vposNew - vDisplayStart) * 2, 9);
-                     --   end if;
-                     --else
-                        videoout_request.lineInNext <= to_unsigned(vposNew - vDisplayStart, 9);
-                     --end if;
-                     videoout_request.fetch      <= '1';
-                  end if;
-               else  
-                  if (vposNew = vtotal) then
-                     --if (videoout_settings.GPUSTAT_VerRes = '1' and videoout_reports.interlacedDisplayField = '1') then
-                     --   videoout_request.lineInNext <= to_unsigned(1, 9);
-                     --else
-                        videoout_request.lineInNext <= to_unsigned(0, 9);
-                     --end if;
-                     videoout_request.fetch      <= '1';
-                  elsif (vposNew >= vDisplayStart and vposNew < vDisplayEnd) then 
-                     --if (videoout_settings.GPUSTAT_VerRes = '1') then
-                     --   if (videoout_reports.activeLineLSB = '1') then
-                     --      videoout_request.lineInNext <= to_unsigned(((vposNew - vDisplayStart) * 2) + 1, 9);
-                     --   else
-                     --      videoout_request.lineInNext <= to_unsigned((vposNew - vDisplayStart) * 2, 9);
-                     --   end if;
-                     --else
-                        videoout_request.lineInNext <= to_unsigned(vposNew - vDisplayStart, 9);
-                     --end if;
-                     videoout_request.fetch      <= '1';
-                  end if;
+               if (vposNew >= vDisplayStart and vposNew < vDisplayEnd) then 
+                  videoout_request.lineInNext <= to_unsigned(vposNew - vDisplayStart, 9);
+                  videoout_request.fetch      <= '1';
                end if;
               
             end if;
