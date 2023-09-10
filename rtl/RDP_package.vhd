@@ -328,9 +328,9 @@ package body pRDP is
       write(line_out, string'(" D ")); 
       write(line_out, to_hstring(item.data(31 downto 0)));
       write(line_out, string'(" X ")); 
-      write(line_out, to_string_len(to_integer(item.x), 4));
+      write(line_out, to_string_len(to_integer(item.x), 5));
       write(line_out, string'(" Y ")); 
-      write(line_out, to_string_len(to_integer(item.y), 4));
+      write(line_out, to_string_len(to_integer(item.y), 5));
       write(line_out, string'(" D1 "));
       write(line_out, to_hstring(item.debug1));
       write(line_out, string'(" D2 "));
@@ -355,9 +355,9 @@ package body pRDP is
       write(line_out, string'(" D ")); 
       write(line_out, to_hstring(item.data));
       write(line_out, string'(" X ")); 
-      write(line_out, to_string_len(to_integer(item.x), 4));
+      write(line_out, to_string_len(to_integer(item.x), 5));
       write(line_out, string'(" Y ")); 
-      write(line_out, to_string_len(to_integer(item.y), 4));
+      write(line_out, to_string_len(to_integer(item.y), 5));
       write(line_out, string'(" D1 "));
       write(line_out, to_hstring(item.debug1));
       write(line_out, string'(" D2 "));

@@ -1532,30 +1532,30 @@ begin
                if (useTexture = '1') then
                   export_gpu32(19, tracecounts_out(19), export_LOD,      outfile); tracecounts_out(19) <= tracecounts_out(19) + 1;
                   export_gpu32(11, tracecounts_out(11), export_TexCoord, outfile); tracecounts_out(11) <= tracecounts_out(11) + 1;
-                  if (settings_otherModes.sampleType = '1' or settings_otherModes.enTlut = '1') then
-                     export_gpu32(7, tracecounts_out(7) + 0, export_TexFetch0, outfile);
-                     export_gpu32(7, tracecounts_out(7) + 1, export_TexFetch1, outfile);
-                     export_gpu32(7, tracecounts_out(7) + 2, export_TexFetch2, outfile);
-                     export_gpu32(7, tracecounts_out(7) + 3, export_TexFetch3, outfile);
-                     tracecounts_out(7) <= tracecounts_out(7) + 4;
-                  else
-                     export_gpu32(7, tracecounts_out(7), export_TexFetch0, outfile);
-                     tracecounts_out(7) <= tracecounts_out(7) + 1;
-                  end if;
-                  
-                  if (export_texmode = TEXMODE_UNFILTERED) then                 
-                     export_gpu32(13, tracecounts_out(13), export_TexColor0, outfile); tracecounts_out(13) <= tracecounts_out(13) + 1;
-                  elsif (export_texmode = TEXMODE_UPPER) then 
-                     export_gpu32(13, tracecounts_out(13) + 0, export_TexColor1, outfile);
-                     export_gpu32(13, tracecounts_out(13) + 1, export_TexColor2, outfile);
-                     export_gpu32(13, tracecounts_out(13) + 2, export_TexColor3, outfile);
-                     tracecounts_out(13) <= tracecounts_out(13) + 3;
-                  elsif (export_texmode = TEXMODE_LOWER) then 
-                     export_gpu32(13, tracecounts_out(13) + 0, export_TexColor1, outfile);
-                     export_gpu32(13, tracecounts_out(13) + 1, export_TexColor2, outfile);
-                     export_gpu32(13, tracecounts_out(13) + 2, export_TexColor0, outfile);
-                     tracecounts_out(13) <= tracecounts_out(13) + 3;
-                  end if;
+                  --if (settings_otherModes.sampleType = '1' or settings_otherModes.enTlut = '1') then
+                  --   export_gpu32(7, tracecounts_out(7) + 0, export_TexFetch0, outfile);
+                  --   export_gpu32(7, tracecounts_out(7) + 1, export_TexFetch1, outfile);
+                  --   export_gpu32(7, tracecounts_out(7) + 2, export_TexFetch2, outfile);
+                  --   export_gpu32(7, tracecounts_out(7) + 3, export_TexFetch3, outfile);
+                  --   tracecounts_out(7) <= tracecounts_out(7) + 4;
+                  --else
+                  --   export_gpu32(7, tracecounts_out(7), export_TexFetch0, outfile);
+                  --   tracecounts_out(7) <= tracecounts_out(7) + 1;
+                  --end if;
+                  --
+                  --if (export_texmode = TEXMODE_UNFILTERED) then                 
+                  --   export_gpu32(13, tracecounts_out(13), export_TexColor0, outfile); tracecounts_out(13) <= tracecounts_out(13) + 1;
+                  --elsif (export_texmode = TEXMODE_UPPER) then 
+                  --   export_gpu32(13, tracecounts_out(13) + 0, export_TexColor1, outfile);
+                  --   export_gpu32(13, tracecounts_out(13) + 1, export_TexColor2, outfile);
+                  --   export_gpu32(13, tracecounts_out(13) + 2, export_TexColor3, outfile);
+                  --   tracecounts_out(13) <= tracecounts_out(13) + 3;
+                  --elsif (export_texmode = TEXMODE_LOWER) then 
+                  --   export_gpu32(13, tracecounts_out(13) + 0, export_TexColor1, outfile);
+                  --   export_gpu32(13, tracecounts_out(13) + 1, export_TexColor2, outfile);
+                  --   export_gpu32(13, tracecounts_out(13) + 2, export_TexColor0, outfile);
+                  --   tracecounts_out(13) <= tracecounts_out(13) + 3;
+                  --end if;
                end if;
                export_gpu32(23, tracecounts_out(23), export_Comb    , outfile); tracecounts_out(23) <= tracecounts_out(23) + 1;
                if (settings_otherModes.imageRead = '1') then
@@ -1578,9 +1578,9 @@ begin
                   write(line_out, to_hstring(writePixelData32));
                end if;
                write(line_out, string'(" X ")); 
-               write(line_out, to_string_len(to_integer(writePixelX), 4));
+               write(line_out, to_string_len(to_integer(writePixelX), 5));
                write(line_out, string'(" Y ")); 
-               write(line_out, to_string_len(to_integer(writePixelY), 4));
+               write(line_out, to_string_len(to_integer(writePixelY), 5));
                write(line_out, string'(" D1 "));
                if (settings_colorImage.FB_size = SIZE_16BIT) then
                   write(line_out, to_hstring(to_unsigned(0, 30) & writePixelCvg(1 downto 0)));
@@ -1608,14 +1608,14 @@ begin
                   write(line_out, to_hstring(export_copyAddr));
                   write(line_out, string'(" D ")); 
                   write(line_out, to_hstring(24x"0" & export_copyData(7 downto 0)));
-                  write(line_out, string'(" X    ")); 
+                  write(line_out, string'(" X     ")); 
                   if (copyBE(i) = '1') then
                      write(line_out, string'("1")); 
                   else
                      write(line_out, string'("0"));
                   end if;
                   write(line_out, string'(" Y ")); 
-                  write(line_out, to_string_len(to_integer(export_copyBytes.y), 4));
+                  write(line_out, to_string_len(to_integer(export_copyBytes.y), 5));
                   write(line_out, string'(" D1 "));
                   write(line_out, to_hstring(to_unsigned(0, 32)));
                   write(line_out, string'(" D2 "));
@@ -1658,9 +1658,9 @@ begin
                            write(line_out, string'(" D ")); 
                            write(line_out, to_hstring(x"0000" & byteswap16(export_fillColor(15 downto 0))));
                            write(line_out, string'(" X ")); 
-                           write(line_out, to_string_len(to_integer(export_fillX), 4));
+                           write(line_out, to_string_len(to_integer(export_fillX), 5));
                            write(line_out, string'(" Y ")); 
-                           write(line_out, to_string_len(to_integer(fillY), 4));
+                           write(line_out, to_string_len(to_integer(fillY), 5));
                            write(line_out, string'(" D1 "));
                            write(line_out, to_hstring(to_unsigned(0, 30) & export_fillColor(8) & export_fillColor(8)));
                            write(line_out, string'(" D2 "));
@@ -1697,9 +1697,9 @@ begin
                            write(line_out, string'(" D ")); 
                            write(line_out, to_hstring(byteswap32(export_fillColor(31 downto 0))));
                            write(line_out, string'(" X ")); 
-                           write(line_out, to_string_len(to_integer(export_fillX), 4));
+                           write(line_out, to_string_len(to_integer(export_fillX), 5));
                            write(line_out, string'(" Y ")); 
-                           write(line_out, to_string_len(to_integer(fillY), 4));
+                           write(line_out, to_string_len(to_integer(fillY), 5));
                            write(line_out, string'(" D1 "));
                            write(line_out, to_hstring(to_unsigned(0, 32)));
                            write(line_out, string'(" D2 "));
