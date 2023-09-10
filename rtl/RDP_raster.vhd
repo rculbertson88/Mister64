@@ -244,6 +244,8 @@ architecture arch of RDP_raster is
    signal lineInfo      : tlineInfo := (y => (others => '0'), xStart => (others => '0'), xEnd => (others => '0'), others => (others => '0'));
    signal startLine     : std_logic := '0';
    
+   signal FB9Offset     : unsigned(3 downto 0) := (others => '0');
+   
    -- line drawing
    type tlineState is 
    (  
@@ -261,9 +263,10 @@ architecture arch of RDP_raster is
    signal line_posY        : unsigned(11 downto 0) := (others => '0');
    signal line_posX        : unsigned(11 downto 0) := (others => '0');
    signal line_endX        : unsigned(11 downto 0) := (others => '0');
+   signal calcIndex        : unsigned(11 downto 0);
    signal line_indexX      : unsigned(11 downto 0) := (others => '0');
+   signal line_indexX9     : unsigned(11 downto 0) := (others => '0');
    signal line_offsetPx    : unsigned(2 downto 0) := (others => '0');
-   signal line_offset9     : unsigned(3 downto 0) := (others => '0');
    signal line_stepsize    : integer range 1 to 4 := 1;
    
    signal xDiff            : signed(11 downto 0);
@@ -712,6 +715,7 @@ begin
                      FBZaddr   <= calcZAddr;
                      FBsize    <= lineInfo.xEnd - lineInfo.xStart;
                      FBodd     <= lineInfo.y(0);
+                     FB9Offset <= calcZAddr(4 downto 1);
                   else
                      startLine <= '1';
                      if (startLine = '1') then
@@ -765,6 +769,8 @@ begin
                     resize(settings_colorImage.FB_base + ((line_posY * (settings_colorImage.FB_width_m1 + 1)) + line_posX) * 4, 26);
    
    calcPixelAddrZ <= resize(settings_Z_base + ((line_posY * (settings_colorImage.FB_width_m1 + 1)) + line_posX) * 2, 26);
+  
+   calcIndex      <= lineInfo.xEnd - lineInfo.xStart;
    
    calcCopySizeFlip <= (line_endX + 1 - line_posX);
    calcCopySize     <= (line_posX + 1 - line_endX);
@@ -883,14 +889,21 @@ begin
                   line_posY   <= lineInfo.Y;
                   
                   if (settings_poly.lft = '1' or settings_otherModes.cycleType = "11") then
-                     line_posX   <= lineInfo.xStart;
-                     line_endX   <= lineInfo.xEnd;
-                     line_indexX <= (others => '0');
+                     line_posX    <= lineInfo.xStart;
+                     line_endX    <= lineInfo.xEnd;
+                     line_indexX  <= (others => '0');
+                     line_indexX9 <= (others => '0');
                   else
-                     line_posX   <= lineInfo.xEnd;
-                     line_endX   <= lineInfo.xStart;
-                     line_indexX <= lineInfo.xEnd - lineInfo.xStart;
+                     line_posX    <= lineInfo.xEnd;
+                     line_endX    <= lineInfo.xStart;
+                     line_indexX  <= calcIndex;
+                     line_indexX9 <= calcIndex;
+                     if ((to_integer(calcIndex(3 downto 0)) + to_integer(FB9Offset)) >= 16) then
+                        line_indexX9 <= calcIndex + 16;
+                     end if;
                   end if;
+                  
+                  line_indexX9(3 downto 0) <= calcPixelAddrZ(4 downto 1);
                   
                   case (settings_colorImage.FB_size) is
                      when SIZE_8BIT  => line_offsetPx <= lineInfo.xStart(2 downto 0);
@@ -898,7 +911,6 @@ begin
                      when SIZE_32BIT => line_offsetPx <= "00" & lineInfo.xStart(0);
                      when others => null;
                   end case;
-                  line_offset9 <= lineInfo.xStart(3 downto 0);
                   
                   if (settings_poly.lft = '1') then
                      xDiff       <= signed(lineInfo.xStart) - lineInfo.unscrx(11 downto 0);
@@ -929,10 +941,7 @@ begin
                   pixel_Texture_S <= lineInfo.Texture_S;
                   pixel_Texture_T <= lineInfo.Texture_T;
                   pixel_Texture_W <= lineInfo.Texture_W;
-                  pixel_Z         <= lineInfo.Z;   
-
-                  --todo: if (otherModes_zSourceSel)
-                  --todo: if (poly_DzPix & 0xff00)
+                  pixel_Z         <= lineInfo.Z; 
                
                when PREPARELINE =>
                   linestate <= DRAWLINE;
@@ -951,11 +960,13 @@ begin
                   end if;
                
                   if (settings_poly.lft = '1') then
-                     line_posX   <= line_posX + line_stepsize;
-                     line_indexX <= line_indexX + line_stepsize;
+                     line_posX    <= line_posX + line_stepsize;
+                     line_indexX  <= line_indexX + line_stepsize;
+                     line_indexX9 <= line_indexX9 + line_stepsize;
                   else
-                     line_posX   <= line_posX - line_stepsize;
-                     line_indexX <= line_indexX - line_stepsize;
+                     line_posX    <= line_posX - line_stepsize;
+                     line_indexX  <= line_indexX - line_stepsize;
+                     line_indexX9 <= line_indexX9 - line_stepsize;
                   end if;
 
                   pipeIn_trigger    <= '1';
@@ -963,7 +974,7 @@ begin
                   pipeIn_Addr       <= calcPixelAddr;
                   pipeIn_AddrZ      <= calcPixelAddrZ;
                   pipeIn_xIndexPx   <= line_indexX + line_offsetPx;
-                  pipeIn_xIndex9    <= line_indexX + line_offset9;
+                  pipeIn_xIndex9    <= line_indexX9;
                   pipeIn_X          <= line_posX;
                   pipeIn_Y          <= line_posY;
                   pipeIn_cvgValue   <= (cvg(0) or cvg(1)) & (cvg(2) or cvg(3));
@@ -985,6 +996,9 @@ begin
                   pipeInWtempslope  <= normSlope(to_integer(wShifted(13 downto 8))) + 1;
 
                   pipeIn_Z          <= pixel_Z(31 downto 10);
+                  if (settings_otherModes.zSourceSel = '1') then
+                     pipeIn_Z       <= '0' & signed(settings_Z.Primitive_Z) & 6x"0";
+                  end if;
                   
                   if (settings_poly.lft = '1') then -- todo: different handling for FB size != 16 bit;
                      pipeIn_copySize <= calcCopySizeFlip(2 downto 0) & '0';

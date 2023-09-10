@@ -98,11 +98,13 @@ begin
          
             --gpu timing calc
             if (videoout_settings.isPAL = '1') then
-               htotal <= (62500000 / 50 / 312); -- overwritten below
+               --htotal <= (62500000 / 50 / 312); -- overwritten below
+               htotal <= 4010;
                vtotal <= 312;
                --videoout_out.isPal <= '1';
             else
-               htotal <= (62500000 / 60 / 262); -- overwritten below
+               --htotal <= (62500000 / 60 / 262); -- overwritten below
+               htotal <= 3980;
                vtotal <= 262;
                --videoout_out.isPal <= '0';
             end if;

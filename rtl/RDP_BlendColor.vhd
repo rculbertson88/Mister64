@@ -173,7 +173,7 @@ begin
       
    end generate;
    
-   zCheck <= zOverflow when (mode2 = '0' or (mode2 = '1' and step2 = '1')) else '1';
+   zCheck <= zOverflow when (mode2 = '0' or (mode2 = '1' and step2 = '0')) else '1';
    
    process (clk1x)
       variable blender_result : tcolor3_u14;
