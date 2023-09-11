@@ -42,10 +42,10 @@ architecture arch of RDP_FBread is
    signal muxselect9 : unsigned(3 downto 0) := (others => '0');
 
    -- 1 cycle delay
-   signal FBData        : unsigned(31 downto 0);
-   signal FBData9       : unsigned(31 downto 0);
-   signal FBData9Z      : unsigned(31 downto 0);
-   signal FBDataZ       : unsigned(15 downto 0);
+   signal FBData        : unsigned(31 downto 0) := (others => '0');
+   signal FBData9       : unsigned(31 downto 0) := (others => '0');
+   signal FBData9Z      : unsigned(31 downto 0) := (others => '0');
+   signal FBDataZ       : unsigned(15 downto 0) := (others => '0');
    
    signal muxselect_1   : std_logic := '0';
    signal muxselect9_1  : unsigned(3 downto 0) := (others => '0');

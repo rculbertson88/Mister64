@@ -1532,30 +1532,30 @@ begin
                if (useTexture = '1') then
                   export_gpu32(19, tracecounts_out(19), export_LOD,      outfile); tracecounts_out(19) <= tracecounts_out(19) + 1;
                   export_gpu32(11, tracecounts_out(11), export_TexCoord, outfile); tracecounts_out(11) <= tracecounts_out(11) + 1;
-                  --if (settings_otherModes.sampleType = '1' or settings_otherModes.enTlut = '1') then
-                  --   export_gpu32(7, tracecounts_out(7) + 0, export_TexFetch0, outfile);
-                  --   export_gpu32(7, tracecounts_out(7) + 1, export_TexFetch1, outfile);
-                  --   export_gpu32(7, tracecounts_out(7) + 2, export_TexFetch2, outfile);
-                  --   export_gpu32(7, tracecounts_out(7) + 3, export_TexFetch3, outfile);
-                  --   tracecounts_out(7) <= tracecounts_out(7) + 4;
-                  --else
-                  --   export_gpu32(7, tracecounts_out(7), export_TexFetch0, outfile);
-                  --   tracecounts_out(7) <= tracecounts_out(7) + 1;
-                  --end if;
-                  --
-                  --if (export_texmode = TEXMODE_UNFILTERED) then                 
-                  --   export_gpu32(13, tracecounts_out(13), export_TexColor0, outfile); tracecounts_out(13) <= tracecounts_out(13) + 1;
-                  --elsif (export_texmode = TEXMODE_UPPER) then 
-                  --   export_gpu32(13, tracecounts_out(13) + 0, export_TexColor1, outfile);
-                  --   export_gpu32(13, tracecounts_out(13) + 1, export_TexColor2, outfile);
-                  --   export_gpu32(13, tracecounts_out(13) + 2, export_TexColor3, outfile);
-                  --   tracecounts_out(13) <= tracecounts_out(13) + 3;
-                  --elsif (export_texmode = TEXMODE_LOWER) then 
-                  --   export_gpu32(13, tracecounts_out(13) + 0, export_TexColor1, outfile);
-                  --   export_gpu32(13, tracecounts_out(13) + 1, export_TexColor2, outfile);
-                  --   export_gpu32(13, tracecounts_out(13) + 2, export_TexColor0, outfile);
-                  --   tracecounts_out(13) <= tracecounts_out(13) + 3;
-                  --end if;
+                  if (settings_otherModes.sampleType = '1' or settings_otherModes.enTlut = '1') then
+                     export_gpu32(7, tracecounts_out(7) + 0, export_TexFetch0, outfile);
+                     export_gpu32(7, tracecounts_out(7) + 1, export_TexFetch1, outfile);
+                     export_gpu32(7, tracecounts_out(7) + 2, export_TexFetch2, outfile);
+                     export_gpu32(7, tracecounts_out(7) + 3, export_TexFetch3, outfile);
+                     tracecounts_out(7) <= tracecounts_out(7) + 4;
+                  else
+                     export_gpu32(7, tracecounts_out(7), export_TexFetch0, outfile);
+                     tracecounts_out(7) <= tracecounts_out(7) + 1;
+                  end if;
+                  
+                  if (export_texmode = TEXMODE_UNFILTERED) then                 
+                     export_gpu32(13, tracecounts_out(13), export_TexColor0, outfile); tracecounts_out(13) <= tracecounts_out(13) + 1;
+                  elsif (export_texmode = TEXMODE_UPPER) then 
+                     export_gpu32(13, tracecounts_out(13) + 0, export_TexColor1, outfile);
+                     export_gpu32(13, tracecounts_out(13) + 1, export_TexColor2, outfile);
+                     export_gpu32(13, tracecounts_out(13) + 2, export_TexColor3, outfile);
+                     tracecounts_out(13) <= tracecounts_out(13) + 3;
+                  elsif (export_texmode = TEXMODE_LOWER) then 
+                     export_gpu32(13, tracecounts_out(13) + 0, export_TexColor1, outfile);
+                     export_gpu32(13, tracecounts_out(13) + 1, export_TexColor2, outfile);
+                     export_gpu32(13, tracecounts_out(13) + 2, export_TexColor0, outfile);
+                     tracecounts_out(13) <= tracecounts_out(13) + 3;
+                  end if;
                end if;
                export_gpu32(23, tracecounts_out(23), export_Comb    , outfile); tracecounts_out(23) <= tracecounts_out(23) + 1;
                if (settings_otherModes.imageRead = '1') then

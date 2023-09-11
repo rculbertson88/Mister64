@@ -76,6 +76,7 @@ entity DDR3Mux is
       rdram_done       : out tDDDR3Single;
       rdram_dataRead   : out std_logic_vector(63 downto 0);
       
+      rspfifo_req      : in  std_logic;
       rspfifo_reset    : in  std_logic; 
       rspfifo_Din      : in  std_logic_vector(84 downto 0); -- 64bit data + 21 bit address
       rspfifo_Wr       : in  std_logic;  
@@ -103,7 +104,8 @@ architecture arch of DDR3Mux is
       IDLE,
       WAITREAD,
       READAGAIN,
-      WAITSLOW
+      WAITSLOW,
+      RSPFIFO
    );
    signal ddr3State     : tddr3State := IDLE;
    
@@ -205,8 +207,12 @@ begin
                timeoutCount <= (others => '0');
             
                if (ddr3_BUSY = '0' or ddr3_WE = '0') then
+               
+                  if (rspfifo_req = '1') then
                   
-                  if (activeRequest = '1') then
+                     ddr3State <= RSPFIFO;
+                  
+                  elsif (activeRequest = '1') then
                   
                      req_latched(activeIndex) <= '0';
                      ddr3_DIN                 <= rdram_dataWrite(activeIndex);
@@ -249,20 +255,6 @@ begin
                         end if;
                      end if;
                    
-                  elsif (rspfifo_empty = '0' and rspfifo_Rd = '0') then
-                  
-                     rspfifo_Rd <= '1';
-                     ddr3_WE    <= '1';
-                     ddr3_DIN   <= rspfifo_Dout(63 downto 0);      
-                     ddr3_BE    <= (others => '1');       
-                     ddr3_ADDR(24 downto 0) <= "0000" & rspfifo_Dout(84 downto 64);
-                     ddr3_BURSTCNT <= x"01";           
-
-                     if ((RAMSIZE8_2x = '1' and rspfifo_Dout(84) = '1') or (RAMSIZE8_2x = '0' and rspfifo_Dout(84 downto 83) /= "00")) then
-                        ddr3_WE <= '0';
-                        error   <= '1';
-                     end if;                     
-                     
                   elsif (rdpfifo_empty = '0' and rdpfifo_Rd = '0') then
                   
                      rdpfifo_Rd <= '1';
@@ -342,6 +334,25 @@ begin
                if (slowcnt = 0) then
                   ddr3State       <= IDLE;
                   done(lastIndex) <= use2Xclock & '1';
+               end if;
+         
+            when RSPFIFO =>
+               if (rspfifo_req = '0') then
+                  ddr3State <= IDLE;
+               end if;
+         
+               if ((ddr3_BUSY = '0' or ddr3_WE = '0') and rspfifo_empty = '0' and rspfifo_Rd = '0') then
+                  rspfifo_Rd <= '1';
+                  ddr3_WE    <= '1';
+                  ddr3_DIN   <= rspfifo_Dout(63 downto 0);      
+                  ddr3_BE    <= (others => '1');       
+                  ddr3_ADDR(24 downto 0) <= "0000" & rspfifo_Dout(84 downto 64);
+                  ddr3_BURSTCNT <= x"01";           
+
+                  if ((RAMSIZE8_2x = '1' and rspfifo_Dout(84) = '1') or (RAMSIZE8_2x = '0' and rspfifo_Dout(84 downto 83) /= "00")) then
+                     ddr3_WE <= '0';
+                     error   <= '1';
+                  end if;      
                end if;
          
          end case;

@@ -168,6 +168,7 @@ architecture arch of n64top is
    signal errorRDP_drawMode      : std_logic;
    signal errorRSP_FIFO          : std_logic;
    signal errorDDR3_FIFO         : std_logic;
+   signal errorRSPADDR           : std_logic;
   
    -- irq
    signal irqRequest             : std_logic;
@@ -185,6 +186,7 @@ architecture arch of n64top is
    signal rdram_done             : tDDDR3Single;
    signal rdram_dataRead         : std_logic_vector(63 downto 0);
    
+   signal rspfifo_req            : std_logic; 
    signal rspfifo_reset          : std_logic; 
    signal rspfifo_Din            : std_logic_vector(84 downto 0);
    signal rspfifo_Wr             : std_logic;  
@@ -443,8 +445,9 @@ begin
    process (reset_intern_1x, errorRDP_drawMode    ) begin if (errorRDP_drawMode     = '1') then errorCode(15) <= '1'; elsif (reset_intern_1x = '1') then errorCode(15) <= '0'; end if; end process;
    process (reset_intern_1x, errorRSP_FIFO        ) begin if (errorRSP_FIFO         = '1') then errorCode(16) <= '1'; elsif (reset_intern_1x = '1') then errorCode(16) <= '0'; end if; end process;
    process (reset_intern_1x, errorDDR3_FIFO       ) begin if (errorDDR3_FIFO        = '1') then errorCode(17) <= '1'; elsif (reset_intern_1x = '1') then errorCode(17) <= '0'; end if; end process;
+   process (reset_intern_1x, errorRSPADDR         ) begin if (errorRSPADDR          = '1') then errorCode(18) <= '1'; elsif (reset_intern_1x = '1') then errorCode(18) <= '0'; end if; end process;
    
-   errorCode(19 downto 18) <= "00";
+   errorCode(19) <= '0';
    
    process (clk1x)
    begin
@@ -476,6 +479,7 @@ begin
       error_instr          => errorRSP_instr,
       error_stall          => errorRSP_stall,
       error_fifo           => errorRSP_FIFO,
+      error_addr           => errorRSPADDR,
                            
       bus_addr             => bus_RSP_addr,     
       bus_dataWrite        => bus_RSP_dataWrite,
@@ -508,6 +512,7 @@ begin
       RSP2RDP_we           => RSP2RDP_we,  
       RSP2RDP_done         => RSP2RDP_done, 
       
+      fifoout_req          => rspfifo_req,   
       fifoout_reset        => rspfifo_reset,   
       fifoout_Din          => rspfifo_Din,     
       fifoout_Wr           => rspfifo_Wr,      
@@ -982,6 +987,7 @@ begin
       rdram_done       => rdram_done,      
       rdram_dataRead   => rdram_dataRead,
    
+      rspfifo_req      => rspfifo_req,   
       rspfifo_reset    => rspfifo_reset,   
       rspfifo_Din      => rspfifo_Din,     
       rspfifo_Wr       => rspfifo_Wr,      
@@ -1217,6 +1223,8 @@ begin
       reset_out_1x            => reset_intern_1x,
       reset_out_93            => reset_intern_93,
       ss_reset                => SS_reset,
+      
+      RAMSIZE8                => RAMSIZE8,
       
       hps_busy                => '0',
            
