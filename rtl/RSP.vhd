@@ -24,6 +24,7 @@ entity RSP is
       error_instr          : out std_logic;
       error_stall          : out std_logic;
       error_Fifo           : out std_logic;
+      error_Addr           : out std_logic;
       
       bus_addr             : in  unsigned(19 downto 0); 
       bus_dataWrite        : in  std_logic_vector(31 downto 0);
@@ -56,6 +57,7 @@ entity RSP is
       RSP2RDP_we           : out std_logic := '0';
       RSP2RDP_done         : out std_logic := '0';
       
+      fifoout_req          : out std_logic := '0';
       fifoout_reset        : out std_logic := '0'; 
       fifoout_Din          : out std_logic_vector(84 downto 0) := (others => '0'); -- 64bit data + 21 bit address
       fifoout_Wr           : out std_logic := '0';  
@@ -136,6 +138,7 @@ architecture arch of RSP is
       MEM_READ_DMEM,
       MEM_STARTDMA,
       MEM_RUNDMA,      
+      WAIT_DMAFINISH,
       MEM_STARTDMA_RDP,
       MEM_RUNDMA_RDP
    );
@@ -186,6 +189,7 @@ architecture arch of RSP is
    signal dmem_128_wren_b           : std_logic_vector(15 downto 0);
    signal dmem_128_q_a              : std_logic_vector(127 downto 0);
    signal dmem_128_q_b              : tDMEMarray;
+   signal dmem_128_rden_b           : std_logic;
 
    -- RSP core
    signal PC_trigger                : std_logic := '0';
@@ -221,6 +225,8 @@ begin
          
          RSP2RDP_we     <= '0';
          RSP2RDP_done   <= '0';
+         
+         error_Addr     <= '0';
          
          mem_address_a_1 <= mem_address_a;
          fifoout_Wr_1    <= fifoout_Wr;
@@ -274,8 +280,17 @@ begin
             
             DMASTATE                   <= DMA_IDLE;
             dma_startnext              <= '0';
+            fifoout_req                <= '0';
  
          elsif (ce = '1') then
+         
+            if (SP_STATUS_halt = '0' and imem_wren_a = '1' and mem_address_a = imem_address_b(9 downto 1)) then
+               error_Addr <= '1';
+            end if;            
+            
+            if (SP_STATUS_halt = '0' and dmem_wren_a = '1' and dmem_128_rden_b = '1' and dmem_128_address_a(0) = dmem_128_address_b(0)) then
+               error_Addr <= '1';
+            end if;
          
             bus_done     <= '0';
             bus_dataRead <= (others => '0');
@@ -516,13 +531,14 @@ begin
                   MEMSTATE      <= MEM_RUNDMA;
                   mem_address_a <= std_logic_vector(SP_DMA_CURRENT_SPADDR(11 downto 3));
                   SP_DMA_CURRENT_SPADDR(11 downto 3) <= SP_DMA_CURRENT_SPADDR(11 downto 3) + 1;
+                  fifoout_req   <= '1';
             
                when MEM_RUNDMA =>
                   mem_address_a <= std_logic_vector(SP_DMA_CURRENT_SPADDR(11 downto 3));
                   if (SP_DMA_CURRENT_FETCHLEN > 1) then
                      SP_DMA_CURRENT_SPADDR(11 downto 3) <= SP_DMA_CURRENT_SPADDR(11 downto 3) + 1;
                   else
-                     MEMSTATE <= MEM_IDLE;
+                     MEMSTATE <= WAIT_DMAFINISH;
                      SP_DMA_CURRENT_SPADDR(11 downto 3) <= SP_DMA_CURRENT_SPADDR(11 downto 3) - 1;
                   end if;
                   SP_DMA_CURRENT_FETCHLEN <= SP_DMA_CURRENT_FETCHLEN - 1;
@@ -534,6 +550,12 @@ begin
                   end if;
                   fifoout_Wr <= '1';
                   SP_DMA_CURRENT_RAMADDR <= SP_DMA_CURRENT_RAMADDR + 1;
+                  
+               when WAIT_DMAFINISH =>
+                  if (fifoout_empty = '1' and fifoout_Wr = '0' and (fifoout_Wr_1 = '0' or use2Xclock = '1')) then
+                     MEMSTATE    <= MEM_IDLE;
+                     fifoout_req <= '0';                     
+                  end if;
                   
                when MEM_STARTDMA_RDP =>
                   MEMSTATE      <= MEM_RUNDMA_RDP;
@@ -752,6 +774,7 @@ begin
       
       dmem_addr             => dmem_128_address_b,       
       dmem_dataWrite        => dmem_128_data_b,  
+      dmem_ReadEnable       => dmem_128_rden_b,
       dmem_WriteEnable      => dmem_128_wren_b,
       dmem_dataRead         => dmem_128_q_b,   
       

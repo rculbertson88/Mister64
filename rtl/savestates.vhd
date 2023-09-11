@@ -17,6 +17,8 @@ entity savestates is
       reset_out_93            : out std_logic := '0';
       ss_reset                : out std_logic := '0';
          
+      RAMSIZE8                : in  std_logic;
+         
       hps_busy                : in  std_logic;
       
       load_done               : out std_logic := '0';
@@ -104,7 +106,9 @@ architecture arch of savestates is
       LOADMEMORY_READ,
       LOADMEMORY_WRITE_RDRAM,
       LOADMEMORY_WRITE_NEXT,
-      RESETTING
+      RESETTING,
+      INITRAMSIZE1,
+      INITRAMSIZE2
    );
    signal state : tstate := IDLE;
    
@@ -454,6 +458,16 @@ begin
                      maxcount <= 1056768;
                   end if;
                   RAMAddrNext    <= (others => '0');
+               elsif (resetMode = '1') then
+                  state            <= INITRAMSIZE1;
+                  rdram_request    <= '1';
+                  rdram_address    <= 28x"318";
+                  rdram_rnw        <= '0';
+                  if (RAMSIZE8 = '1') then
+                     rdram_dataWrite  <= 64x"8000";
+                  else
+                     rdram_dataWrite  <= 64x"4000";
+                  end if;
                else
                   state          <= RESETTING;
                   reset_intern   <= '1';
@@ -517,6 +531,20 @@ begin
                   loading_ss     <= '0';
                   load_done      <= not resetMode;
                end if;
+               
+            when INITRAMSIZE1 =>
+               if (rdram_done = '1') then
+                  state            <= INITRAMSIZE2;
+                  rdram_request    <= '1';
+                  rdram_address    <= 28x"3F0";
+               end if;
+               
+            when INITRAMSIZE2 =>
+               if (rdram_done = '1') then
+                  state          <= RESETTING;
+                  reset_intern   <= '1';
+                  settle         <= 0;
+               end if;   
             
             when others => null;
          

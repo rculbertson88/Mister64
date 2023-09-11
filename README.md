@@ -33,6 +33,7 @@ List of Errors:
 - Bit 15 - not implemented render mode (2 pass or copy) is used
 - Bit 16 - RSP read Fifo overflow
 - Bit 17 - DDR3 - RSP write Fifo overflow
+- Bit 18 - RSP IMEM/DMEM write/read address collision detected
   
 ## Status
 

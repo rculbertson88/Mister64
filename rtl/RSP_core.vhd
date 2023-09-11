@@ -24,6 +24,7 @@ entity RSP_core is
       
       dmem_addr             : out tDMEMarray;
       dmem_dataWrite        : out tDMEMarray;
+      dmem_ReadEnable       : out std_logic;
       dmem_WriteEnable      : out std_logic_vector(15 downto 0);
       dmem_dataRead         : in  tDMEMarray;
       
@@ -1659,6 +1660,8 @@ begin
    
    reg_addr      <= decodeRegAddr;
    reg_dataWrite <= value2;
+
+   dmem_ReadEnable <= decodeVectorReadEnable;
 
    -- DMEM mux precalc
    process (all)

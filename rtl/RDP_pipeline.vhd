@@ -180,6 +180,7 @@ architecture arch of RDP_pipeline is
    
    signal combine_color       : tcolor3_u8;
    signal combine_alpha       : unsigned(7 downto 0);
+   signal combine_alpha2      : unsigned(7 downto 0);
    signal combine_CVGCount    : unsigned(3 downto 0);
    signal cvg_overflow        : std_logic;
       
@@ -189,6 +190,7 @@ architecture arch of RDP_pipeline is
    signal FBData9_oldZ        : unsigned(31 downto 0);
    signal old_Z_mem           : unsigned(17 downto 0);
       
+   signal blend_alphaIgnore   : std_logic;
    signal blend_divEna        : std_logic;
    signal blend_divVal        : unsigned(3 downto 0);
    signal blender_color       : tcolor3_u14;
@@ -691,7 +693,11 @@ begin
             writePixelDataZ    <= zResultH & zResult;
             writePixelFBData9Z <= stage_FBData9Z(STAGE_OUTPUT - 1);
             
-            -- todo: alpha compare check
+            if (blend_alphaIgnore = '1') then
+               writePixel  <= '0';
+               writePixelZ <= '0';
+            end if;
+            
             if ((settings_otherModes.AntiAlias = '1' and zCVGCount = 0) or (settings_otherModes.AntiAlias = '0' and stage_cvgValue(STAGE_OUTPUT - 1)(7) = '0')) then
                writePixel  <= '0';
                writePixelZ <= '0';
@@ -1032,6 +1038,7 @@ begin
                               
       cvg_overflow            => cvg_overflow,
       combine_alpha           => combine_alpha,
+      combine_alpha2          => combine_alpha2,
       combine_CVGCount        => combine_CVGCount
    );
    
@@ -1084,10 +1091,12 @@ begin
       pipeInColor             => stage_Color(STAGE_COMBINER),
       combine_color           => combine_color,
       combine_alpha           => combine_alpha,
+      combine_alpha2          => combine_alpha2,
       FB_color                => stage_FBcolor(STAGE_COMBINER),     
       blend_shift_a           => "000",
       blend_shift_b           => "000",
       
+      blend_alphaIgnore       => blend_alphaIgnore,
       blend_divEna            => blend_divEna,
       blend_divVal            => blend_divVal,
       blender_color           => blender_color
